@@ -117,6 +117,8 @@ message Validator {
     (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
     (gogoproto.nullable)   = false
   ];
+  // next is the next validator in the queue, nil if this validator is not in the queue or at the end of the queue.
+  string next = 12 [(gogoproto.moretags) = "yaml:\"next\""];
 }
 
 // BondStatus is the status of a validator.

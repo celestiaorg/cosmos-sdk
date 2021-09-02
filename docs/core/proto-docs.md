@@ -8377,6 +8377,7 @@ multiplied by exchange rate.
 | `unbonding_time` | [google.protobuf.Timestamp](#google.protobuf.Timestamp) |  | unbonding_time defines, if unbonding, the min time for the validator to complete unbonding. |
 | `commission` | [Commission](#cosmos.staking.v1beta1.Commission) |  | commission defines the commission parameters. |
 | `min_self_delegation` | [string](#string) |  | min_self_delegation is the validator's self declared minimum self delegation. |
+| `next` | [string](#string) |  | next is the next validator in the queue, nil if this validator is not in the queue or at the end of the queue. |
 
 
 

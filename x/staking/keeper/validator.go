@@ -493,8 +493,52 @@ func (k Keeper) parentFromQueue(ctx sdk.Context, address sdk.ValAddress) sdk.Val
 
 // validatorQueueInsert inserts a new validator into the linked list
 func (k Keeper) validatorQueueInsert(ctx sdk.Context, val types.Validator) {
+	parentAddr := k.findFromQueue(ctx, val.GetConsensusPower(k.PowerReduction(ctx)))
+	if parentAddr.String() != types.EmptyValidatorAddress {
+		parent, found := k.GetValidator(ctx, parentAddr)
+		if !found {
+			// TODO handle error better maybe
+			panic("validator not in state")
+		}
+
+		val.SetNext(parent.GetNext())
+		k.SetValidator(ctx, val)
+
+		parent.SetNext(val.GetOperator())
+		k.SetValidator(ctx, parent)
+	} else {
+		val.SetNext(k.GetValidatorQueueHead(ctx))
+		k.SetValidator(ctx, val)
+
+		k.SetValidatorQueueHead(ctx, val.GetOperator())
+	}
 }
 
 // validatorQueueRemove removes existing validator from the linked list
-func (k Keeper) validatorQueueRemove(ctx sdk.Context, val types.Validator) {
+func (k Keeper) validatorQueueRemove(ctx sdk.Context, val types.Validator, sender sdk.ValAddress) {
+	empty, err := sdk.ValAddressFromBech32(types.EmptyValidatorAddress)
+	if err != nil {
+		// TODO handle error better maybe
+		panic(err)
+	}
+
+	parentAddr := k.parentFromQueue(ctx, sender)
+	if parentAddr.String() != types.EmptyValidatorAddress {
+		parent, found := k.GetValidator(ctx, parentAddr)
+		if !found {
+			// TODO handle error better maybe
+			panic("validator not in state")
+		}
+
+		parent.SetNext(val.GetNext())
+		k.SetValidator(ctx, parent)
+
+		val.SetNext(empty)
+		k.SetValidator(ctx, val)
+	} else {
+		k.SetValidatorQueueHead(ctx, val.GetNext())
+
+		val.SetNext(empty)
+		k.SetValidator(ctx, val)
+	}
 }

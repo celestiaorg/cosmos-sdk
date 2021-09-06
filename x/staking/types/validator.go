@@ -530,3 +530,7 @@ func (v Validator) GetNext() sdk.ValAddress {
 	}
 	return addr
 }
+
+func (v *Validator) SetNext(address sdk.ValAddress) {
+	v.Next = address.String()
+}

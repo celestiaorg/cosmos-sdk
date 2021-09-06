@@ -29,6 +29,10 @@ const (
 )
 
 var (
+	EmptyValidatorAddress = sdk.ValAddress(nil).String()
+)
+
+var (
 	BondStatusUnspecified = BondStatus_name[int32(Unspecified)]
 	BondStatusUnbonded    = BondStatus_name[int32(Unbonded)]
 	BondStatusUnbonding   = BondStatus_name[int32(Unbonding)]
@@ -57,7 +61,7 @@ func NewValidator(operator sdk.ValAddress, pubKey cryptotypes.PubKey, descriptio
 		UnbondingTime:     time.Unix(0, 0).UTC(),
 		Commission:        NewCommission(sdk.ZeroDec(), sdk.ZeroDec(), sdk.ZeroDec()),
 		MinSelfDelegation: sdk.OneInt(),
-		Next:              sdk.ValAddress(nil).String(),
+		Next:              EmptyValidatorAddress,
 	}, nil
 }
 
@@ -346,7 +350,7 @@ func (v Validator) BondedTokens() sdk.Int {
 	return sdk.ZeroInt()
 }
 
-// ConsensusPower gets the consensus-engine power. Aa reduction of 10^6 from
+// ConsensusPower gets the consensus-engine power. A reduction of 10^6 from
 // validator tokens is applied
 func (v Validator) ConsensusPower(r sdk.Int) int64 {
 	if v.IsBonded() {

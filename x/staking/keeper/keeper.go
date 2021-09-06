@@ -115,7 +115,6 @@ func (k Keeper) GetValidatorQueueHead(ctx sdk.Context) sdk.ValAddress {
 
 // SetValidatorQueueHead sets the head of the validator queue.
 func (k Keeper) SetValidatorQueueHead(ctx sdk.Context, addr sdk.ValAddress) {
-	// TODO only store address
 	store := ctx.KVStore(k.storeKey)
 	bz, err := addr.Marshal()
 	if err != nil {

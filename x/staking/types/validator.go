@@ -522,3 +522,11 @@ func (v Validator) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error {
 	var pk cryptotypes.PubKey
 	return unpacker.UnpackAny(v.ConsensusPubkey, &pk)
 }
+
+func (v Validator) GetNext() sdk.ValAddress {
+	addr, err := sdk.ValAddressFromBech32(v.Next)
+	if err != nil {
+		panic(err)
+	}
+	return addr
+}

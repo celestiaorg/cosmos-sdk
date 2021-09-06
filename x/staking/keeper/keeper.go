@@ -93,3 +93,34 @@ func (k Keeper) SetLastTotalPower(ctx sdk.Context, power sdk.Int) {
 	bz := k.cdc.MustMarshal(&sdk.IntProto{Int: power})
 	store.Set(types.LastTotalPowerKey, bz)
 }
+
+// GetValidatorQueueHead returns the head of the validator queue.
+func (k Keeper) GetValidatorQueueHead(ctx sdk.Context) sdk.ValAddress {
+	store := ctx.KVStore(k.storeKey)
+	bz := store.Get(types.ValidatorQueueHeadKey)
+
+	if bz == nil {
+		return nil
+	}
+
+	// TODO only store address
+	addr := sdk.ValAddress{}
+	err := addr.Unmarshal(bz)
+
+	if err != nil {
+		panic(err)
+	}
+
+	return addr
+}
+
+// SetValidatorQueueHead sets the head of the validator queue.
+func (k Keeper) SetValidatorQueueHead(ctx sdk.Context, addr sdk.ValAddress) {
+	// TODO only store address
+	store := ctx.KVStore(k.storeKey)
+	bz, err := addr.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	store.Set(types.ValidatorQueueHeadKey, bz)
+}

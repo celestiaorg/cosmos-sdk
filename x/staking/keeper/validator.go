@@ -445,3 +445,27 @@ func (k Keeper) UnbondAllMatureValidators(ctx sdk.Context) {
 		}
 	}
 }
+
+// findFromQueue returns the address of the last validator in the validator
+// queue with voting power greater than or equal to `power`, or 0 if the queue
+// is empty or no validators in the queue have at least `power` voting power.
+func (k Keeper) findFromQueue(power int64) (sdk.ValAddress, error) {
+	return nil, nil
+}
+
+// parentFromQueue returns the address of the parent in the validator queue of
+// the validator with address `address`, or 0 if `address` is not in the queue
+// or is the head of the queue.
+func (k Keeper) parentFromQueue(address sdk.ValAddress) (*types.Validator, error) {
+	return nil, nil
+}
+
+// validatorQueueInsert inserts a new validator into the linked list
+func (k Keeper) validatorQueueInsert(val types.Validator) error {
+	return nil
+}
+
+// validatorQueueRemove removes existing validator from the linked list
+func (k Keeper) validatorQueueRemove(val types.Validator) error {
+	return nil
+}

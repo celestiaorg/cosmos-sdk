@@ -99,6 +99,7 @@ func (k Keeper) GetValidatorQueueHead(ctx sdk.Context) sdk.ValAddress {
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.ValidatorQueueHeadKey)
 
+	// TODO this will be nil at least once unless set at genesis to empty
 	if bz == nil {
 		return nil
 	}

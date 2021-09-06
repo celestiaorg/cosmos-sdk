@@ -106,7 +106,6 @@ func (k Keeper) GetValidatorQueueHead(ctx sdk.Context) sdk.ValAddress {
 
 	addr := sdk.ValAddress{}
 	err := addr.Unmarshal(bz)
-
 	if err != nil {
 		panic(err)
 	}

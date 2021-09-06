@@ -350,8 +350,8 @@ func (v Validator) BondedTokens() sdk.Int {
 	return sdk.ZeroInt()
 }
 
-// ConsensusPower gets the consensus-engine power. A reduction of 10^6 from
-// validator tokens is applied
+// ConsensusPower gets the consensus-engine power. A reduction of `r` (=10^6)
+// from validator tokens is applied.
 func (v Validator) ConsensusPower(r sdk.Int) int64 {
 	if v.IsBonded() {
 		return v.PotentialConsensusPower(r)

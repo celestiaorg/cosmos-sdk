@@ -447,25 +447,54 @@ func (k Keeper) UnbondAllMatureValidators(ctx sdk.Context) {
 }
 
 // findFromQueue returns the address of the last validator in the validator
-// queue with voting power greater than or equal to `power`, or 0 if the queue
-// is empty or no validators in the queue have at least `power` voting power.
-func (k Keeper) findFromQueue(power int64) (sdk.ValAddress, error) {
-	return nil, nil
+// queue with voting power greater than or equal to `power`, or
+// `types.EmptyValidatorAddress` if the queue is empty or no validators in the
+// queue have at least `power` voting power.
+func (k Keeper) findFromQueue(ctx sdk.Context, power int64) sdk.ValAddress {
+	addr := k.GetValidatorQueueHead(ctx)
+	for addr.String() != types.EmptyValidatorAddress {
+		val, found := k.GetValidator(ctx, addr)
+		// TODO handle error better maybe
+		if !found {
+			panic("validator not in state")
+		}
+		if val.GetConsensusPower(k.PowerReduction(ctx)) < power {
+			break
+		}
+		addr = val.GetNext()
+	}
+	return addr
 }
 
 // parentFromQueue returns the address of the parent in the validator queue of
-// the validator with address `address`, or 0 if `address` is not in the queue
-// or is the head of the queue.
-func (k Keeper) parentFromQueue(address sdk.ValAddress) (*types.Validator, error) {
-	return nil, nil
+// the validator with address `address`, or `types.EmptyValidatorAddress` if
+// `address` is not in the queue or is the head of the queue.
+func (k Keeper) parentFromQueue(ctx sdk.Context, address sdk.ValAddress) sdk.ValAddress {
+	addr := k.GetValidatorQueueHead(ctx)
+	for addr.String() != types.EmptyValidatorAddress {
+		val, found := k.GetValidator(ctx, addr)
+		// TODO handle error better maybe
+		if !found {
+			panic("validator not in state")
+		}
+		next := val.GetNext()
+		if address.Equals(next) {
+			return val.GetOperator()
+		}
+		addr = next
+	}
+	va, err := sdk.ValAddressFromBech32(types.EmptyValidatorAddress)
+	if err != nil {
+		// TODO handle error better maybe
+		panic(err)
+	}
+	return va
 }
 
 // validatorQueueInsert inserts a new validator into the linked list
-func (k Keeper) validatorQueueInsert(val types.Validator) error {
-	return nil
+func (k Keeper) validatorQueueInsert(ctx sdk.Context, val types.Validator) {
 }
 
 // validatorQueueRemove removes existing validator from the linked list
-func (k Keeper) validatorQueueRemove(val types.Validator) error {
-	return nil
+func (k Keeper) validatorQueueRemove(ctx sdk.Context, val types.Validator) {
 }

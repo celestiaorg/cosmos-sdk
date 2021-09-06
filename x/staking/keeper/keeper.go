@@ -103,7 +103,6 @@ func (k Keeper) GetValidatorQueueHead(ctx sdk.Context) sdk.ValAddress {
 		return nil
 	}
 
-	// TODO only store address
 	addr := sdk.ValAddress{}
 	err := addr.Unmarshal(bz)
 

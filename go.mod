@@ -26,7 +26,7 @@ require (
 	github.com/hdevalence/ed25519consensus v0.0.0-20210204194344-59a8610d2b87
 	github.com/improbable-eng/grpc-web v0.14.1
 	github.com/jhump/protoreflect v1.9.0
-	github.com/magiconair/properties v1.8.5
+	github.com/magiconair/properties v1.8.6
 	github.com/mattn/go-isatty v0.0.14
 	github.com/onsi/ginkgo v1.16.4 // indirect
 	github.com/otiai10/copy v1.6.0
@@ -44,7 +44,7 @@ require (
 	github.com/tendermint/btcd v0.1.1
 	github.com/tendermint/crypto v0.0.0-20191022145703-50d29ede1e15
 	github.com/tendermint/go-amino v0.16.0
-	github.com/tendermint/tendermint v0.34.14
+	github.com/tendermint/tendermint v0.34.16
 	github.com/tendermint/tm-db v0.6.6
 	golang.org/x/crypto v0.0.0-20210915214749-c084706c2272
 	google.golang.org/genproto v0.0.0-20210917145530-b395a37504d4
@@ -57,7 +57,7 @@ replace google.golang.org/grpc => google.golang.org/grpc v1.33.2
 
 replace github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 
-replace github.com/tendermint/tendermint => github.com/celestiaorg/celestia-core v0.34.15-celestia
+replace github.com/tendermint/tendermint => github.com/celestiaorg/celestia-core v1.0.0-tm-v0.34.16
 
 replace github.com/99designs/keyring => github.com/cosmos/keyring v1.1.7-0.20210622111912-ef00f8ac3d76
 

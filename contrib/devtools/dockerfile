@@ -16,7 +16,7 @@ RUN GO111MODULE=on go install \
   github.com/grpc-ecosystem/grpc-gateway/protoc-gen-swagger@v${GRPC_GATEWAY_VERSION} \
   github.com/regen-network/cosmos-proto/protoc-gen-gocosmos@latest
 
-RUN GO111MODULE=on go install github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc
+RUN GO111MODULE=on go install github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc@latest
 
 RUN apk add --no-cache \
   nodejs \

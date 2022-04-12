@@ -200,23 +200,6 @@ jobs:
           name: "${{ github.sha }}-${{ matrix.part }}-race-output"
           path: ./${{ matrix.part }}-race-output.txt
 
-  test-rosetta:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v3
-      - uses: technote-space/get-diff-action@v6
-        id: git_diff
-        with:
-          PATTERNS: |
-            **/**.go
-            go.mod
-            go.sum
-      - name: test rosetta
-        run: |
-          make test-rosetta
-        # if: env.GIT_DIFF
-
   liveness-test:
     runs-on: ubuntu-latest
     timeout-minutes: 10

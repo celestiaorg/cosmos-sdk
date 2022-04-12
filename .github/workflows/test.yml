@@ -5,7 +5,8 @@ on:
   pull_request:
   push:
     branches:
-      - master
+      - v[0-9]+.[0-9]+.x-celestia
+      - release/**
 jobs:
   install-tparse:
     runs-on: ubuntu-latest

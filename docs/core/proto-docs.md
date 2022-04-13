@@ -6573,6 +6573,8 @@ multiplied by exchange rate.
 | `unbonding_time` | [google.protobuf.Timestamp](#google.protobuf.Timestamp) |  | unbonding_time defines, if unbonding, the min time for the validator to complete unbonding. |
 | `commission` | [Commission](#cosmos.staking.v1beta1.Commission) |  | commission defines the commission parameters. |
 | `min_self_delegation` | [string](#string) |  | min_self_delegation is the validator's self declared minimum self delegation. |
+| `orchestrator` | [string](#string) |  | The orchestrator field is a celes1... string (i.e. sdk.AccAddress) that references the key that is being delegated to |
+| `eth_address` | [string](#string) |  | This is a hex encoded 0x Ethereum public key that will be used by this validator on Ethereum |
 
 
 
@@ -7198,6 +7200,8 @@ MsgCreateValidator defines a SDK message for creating a new validator.
 | `validator_address` | [string](#string) |  |  |
 | `pubkey` | [google.protobuf.Any](#google.protobuf.Any) |  |  |
 | `value` | [cosmos.base.v1beta1.Coin](#cosmos.base.v1beta1.Coin) |  |  |
+| `orchestrator` | [string](#string) |  | The orchestrator field is a celes1... string (i.e. sdk.AccAddress) that references the key that is being delegated to |
+| `eth_address` | [string](#string) |  | This is a hex encoded 0x Ethereum public key that will be used by this validator on Ethereum |
 
 
 
@@ -7254,6 +7258,8 @@ MsgEditValidator defines a SDK message for editing an existing validator.
 | `validator_address` | [string](#string) |  |  |
 | `commission_rate` | [string](#string) |  | We pass a reference to the new commission rate and min self delegation as it's not mandatory to update. If not updated, the deserialized rate will be zero with no way to distinguish if an update was intended. REF: #2373 |
 | `min_self_delegation` | [string](#string) |  |  |
+| `orchestrator` | [string](#string) |  |  |
+| `eth_address` | [string](#string) |  |  |
 
 
 

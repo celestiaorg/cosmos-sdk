@@ -452,6 +452,7 @@ func (s *IntegrationTestSuite) TestCLIQueryTxsCmdByEvents() {
 		name        string
 		args        []string
 		expectEmpty bool
+		expectError string
 	}{
 		{
 			"fee event happy case",
@@ -461,6 +462,8 @@ func (s *IntegrationTestSuite) TestCLIQueryTxsCmdByEvents() {
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},
 			false,
+			"transaction spanned more than two shares, this is not yet supported",
+			// TODO: change this to not expect an error when functionality is added to celestia-core
 		},
 		{
 			"no matching fee event",
@@ -470,6 +473,7 @@ func (s *IntegrationTestSuite) TestCLIQueryTxsCmdByEvents() {
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},
 			true,
+			"",
 		},
 	}
 
@@ -480,6 +484,10 @@ func (s *IntegrationTestSuite) TestCLIQueryTxsCmdByEvents() {
 			clientCtx := val.ClientCtx
 
 			out, err := clitestutil.ExecTestCLICmd(clientCtx, cmd, tc.args)
+			if tc.expectError != "" {
+				s.Require().Equal(tc.expectError, err.Error())
+				return
+			}
 			s.Require().NoError(err)
 
 			var result sdk.SearchTxsResult

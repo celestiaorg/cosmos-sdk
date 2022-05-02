@@ -396,15 +396,22 @@ func (app *BaseApp) snapshot(height int64) {
 	}
 }
 
-// PreprocessTxs fullfills the lazyledger-core version of the ACBI interface,
-// also proposed here https://github.com/tendermint/spec/issues/194. It allows
-// for arbitrary processing steps before transaction data is included in the block.
-// todo(evan): update documentation after implemented
-func (app *BaseApp) PreprocessTxs(txs abci.RequestPreprocessTxs) abci.ResponsePreprocessTxs {
+// PreprocessTxs fullfills the celestia-core version of the ACBI interface. It
+// allows for arbitrary processing steps before transaction data is included in
+// the block.
+func (app *BaseApp) PrepareProposal(req abci.RequestPrepareProposal) abci.ResponsePrepareProposal {
 	// TODO(evan): fully implement
 	// pass through txs w/o processing for now
-	return abci.ResponsePreprocessTxs{
-		Txs: txs.Txs,
+	return abci.ResponsePrepareProposal{
+		BlockData: req.BlockData,
+	}
+}
+
+// ProcessProposal fulfills the celestia-core version of the ABCI++ interface.
+// It allows for arbitrary processing to occur after recieving a proposal block
+func (app *BaseApp) ProcessProposal(req abci.RequestProcessProposal) abci.ResponseProcessProposal {
+	return abci.ResponseProcessProposal{
+		Result: abci.ResponseProcessProposal_ACCEPT,
 	}
 }
 

@@ -160,13 +160,28 @@ func NewMsgEditValidator(
 	newRate *sdk.Dec, newMinSelfDelegation *sdk.Int,
 	newOrch *sdk.AccAddress, newEth *EthAddress,
 ) *MsgEditValidator {
+	// TODO add test for Orchestrator and Ethereum addresses edit
+	var orch string
+	if newOrch != nil {
+		orch = newOrch.String()
+	} else {
+		orch = ""
+	}
+
+	var eth string
+	if newEth != nil {
+		eth = newEth.address
+	} else {
+		eth = ""
+	}
+
 	return &MsgEditValidator{
 		Description:       description,
 		CommissionRate:    newRate,
 		ValidatorAddress:  valAddr.String(),
 		MinSelfDelegation: newMinSelfDelegation,
-		Orchestrator:      newOrch.String(),
-		EthAddress:        newEth.address,
+		Orchestrator:      orch,
+		EthAddress:        eth,
 	}
 }
 

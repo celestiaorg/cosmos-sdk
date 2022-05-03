@@ -136,20 +136,27 @@ func NewEditValidatorCmd() *cobra.Command {
 			orchAddrString, _ := cmd.Flags().GetString(FlagOrchestratorAddress)
 			evmAddrString, _ := cmd.Flags().GetString(FlagEthereumAddress)
 
-			orchAddr, err := sdk.AccAddressFromBech32(orchAddrString)
-			if err != nil {
-				return err
+			var orchAddr *sdk.AccAddress
+			if orchAddrString != "" {
+				addr, err := sdk.AccAddressFromBech32(orchAddrString)
+				if err != nil {
+					return err
+				}
+				orchAddr = &addr
 			}
 
-			evmAddr, err := types.NewEthAddress(evmAddrString)
-			if err != nil {
-				return err
+			var evmAddr *types.EthAddress
+			if evmAddrString != "" {
+				evmAddr, err = types.NewEthAddress(evmAddrString)
+				if err != nil {
+					return err
+				}
 			}
 
 			msg := types.NewMsgEditValidator(
 				sdk.ValAddress(valAddr), description,
 				newRate, newMinSelfDelegation,
-				&orchAddr, evmAddr,
+				orchAddr, evmAddr,
 			)
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)

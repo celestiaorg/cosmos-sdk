@@ -26,6 +26,7 @@ func (k Keeper) GetValidator(ctx sdk.Context, addr sdk.ValAddress) (validator ty
 // get a single validator by orchestrator address
 func (k Keeper) GetValidatorByOrchestrator(ctx sdk.Context, addr sdk.AccAddress) (validator types.Validator, found bool) {
 	// TODO find a better way to iterate
+	// https://github.com/celestiaorg/cosmos-sdk/issues/129
 	validators := k.GetAllValidators(ctx)
 	for _, validator := range validators {
 		if validator.Orchestrator == addr.String() {
@@ -38,6 +39,7 @@ func (k Keeper) GetValidatorByOrchestrator(ctx sdk.Context, addr sdk.AccAddress)
 // get a single validator by Ethereum address
 func (k Keeper) GetValidatorByEthereum(ctx sdk.Context, addr types.EthAddress) (validator types.Validator, found bool) {
 	// TODO find a better way to iterate
+	// https://github.com/celestiaorg/cosmos-sdk/issues/129
 	validators := k.GetAllValidators(ctx)
 	for _, validator := range validators {
 		if validator.Orchestrator == addr.GetAddress() {

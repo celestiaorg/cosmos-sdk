@@ -2,6 +2,7 @@ package gov_test
 
 import (
 	"bytes"
+	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	"log"
 	"sort"
 	"testing"
@@ -83,9 +84,12 @@ func createValidators(t *testing.T, stakingHandler sdk.Handler, ctx sdk.Context,
 
 	for i := 0; i < len(addrs); i++ {
 		valTokens := sdk.TokensFromConsensusPower(powerAmt[i], sdk.DefaultPowerReduction)
+		randomEthAddress, err := teststaking.RandomEthAddress()
+		require.NoError(t, err)
 		valCreateMsg, err := stakingtypes.NewMsgCreateValidator(
 			addrs[i], pubkeys[i], sdk.NewCoin(sdk.DefaultBondDenom, valTokens),
 			TestDescription, TestCommissionRates, sdk.OneInt(),
+			sdk.AccAddress(pubkeys[i].Address()), *randomEthAddress,
 		)
 		require.NoError(t, err)
 		handleAndCheck(t, stakingHandler, ctx, valCreateMsg)

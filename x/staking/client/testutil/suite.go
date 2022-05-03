@@ -3,6 +3,7 @@ package testutil
 import (
 	"context"
 	"fmt"
+	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	"strings"
 	"testing"
 
@@ -101,6 +102,9 @@ func (s *IntegrationTestSuite) TestNewCreateValidatorCmd() {
 	)
 	require.NoError(err)
 
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(err)
+
 	testCases := []struct {
 		name         string
 		args         []string
@@ -183,6 +187,8 @@ func (s *IntegrationTestSuite) TestNewCreateValidatorCmd() {
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 				fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
 				fmt.Sprintf("--%s=%s", flags.FlagFees, sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, sdk.NewInt(10))).String()),
+				fmt.Sprintf("--%s=%s", cli.FlagEthereumAddress, randomEthAddress.GetAddress()),
+				fmt.Sprintf("--%s=%s", cli.FlagOrchestratorAddress, newAddr.String()),
 			},
 			false, 0, &sdk.TxResponse{},
 		},
@@ -312,6 +318,7 @@ func (s *IntegrationTestSuite) TestGetCmdQueryDelegation() {
 		respType proto.Message
 		expected proto.Message
 	}{
+		// todo fix this one also
 		{
 			"with wrong delegator address",
 			[]string{
@@ -948,7 +955,7 @@ func (s *IntegrationTestSuite) TestNewEditValidatorCmd() {
 		expectedCode uint32
 		respType     proto.Message
 	}{
-		{
+		{ // todo fix the edit command
 			"with no edit flag (since all are optional)",
 			[]string{
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, "with wrong from address"),

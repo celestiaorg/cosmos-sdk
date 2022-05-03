@@ -159,12 +159,14 @@ func TestInitGenesisLargeValidatorSet(t *testing.T) {
 	params := app.StakingKeeper.GetParams(ctx)
 	delegations := []types.Delegation{}
 	validators := make([]types.Validator, size)
-	var err error
 
 	bondedPoolAmt := sdk.ZeroInt()
 	for i := range validators {
+		ethAddress, err := teststaking.RandomEthAddress()
+		require.NoError(t, err)
 		validators[i], err = types.NewValidator(sdk.ValAddress(addrs[i]),
-			PKs[i], types.NewDescription(fmt.Sprintf("#%d", i), "", "", "", ""))
+			PKs[i], types.NewDescription(fmt.Sprintf("#%d", i), "", "", "", ""),
+			sdk.AccAddress(PKs[i].Address()), *ethAddress)
 		require.NoError(t, err)
 		validators[i].Status = types.Bonded
 
@@ -203,7 +205,9 @@ func TestInitGenesisLargeValidatorSet(t *testing.T) {
 func TestValidateGenesis(t *testing.T) {
 	genValidators1 := make([]types.Validator, 1, 5)
 	pk := ed25519.GenPrivKey().PubKey()
-	genValidators1[0] = teststaking.NewValidator(t, sdk.ValAddress(pk.Address()), pk)
+	ethAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
+	genValidators1[0] = teststaking.NewValidator(t, sdk.ValAddress(pk.Address()), pk, sdk.AccAddress(pk.Address()), *ethAddress)
 	genValidators1[0].Tokens = sdk.OneInt()
 	genValidators1[0].DelegatorShares = sdk.OneDec()
 

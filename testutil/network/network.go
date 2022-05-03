@@ -3,9 +3,11 @@ package network
 import (
 	"bufio"
 	"context"
+	"crypto/ecdsa"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/crypto"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -162,6 +164,9 @@ type (
 		api     *api.Server
 		grpc    *grpc.Server
 		grpcWeb *http.Server
+
+		EthPrivateKey *ecdsa.PrivateKey
+		EthAddr       *stakingtypes.EthAddress
 	}
 )
 
@@ -303,8 +308,11 @@ func New(t *testing.T, cfg Config) *Network {
 		commission, err := sdk.NewDecFromStr("0.5")
 		require.NoError(t, err)
 
-		orchAddr, _ := sdk.AccAddressFromHex("celes1qktu8009djs6uym9uwj84ead24exkezsaqrmn5")
-		ethAddr, _ := stakingtypes.NewEthAddress("0x91DEd26b5f38B065FC0204c7929Da6b2A21277Cd")
+		ethPrivateKey, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		orchEthPublicKey := ethPrivateKey.Public().(*ecdsa.PublicKey)
+		ethAddr, err := stakingtypes.NewEthAddress(crypto.PubkeyToAddress(*orchEthPublicKey).Hex())
+		require.NoError(t, err)
 
 		createValMsg, err := stakingtypes.NewMsgCreateValidator(
 			sdk.ValAddress(addr),
@@ -312,7 +320,9 @@ func New(t *testing.T, cfg Config) *Network {
 			sdk.NewCoin(cfg.BondDenom, cfg.BondedTokens),
 			stakingtypes.NewDescription(nodeDirName, "", "", "", ""),
 			stakingtypes.NewCommissionRates(commission, sdk.OneDec(), sdk.OneDec()),
-			sdk.OneInt(), orchAddr, *ethAddr,
+			sdk.OneInt(),
+			addr, // can we use the same validator address in this test ?
+			*ethAddr,
 		)
 		require.NoError(t, err)
 
@@ -355,18 +365,20 @@ func New(t *testing.T, cfg Config) *Network {
 			WithAccountRetriever(cfg.AccountRetriever)
 
 		network.Validators[i] = &Validator{
-			AppConfig:  appCfg,
-			ClientCtx:  clientCtx,
-			Ctx:        ctx,
-			Dir:        filepath.Join(network.BaseDir, nodeDirName),
-			NodeID:     nodeID,
-			PubKey:     pubKey,
-			Moniker:    nodeDirName,
-			RPCAddress: tmCfg.RPC.ListenAddress,
-			P2PAddress: tmCfg.P2P.ListenAddress,
-			APIAddress: apiAddr,
-			Address:    addr,
-			ValAddress: sdk.ValAddress(addr),
+			AppConfig:     appCfg,
+			ClientCtx:     clientCtx,
+			Ctx:           ctx,
+			Dir:           filepath.Join(network.BaseDir, nodeDirName),
+			NodeID:        nodeID,
+			PubKey:        pubKey,
+			Moniker:       nodeDirName,
+			RPCAddress:    tmCfg.RPC.ListenAddress,
+			P2PAddress:    tmCfg.P2P.ListenAddress,
+			APIAddress:    apiAddr,
+			Address:       addr,
+			ValAddress:    sdk.ValAddress(addr),
+			EthPrivateKey: ethPrivateKey,
+			EthAddr:       ethAddr,
 		}
 	}
 

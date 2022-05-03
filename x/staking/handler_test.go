@@ -378,7 +378,7 @@ func TestEditValidatorDecreaseMinSelfDelegation(t *testing.T) {
 		initBond, gotBond, bond)
 
 	newMinSelfDelegation := sdk.OneInt()
-	msgEditValidator := types.NewMsgEditValidator(validatorAddr, types.Description{}, nil, &newMinSelfDelegation)
+	msgEditValidator := types.NewMsgEditValidator(validatorAddr, types.Description{}, nil, &newMinSelfDelegation, nil, nil)
 	tstaking.Handle(msgEditValidator, false)
 }
 
@@ -409,7 +409,7 @@ func TestEditValidatorIncreaseMinSelfDelegationBeyondCurrentBond(t *testing.T) {
 		initBond, gotBond, bond)
 
 	newMinSelfDelegation := initBond.Add(sdk.OneInt())
-	msgEditValidator := types.NewMsgEditValidator(validatorAddr, types.Description{}, nil, &newMinSelfDelegation)
+	msgEditValidator := types.NewMsgEditValidator(validatorAddr, types.Description{}, nil, &newMinSelfDelegation, nil, nil)
 	tstaking.Handle(msgEditValidator, false)
 }
 
@@ -1185,15 +1185,22 @@ func TestInvalidCoinDenom(t *testing.T) {
 	oneCoin := sdk.NewCoin(sdk.DefaultBondDenom, sdk.OneInt())
 
 	commission := types.NewCommissionRates(sdk.OneDec(), sdk.OneDec(), sdk.ZeroDec())
-	msgCreate, err := types.NewMsgCreateValidator(valA, PKs[0], invalidCoin, types.Description{}, commission, sdk.OneInt())
+
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
+
+	msgCreate, err := types.NewMsgCreateValidator(valA, PKs[0], invalidCoin, types.Description{}, commission, sdk.OneInt(), sdk.AccAddress(PKs[0].Address()), *randomEthAddress)
 	require.NoError(t, err)
 	tstaking.Handle(msgCreate, false)
 
-	msgCreate, err = types.NewMsgCreateValidator(valA, PKs[0], validCoin, types.Description{}, commission, sdk.OneInt())
+	msgCreate, err = types.NewMsgCreateValidator(valA, PKs[0], validCoin, types.Description{}, commission, sdk.OneInt(), sdk.AccAddress(PKs[0].Address()), *randomEthAddress)
 	require.NoError(t, err)
 	tstaking.Handle(msgCreate, true)
 
-	msgCreate, err = types.NewMsgCreateValidator(valB, PKs[1], validCoin, types.Description{}, commission, sdk.OneInt())
+	randomEthAddress2, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
+
+	msgCreate, err = types.NewMsgCreateValidator(valB, PKs[1], validCoin, types.Description{}, commission, sdk.OneInt(), sdk.AccAddress(PKs[1].Address()), *randomEthAddress2)
 	require.NoError(t, err)
 	tstaking.Handle(msgCreate, true)
 

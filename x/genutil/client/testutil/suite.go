@@ -47,6 +47,7 @@ func (s *IntegrationTestSuite) TearDownSuite() {
 }
 
 func (s *IntegrationTestSuite) TestGenTxCmd() {
+	// todo fix
 	val := s.network.Validators[0]
 	dir := s.T().TempDir()
 
@@ -92,6 +93,7 @@ func (s *IntegrationTestSuite) TestGenTxCmd() {
 }
 
 func (s *IntegrationTestSuite) TestGenTxCmdPubkey() {
+	// todo fix
 	val := s.network.Validators[0]
 	dir := s.T().TempDir()
 

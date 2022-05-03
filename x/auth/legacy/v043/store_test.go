@@ -2,6 +2,7 @@ package v043_test
 
 import (
 	"fmt"
+	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	"testing"
 	"time"
 
@@ -663,6 +664,9 @@ func createValidator(t *testing.T, ctx sdk.Context, app *simapp.SimApp, powers i
 	pks := simapp.CreateTestPubKeys(1)
 	cdc := simapp.MakeTestEncodingConfig().Marshaler
 
+	ethAddr, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
+
 	app.StakingKeeper = stakingkeeper.NewKeeper(
 		cdc,
 		app.GetKey(stakingtypes.StoreKey),
@@ -671,7 +675,7 @@ func createValidator(t *testing.T, ctx sdk.Context, app *simapp.SimApp, powers i
 		app.GetSubspace(stakingtypes.ModuleName),
 	)
 
-	val1, err := stakingtypes.NewValidator(valAddrs[0], pks[0], stakingtypes.Description{})
+	val1, err := stakingtypes.NewValidator(valAddrs[0], pks[0], stakingtypes.Description{}, sdk.AccAddress(pks[0].Address()), *ethAddr)
 	require.NoError(t, err)
 
 	app.StakingKeeper.SetValidator(ctx, val1)

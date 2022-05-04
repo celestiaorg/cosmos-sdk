@@ -86,8 +86,8 @@ func NewCreateValidatorCmd() *cobra.Command {
 	_ = cmd.MarkFlagRequired(FlagAmount)
 	_ = cmd.MarkFlagRequired(FlagPubKey)
 	_ = cmd.MarkFlagRequired(FlagMoniker)
-	_ = cmd.MarkFlagRequired(FlagEthereumAddress)
-	_ = cmd.MarkFlagRequired(FlagOrchestratorAddress)
+	_ = cmd.MarkFlagRequired(flags.FlagEthereumAddress)
+	_ = cmd.MarkFlagRequired(flags.FlagOrchestratorAddress)
 
 	return cmd
 }
@@ -133,8 +133,8 @@ func NewEditValidatorCmd() *cobra.Command {
 				newMinSelfDelegation = &msb
 			}
 
-			orchAddrString, _ := cmd.Flags().GetString(FlagOrchestratorAddress)
-			evmAddrString, _ := cmd.Flags().GetString(FlagEthereumAddress)
+			orchAddrString, _ := cmd.Flags().GetString(flags.FlagOrchestratorAddress)
+			evmAddrString, _ := cmd.Flags().GetString(flags.FlagEthereumAddress)
 
 			var orchAddr *sdk.AccAddress
 			if orchAddrString != "" {
@@ -354,8 +354,8 @@ func newBuildCreateValidatorMsg(clientCtx client.Context, txf tx.Factory, fs *fl
 		return txf, nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "minimum self delegation must be a positive integer")
 	}
 
-	orchAddrString, _ := fs.GetString(FlagOrchestratorAddress)
-	evmAddrString, _ := fs.GetString(FlagEthereumAddress)
+	orchAddrString, _ := fs.GetString(flags.FlagOrchestratorAddress)
+	evmAddrString, _ := fs.GetString(flags.FlagEthereumAddress)
 
 	orchAddr, err := sdk.AccAddressFromBech32(orchAddrString)
 	if err != nil {
@@ -539,12 +539,12 @@ func PrepareConfigForTxCreateValidator(flagSet *flag.FlagSet, moniker, nodeID, c
 		c.MinSelfDelegation = defaultMinSelfDelegation
 	}
 
-	c.EthereumAddress, err = flagSet.GetString(FlagEthereumAddress)
+	c.EthereumAddress, err = flagSet.GetString(flags.FlagEthereumAddress)
 	if err != nil {
 		return c, err
 	}
 
-	c.OrchestratorAddress, err = flagSet.GetString(FlagOrchestratorAddress)
+	c.OrchestratorAddress, err = flagSet.GetString(flags.FlagOrchestratorAddress)
 	if err != nil {
 		return c, err
 	}

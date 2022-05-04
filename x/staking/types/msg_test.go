@@ -85,7 +85,7 @@ func TestMsgCreateValidator(t *testing.T) {
 		description := types.NewDescription(tc.moniker, tc.identity, tc.website, tc.securityContact, tc.details)
 		randomEthAddress, err := teststaking.RandomEthAddress()
 		require.NoError(t, err)
-		msg, err := types.NewMsgCreateValidator(tc.validatorAddr, tc.pubkey, tc.bond, description, tc.CommissionRates, tc.minSelfDelegation, sdk.AccAddress(tc.pubkey.Address()), *randomEthAddress)
+		msg, err := types.NewMsgCreateValidator(tc.validatorAddr, tc.pubkey, tc.bond, description, tc.CommissionRates, tc.minSelfDelegation, sdk.AccAddress(pk1.Address()), *randomEthAddress)
 		require.NoError(t, err)
 		if tc.expectPass {
 			require.Nil(t, msg.ValidateBasic(), "test: %v", tc.name)

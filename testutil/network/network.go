@@ -166,7 +166,9 @@ type (
 		grpcWeb *http.Server
 
 		EthPrivateKey *ecdsa.PrivateKey
-		EthAddr       *stakingtypes.EthAddress
+		EthereumAddr  *stakingtypes.EthAddress
+
+		OrchestratorAddr sdk.AccAddress
 	}
 )
 
@@ -365,20 +367,21 @@ func New(t *testing.T, cfg Config) *Network {
 			WithAccountRetriever(cfg.AccountRetriever)
 
 		network.Validators[i] = &Validator{
-			AppConfig:     appCfg,
-			ClientCtx:     clientCtx,
-			Ctx:           ctx,
-			Dir:           filepath.Join(network.BaseDir, nodeDirName),
-			NodeID:        nodeID,
-			PubKey:        pubKey,
-			Moniker:       nodeDirName,
-			RPCAddress:    tmCfg.RPC.ListenAddress,
-			P2PAddress:    tmCfg.P2P.ListenAddress,
-			APIAddress:    apiAddr,
-			Address:       addr,
-			ValAddress:    sdk.ValAddress(addr),
-			EthPrivateKey: ethPrivateKey,
-			EthAddr:       ethAddr,
+			AppConfig:        appCfg,
+			ClientCtx:        clientCtx,
+			Ctx:              ctx,
+			Dir:              filepath.Join(network.BaseDir, nodeDirName),
+			NodeID:           nodeID,
+			PubKey:           pubKey,
+			Moniker:          nodeDirName,
+			RPCAddress:       tmCfg.RPC.ListenAddress,
+			P2PAddress:       tmCfg.P2P.ListenAddress,
+			APIAddress:       apiAddr,
+			Address:          addr,
+			ValAddress:       sdk.ValAddress(addr),
+			EthPrivateKey:    ethPrivateKey,
+			EthereumAddr:     ethAddr,
+			OrchestratorAddr: addr,
 		}
 	}
 

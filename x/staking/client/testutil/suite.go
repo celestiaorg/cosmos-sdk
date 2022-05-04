@@ -62,7 +62,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 		val.ValAddress,
 		val2.ValAddress,
 		unbond,
-		fmt.Sprintf("--%s=%d", flags.FlagGas, 202954), //  202954 is the required
+		fmt.Sprintf("--%s=%d", flags.FlagGas, 306313), //  306313 is the required
 	)
 	s.Require().NoError(err)
 	_, err = s.network.WaitForHeight(1)
@@ -187,8 +187,8 @@ func (s *IntegrationTestSuite) TestNewCreateValidatorCmd() {
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 				fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
 				fmt.Sprintf("--%s=%s", flags.FlagFees, sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, sdk.NewInt(10))).String()),
-				fmt.Sprintf("--%s=%s", cli.FlagEthereumAddress, randomEthAddress.GetAddress()),
-				fmt.Sprintf("--%s=%s", cli.FlagOrchestratorAddress, newAddr.String()),
+				fmt.Sprintf("--%s=%s", flags.FlagEthereumAddress, randomEthAddress.GetAddress()),
+				fmt.Sprintf("--%s=%s", flags.FlagOrchestratorAddress, newAddr.String()),
 			},
 			false, 0, &sdk.TxResponse{},
 		},
@@ -318,7 +318,6 @@ func (s *IntegrationTestSuite) TestGetCmdQueryDelegation() {
 		respType proto.Message
 		expected proto.Message
 	}{
-		// todo fix this one also
 		{
 			"with wrong delegator address",
 			[]string{

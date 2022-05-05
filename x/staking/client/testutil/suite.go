@@ -954,7 +954,7 @@ func (s *IntegrationTestSuite) TestNewEditValidatorCmd() {
 		expectedCode uint32
 		respType     proto.Message
 	}{
-		{ // todo fix the edit command
+		{
 			"with no edit flag (since all are optional)",
 			[]string{
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, "with wrong from address"),

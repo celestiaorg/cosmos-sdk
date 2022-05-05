@@ -53,8 +53,8 @@ $ %s gentx my-key-name 1000000stake --home=/path/to/home/dir --keyring-backend=o
     --details="..." \
     --security-contact="..." \
     --website="..." \
-	--orchestrator-address="..." \
-	--ethereum-address="..."
+    --orchestrator-address="..." \
+    --ethereum-address="..."
 `, defaultsDesc, version.AppName,
 		),
 		RunE: func(cmd *cobra.Command, args []string) error {

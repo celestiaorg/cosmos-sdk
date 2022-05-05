@@ -222,9 +222,17 @@ func InitTestnet(
 			}
 		}
 
-		ethAddress, err := stakingtypes.NewEthAddress(clientCtx.EthereumAddress)
-		if err != nil {
-			return err
+		var ethAddress *stakingtypes.EthAddress
+		if clientCtx.EthereumAddress != "" {
+			ethAddress, err = stakingtypes.NewEthAddress(clientCtx.EthereumAddress)
+			if err != nil {
+				return err
+			}
+		} else {
+			ethAddress, err = stakingtypes.NewEthAddress("0x91DEd26b5f38B065FC0204c7929Da6b2A21277Cd")
+			if err != nil {
+				return err
+			}
 		}
 
 		valTokens := sdk.TokensFromConsensusPower(100, sdk.DefaultPowerReduction)

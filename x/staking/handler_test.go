@@ -46,10 +46,12 @@ func TestValidatorByPowerIndex(t *testing.T) {
 	initPower := int64(1000000)
 	app, ctx, _, valAddrs := bootstrapHandlerGenesisTest(t, initPower, 10, sdk.TokensFromConsensusPower(initPower, sdk.DefaultPowerReduction))
 	validatorAddr, validatorAddr3 := valAddrs[0], valAddrs[1]
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
 	// create validator
-	initBond := tstaking.CreateValidatorWithValPower(validatorAddr, PKs[0], initPower, true)
+	initBond := tstaking.CreateValidatorWithValPower(validatorAddr, PKs[0], initPower, sdk.AccAddress(PKs[0].Address()), *randomEthAddress, true)
 
 	// must end-block
 	updates, err := app.StakingKeeper.ApplyAndReturnValidatorSetUpdates(ctx)
@@ -67,9 +69,11 @@ func TestValidatorByPowerIndex(t *testing.T) {
 	require.True(t, found)
 	power := types.GetValidatorsByPowerIndexKey(validator, app.StakingKeeper.PowerReduction(ctx))
 	require.True(t, keeper.ValidatorByPowerIndexExists(ctx, app.StakingKeeper, power))
+	randomEthAddress2, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 
 	// create a second validator keep it bonded
-	tstaking.CreateValidatorWithValPower(validatorAddr3, PKs[2], initPower, true)
+	tstaking.CreateValidatorWithValPower(validatorAddr3, PKs[2], initPower, sdk.AccAddress(PKs[2].Address()), *randomEthAddress2, true)
 
 	// must end-block
 	updates, err = app.StakingKeeper.ApplyAndReturnValidatorSetUpdates(ctx)
@@ -125,9 +129,11 @@ func TestDuplicatesMsgCreateValidator(t *testing.T) {
 
 	addr1, addr2 := valAddrs[0], valAddrs[1]
 	pk1, pk2 := PKs[0], PKs[1]
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
-	valTokens := tstaking.CreateValidatorWithValPower(addr1, pk1, 10, true)
+	valTokens := tstaking.CreateValidatorWithValPower(addr1, pk1, 10, sdk.AccAddress(pk1.Address()), *randomEthAddress, true)
 	app.StakingKeeper.ApplyAndReturnValidatorSetUpdates(ctx)
 
 	validator := tstaking.CheckValidator(addr1, types.Bonded, false)
@@ -141,14 +147,17 @@ func TestDuplicatesMsgCreateValidator(t *testing.T) {
 	assert.Equal(t, valTokens.ToDec(), validator.DelegatorShares)
 	assert.Equal(t, types.Description{}, validator.Description)
 
+	randomEthAddress2, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
+
 	// two validators can't have the same operator address
-	tstaking.CreateValidator(addr1, pk2, valTokens, false)
+	tstaking.CreateValidator(addr1, pk2, valTokens, sdk.AccAddress(pk2.Address()), *randomEthAddress2, false)
 
 	// two validators can't have the same pubkey
-	tstaking.CreateValidator(addr2, pk1, valTokens, false)
+	tstaking.CreateValidator(addr2, pk1, valTokens, sdk.AccAddress(pk1.Address()), *randomEthAddress2, false)
 
 	// must have different pubkey and operator
-	tstaking.CreateValidator(addr2, pk2, valTokens, true)
+	tstaking.CreateValidator(addr2, pk2, valTokens, sdk.AccAddress(pk2.Address()), *randomEthAddress2, true)
 
 	// must end-block
 	updates, err := app.StakingKeeper.ApplyAndReturnValidatorSetUpdates(ctx)
@@ -176,10 +185,12 @@ func TestInvalidPubKeyTypeMsgCreateValidator(t *testing.T) {
 
 	addr := valAddrs[0]
 	invalidPk := secp256k1.GenPrivKey().PubKey()
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
 	// invalid pukKey type should not be allowed
-	tstaking.CreateValidator(addr, invalidPk, sdk.NewInt(10), false)
+	tstaking.CreateValidator(addr, invalidPk, sdk.NewInt(10), sdk.AccAddress(invalidPk.Address()), *randomEthAddress, false)
 }
 
 func TestBothPubKeyTypesMsgCreateValidator(t *testing.T) {
@@ -208,7 +219,9 @@ func TestBothPubKeyTypesMsgCreateValidator(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(*testing.T) {
-			tstaking.CreateValidator(tc.addr, tc.pk, sdk.NewInt(10), true)
+			randomEthAddress, err := teststaking.RandomEthAddress()
+			require.NoError(t, err)
+			tstaking.CreateValidator(tc.addr, tc.pk, sdk.NewInt(10), sdk.AccAddress(tc.pk.Address()), *randomEthAddress, true)
 		})
 	}
 }
@@ -221,9 +234,11 @@ func TestLegacyValidatorDelegations(t *testing.T) {
 	valAddr := valAddrs[0]
 	valConsPubKey, valConsAddr := PKs[0], sdk.ConsAddress(PKs[0].Address())
 	delAddr := delAddrs[1]
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 
 	// create validator
-	bondAmount := tstaking.CreateValidatorWithValPower(valAddr, valConsPubKey, 10, true)
+	bondAmount := tstaking.CreateValidatorWithValPower(valAddr, valConsPubKey, 10, sdk.AccAddress(valConsPubKey.Address()), *randomEthAddress, true)
 
 	// must end-block
 	updates, err := app.StakingKeeper.ApplyAndReturnValidatorSetUpdates(ctx)
@@ -300,9 +315,11 @@ func TestIncrementsMsgDelegate(t *testing.T) {
 	params := app.StakingKeeper.GetParams(ctx)
 	validatorAddr, delegatorAddr := valAddrs[0], delAddrs[1]
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 
 	// first create validator
-	bondAmount := tstaking.CreateValidatorWithValPower(validatorAddr, PKs[0], 10, true)
+	bondAmount := tstaking.CreateValidatorWithValPower(validatorAddr, PKs[0], 10, sdk.AccAddress(PKs[0].Address()), *randomEthAddress, true)
 
 	// apply TM updates
 	app.StakingKeeper.ApplyAndReturnValidatorSetUpdates(ctx)
@@ -357,10 +374,12 @@ func TestEditValidatorDecreaseMinSelfDelegation(t *testing.T) {
 	app, ctx, _, valAddrs := bootstrapHandlerGenesisTest(t, initPower, 1, sdk.TokensFromConsensusPower(initPower, sdk.DefaultPowerReduction))
 
 	validatorAddr := valAddrs[0]
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
 	// create validator
-	msgCreateValidator := tstaking.CreateValidatorMsg(validatorAddr, PKs[0], initBond)
+	msgCreateValidator := tstaking.CreateValidatorMsg(validatorAddr, PKs[0], initBond, sdk.AccAddress(PKs[0].Address()), *randomEthAddress)
 	msgCreateValidator.MinSelfDelegation = sdk.NewInt(2)
 	tstaking.Handle(msgCreateValidator, true)
 
@@ -388,10 +407,12 @@ func TestEditValidatorIncreaseMinSelfDelegationBeyondCurrentBond(t *testing.T) {
 
 	app, ctx, _, valAddrs := bootstrapHandlerGenesisTest(t, initPower, 2, sdk.TokensFromConsensusPower(initPower, sdk.DefaultPowerReduction))
 	validatorAddr := valAddrs[0]
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
 	// create validator
-	msgCreateValidator := tstaking.CreateValidatorMsg(validatorAddr, PKs[0], initBond)
+	msgCreateValidator := tstaking.CreateValidatorMsg(validatorAddr, PKs[0], initBond, sdk.AccAddress(PKs[0].Address()), *randomEthAddress)
 	msgCreateValidator.MinSelfDelegation = sdk.NewInt(2)
 	tstaking.Handle(msgCreateValidator, true)
 
@@ -420,10 +441,12 @@ func TestIncrementsMsgUnbond(t *testing.T) {
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 	params := app.StakingKeeper.GetParams(ctx)
 	denom := params.BondDenom
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 
 	// create validator, delegate
 	validatorAddr, delegatorAddr := valAddrs[0], delAddrs[1]
-	initBond := tstaking.CreateValidatorWithValPower(validatorAddr, PKs[0], initPower, true)
+	initBond := tstaking.CreateValidatorWithValPower(validatorAddr, PKs[0], initPower, sdk.AccAddress(PKs[0].Address()), *randomEthAddress, true)
 
 	// initial balance
 	amt1 := app.BankKeeper.GetBalance(ctx, delegatorAddr, denom).Amount
@@ -526,7 +549,9 @@ func TestMultipleMsgCreateValidator(t *testing.T) {
 	// bond them all
 	amt := app.StakingKeeper.TokensFromConsensusPower(ctx, 10)
 	for i, validatorAddr := range validatorAddrs {
-		tstaking.CreateValidator(validatorAddr, PKs[i], amt, true)
+		randomEthAddress, err := teststaking.RandomEthAddress()
+		require.NoError(t, err)
+		tstaking.CreateValidator(validatorAddr, PKs[i], amt, sdk.AccAddress(PKs[i].Address()), *randomEthAddress, true)
 		// verify that the account is bonded
 		validators := app.StakingKeeper.GetValidators(ctx, 100)
 		require.Equal(t, (i + 1), len(validators))
@@ -578,9 +603,11 @@ func TestMultipleMsgDelegate(t *testing.T) {
 	validatorAddr, delegatorAddrs := valAddrs[0], delAddrs[1:]
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 	var amount int64 = 10
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 
 	// first make a validator
-	tstaking.CreateValidator(validatorAddr, PKs[0], sdk.NewInt(amount), true)
+	tstaking.CreateValidator(validatorAddr, PKs[0], sdk.NewInt(amount), sdk.AccAddress(PKs[0].Address()), *randomEthAddress, true)
 
 	// delegate multiple parties
 	for _, delegatorAddr := range delegatorAddrs {
@@ -612,9 +639,11 @@ func TestJailValidator(t *testing.T) {
 	validatorAddr, delegatorAddr := valAddrs[0], delAddrs[1]
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 	var amt int64 = 10
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 
 	// create the validator and delegate
-	tstaking.CreateValidator(validatorAddr, PKs[0], sdk.NewInt(amt), true)
+	tstaking.CreateValidator(validatorAddr, PKs[0], sdk.NewInt(amt), sdk.AccAddress(PKs[0].Address()), *randomEthAddress, true)
 	tstaking.Delegate(delegatorAddr, validatorAddr, sdk.NewInt(amt))
 
 	// unbond the validators bond portion
@@ -622,7 +651,7 @@ func TestJailValidator(t *testing.T) {
 	res := tstaking.Undelegate(sdk.AccAddress(validatorAddr), validatorAddr, unamt, true)
 
 	var resData types.MsgUndelegateResponse
-	err := proto.Unmarshal(res.Data, &resData)
+	err = proto.Unmarshal(res.Data, &resData)
 	require.NoError(t, err)
 
 	ctx = ctx.WithBlockTime(resData.CompletionTime)
@@ -642,7 +671,7 @@ func TestJailValidator(t *testing.T) {
 	tstaking.Ctx = ctx
 
 	// verify that the pubkey can now be reused
-	tstaking.CreateValidator(validatorAddr, PKs[0], sdk.NewInt(amt), true)
+	tstaking.CreateValidator(validatorAddr, PKs[0], sdk.NewInt(amt), sdk.AccAddress(PKs[0].Address()), *randomEthAddress, true)
 }
 
 func TestValidatorQueue(t *testing.T) {
@@ -655,9 +684,11 @@ func TestValidatorQueue(t *testing.T) {
 	params := app.StakingKeeper.GetParams(ctx)
 	params.UnbondingTime = 7 * time.Second
 	app.StakingKeeper.SetParams(ctx, params)
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 
 	// create the validator and make a bond
-	amt := tstaking.CreateValidatorWithValPower(validatorAddr, PKs[0], 10, true)
+	amt := tstaking.CreateValidatorWithValPower(validatorAddr, PKs[0], 10, sdk.AccAddress(PKs[0].Address()), *randomEthAddress, true)
 	tstaking.Delegate(delegatorAddr, validatorAddr, amt)
 	staking.EndBlocker(ctx, app.StakingKeeper)
 
@@ -665,7 +696,7 @@ func TestValidatorQueue(t *testing.T) {
 	res := tstaking.Undelegate(sdk.AccAddress(validatorAddr), validatorAddr, amt, true)
 
 	var resData types.MsgUndelegateResponse
-	err := proto.Unmarshal(res.Data, &resData)
+	err = proto.Unmarshal(res.Data, &resData)
 	require.NoError(t, err)
 
 	finishTime := resData.CompletionTime
@@ -702,9 +733,11 @@ func TestUnbondingPeriod(t *testing.T) {
 	params := app.StakingKeeper.GetParams(ctx)
 	params.UnbondingTime = 7 * time.Second
 	app.StakingKeeper.SetParams(ctx, params)
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 
 	// create the validator
-	amt := tstaking.CreateValidatorWithValPower(validatorAddr, PKs[0], 10, true)
+	amt := tstaking.CreateValidatorWithValPower(validatorAddr, PKs[0], 10, sdk.AccAddress(PKs[0].Address()), *randomEthAddress, true)
 	staking.EndBlocker(ctx, app.StakingKeeper)
 
 	// begin unbonding
@@ -736,9 +769,11 @@ func TestUnbondingFromUnbondingValidator(t *testing.T) {
 	app, ctx, delAddrs, valAddrs := bootstrapHandlerGenesisTest(t, initPower, 2, sdk.TokensFromConsensusPower(initPower, sdk.DefaultPowerReduction))
 	validatorAddr, delegatorAddr := valAddrs[0], delAddrs[1]
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 
 	// create the validator and delegate
-	tstaking.CreateValidator(validatorAddr, PKs[0], sdk.NewInt(10), true)
+	tstaking.CreateValidator(validatorAddr, PKs[0], sdk.NewInt(10), sdk.AccAddress(PKs[0].Address()), *randomEthAddress, true)
 	tstaking.Delegate(delegatorAddr, validatorAddr, sdk.NewInt(10))
 
 	// unbond the validators bond portion
@@ -747,7 +782,7 @@ func TestUnbondingFromUnbondingValidator(t *testing.T) {
 
 	// change the ctx to Block Time one second before the validator would have unbonded
 	var resData types.MsgUndelegateResponse
-	err := proto.Unmarshal(res.Data, &resData)
+	err = proto.Unmarshal(res.Data, &resData)
 	require.NoError(t, err)
 
 	ctx = ctx.WithBlockTime(resData.CompletionTime.Add(time.Second * -1))
@@ -769,6 +804,8 @@ func TestRedelegationPeriod(t *testing.T) {
 	app, ctx, _, valAddrs := bootstrapHandlerGenesisTest(t, initPower, 2, sdk.TokensFromConsensusPower(initPower, sdk.DefaultPowerReduction))
 	validatorAddr, validatorAddr2 := valAddrs[0], valAddrs[1]
 	denom := app.StakingKeeper.GetParams(ctx).BondDenom
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
 	// set the unbonding time
@@ -779,13 +816,16 @@ func TestRedelegationPeriod(t *testing.T) {
 	amt1 := app.BankKeeper.GetBalance(ctx, sdk.AccAddress(validatorAddr), denom).Amount
 
 	// create the validators
-	tstaking.CreateValidator(validatorAddr, PKs[0], sdk.NewInt(10), true)
+	tstaking.CreateValidator(validatorAddr, PKs[0], sdk.NewInt(10), sdk.AccAddress(PKs[0].Address()), *randomEthAddress, true)
 
 	// balance should have been subtracted after creation
 	amt2 := app.BankKeeper.GetBalance(ctx, sdk.AccAddress(validatorAddr), denom).Amount
 	require.Equal(t, amt1.Sub(sdk.NewInt(10)), amt2, "expected coins to be subtracted")
 
-	tstaking.CreateValidator(validatorAddr2, PKs[1], sdk.NewInt(10), true)
+	randomEthAddress2, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
+
+	tstaking.CreateValidator(validatorAddr2, PKs[1], sdk.NewInt(10), sdk.AccAddress(PKs[1].Address()), *randomEthAddress2, true)
 	bal1 := app.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(validatorAddr))
 
 	// begin redelegate
@@ -824,10 +864,17 @@ func TestTransitiveRedelegation(t *testing.T) {
 	ctx = ctx.WithBlockTime(blockTime)
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
+	randomEthAddress2, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
+	randomEthAddress3, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
+
 	// create the validators
-	tstaking.CreateValidator(val1, PKs[0], sdk.NewInt(10), true)
-	tstaking.CreateValidator(val2, PKs[1], sdk.NewInt(10), true)
-	tstaking.CreateValidator(val3, PKs[2], sdk.NewInt(10), true)
+	tstaking.CreateValidator(val1, PKs[0], sdk.NewInt(10), sdk.AccAddress(PKs[0].Address()), *randomEthAddress, true)
+	tstaking.CreateValidator(val2, PKs[1], sdk.NewInt(10), sdk.AccAddress(PKs[1].Address()), *randomEthAddress2, true)
+	tstaking.CreateValidator(val3, PKs[2], sdk.NewInt(10), sdk.AccAddress(PKs[2].Address()), *randomEthAddress3, true)
 
 	// begin redelegate
 	redAmt := sdk.NewCoin(sdk.DefaultBondDenom, sdk.NewInt(10))
@@ -861,9 +908,14 @@ func TestMultipleRedelegationAtSameTime(t *testing.T) {
 	params.UnbondingTime = 1 * time.Second
 	app.StakingKeeper.SetParams(ctx, params)
 
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
+	randomEthAddress2, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
+
 	// create the validators
-	valTokens := tstaking.CreateValidatorWithValPower(valAddr, PKs[0], 10, true)
-	tstaking.CreateValidator(valAddr2, PKs[1], valTokens, true)
+	valTokens := tstaking.CreateValidatorWithValPower(valAddr, PKs[0], 10, sdk.AccAddress(PKs[0].Address()), *randomEthAddress, true)
+	tstaking.CreateValidator(valAddr2, PKs[1], valTokens, sdk.AccAddress(PKs[1].Address()), *randomEthAddress2, true)
 
 	// end block to bond them
 	staking.EndBlocker(ctx, app.StakingKeeper)
@@ -905,9 +957,14 @@ func TestMultipleRedelegationAtUniqueTimes(t *testing.T) {
 	params.UnbondingTime = 10 * time.Second
 	app.StakingKeeper.SetParams(ctx, params)
 
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
+	randomEthAddress2, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
+
 	// create the validators
-	valTokens := tstaking.CreateValidatorWithValPower(valAddr, PKs[0], 10, true)
-	tstaking.CreateValidator(valAddr2, PKs[1], valTokens, true)
+	valTokens := tstaking.CreateValidatorWithValPower(valAddr, PKs[0], 10, sdk.AccAddress(PKs[0].Address()), *randomEthAddress, true)
+	tstaking.CreateValidator(valAddr2, PKs[1], valTokens, sdk.AccAddress(PKs[1].Address()), *randomEthAddress2, true)
 
 	// end block to bond them
 	staking.EndBlocker(ctx, app.StakingKeeper)
@@ -950,9 +1007,11 @@ func TestMultipleUnbondingDelegationAtSameTime(t *testing.T) {
 	params := app.StakingKeeper.GetParams(ctx)
 	params.UnbondingTime = 1 * time.Second
 	app.StakingKeeper.SetParams(ctx, params)
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 
 	// create the validators
-	valTokens := tstaking.CreateValidatorWithValPower(valAddr, PKs[0], 10, true)
+	valTokens := tstaking.CreateValidatorWithValPower(valAddr, PKs[0], 10, sdk.AccAddress(PKs[0].Address()), *randomEthAddress, true)
 
 	// end block to bond
 	staking.EndBlocker(ctx, app.StakingKeeper)
@@ -990,9 +1049,11 @@ func TestMultipleUnbondingDelegationAtUniqueTimes(t *testing.T) {
 	params := app.StakingKeeper.GetParams(ctx)
 	params.UnbondingTime = 10 * time.Second
 	app.StakingKeeper.SetParams(ctx, params)
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 
 	// create the validator
-	valTokens := tstaking.CreateValidatorWithValPower(valAddr, PKs[0], 10, true)
+	valTokens := tstaking.CreateValidatorWithValPower(valAddr, PKs[0], 10, sdk.AccAddress(PKs[0].Address()), *randomEthAddress, true)
 
 	// end block to bond
 	staking.EndBlocker(ctx, app.StakingKeeper)
@@ -1034,6 +1095,12 @@ func TestUnbondingWhenExcessValidators(t *testing.T) {
 	val1 := valAddrs[0]
 	val2 := valAddrs[1]
 	val3 := valAddrs[2]
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
+	randomEthAddress2, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
+	randomEthAddress3, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
 	// set the unbonding time
@@ -1042,16 +1109,16 @@ func TestUnbondingWhenExcessValidators(t *testing.T) {
 	app.StakingKeeper.SetParams(ctx, params)
 
 	// add three validators
-	tstaking.CreateValidatorWithValPower(val1, PKs[0], 50, true)
+	tstaking.CreateValidatorWithValPower(val1, PKs[0], 50, sdk.AccAddress(PKs[0].Address()), *randomEthAddress, true)
 	// apply TM updates
 	app.StakingKeeper.ApplyAndReturnValidatorSetUpdates(ctx)
 	require.Equal(t, 1, len(app.StakingKeeper.GetLastValidators(ctx)))
 
-	valTokens2 := tstaking.CreateValidatorWithValPower(val2, PKs[1], 30, true)
+	valTokens2 := tstaking.CreateValidatorWithValPower(val2, PKs[1], 30, sdk.AccAddress(PKs[1].Address()), *randomEthAddress2, true)
 	app.StakingKeeper.ApplyAndReturnValidatorSetUpdates(ctx)
 	require.Equal(t, 2, len(app.StakingKeeper.GetLastValidators(ctx)))
 
-	tstaking.CreateValidatorWithValPower(val3, PKs[2], 10, true)
+	tstaking.CreateValidatorWithValPower(val3, PKs[2], 10, sdk.AccAddress(PKs[2].Address()), *randomEthAddress3, true)
 	app.StakingKeeper.ApplyAndReturnValidatorSetUpdates(ctx)
 	require.Equal(t, 2, len(app.StakingKeeper.GetLastValidators(ctx)))
 
@@ -1073,10 +1140,14 @@ func TestBondUnbondRedelegateSlashTwice(t *testing.T) {
 	app, ctx, delAddrs, valAddrs := bootstrapHandlerGenesisTest(t, initPower, 3, sdk.TokensFromConsensusPower(initPower, sdk.DefaultPowerReduction))
 	valA, valB, del := valAddrs[0], valAddrs[1], delAddrs[2]
 	consAddr0 := sdk.ConsAddress(PKs[0].Address())
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
+	randomEthAddress2, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
-	valTokens := tstaking.CreateValidatorWithValPower(valA, PKs[0], 10, true)
-	tstaking.CreateValidator(valB, PKs[1], valTokens, true)
+	valTokens := tstaking.CreateValidatorWithValPower(valA, PKs[0], 10, sdk.AccAddress(PKs[0].Address()), *randomEthAddress, true)
+	tstaking.CreateValidator(valB, PKs[1], valTokens, sdk.AccAddress(PKs[1].Address()), *randomEthAddress2, true)
 
 	// delegate 10 stake
 	tstaking.Delegate(del, valA, valTokens)

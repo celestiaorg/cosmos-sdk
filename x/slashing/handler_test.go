@@ -31,8 +31,10 @@ func TestCannotUnjailUnlessJailed(t *testing.T) {
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 	slh := slashing.NewHandler(app.SlashingKeeper)
 	addr, val := sdk.ValAddress(pks[0].Address()), pks[0]
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 
-	amt := tstaking.CreateValidatorWithValPower(addr, val, 100, true)
+	amt := tstaking.CreateValidatorWithValPower(addr, val, 100, sdk.AccAddress(val.Address()), *randomEthAddress, true)
 	staking.EndBlocker(ctx, app.StakingKeeper)
 	require.Equal(
 		t, app.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(addr)),
@@ -58,7 +60,10 @@ func TestCannotUnjailUnlessMeetMinSelfDelegation(t *testing.T) {
 	slh := slashing.NewHandler(app.SlashingKeeper)
 	addr, val := sdk.ValAddress(pks[0].Address()), pks[0]
 	amt := app.StakingKeeper.TokensFromConsensusPower(ctx, 100)
-	msg := tstaking.CreateValidatorMsg(addr, val, amt)
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
+
+	msg := tstaking.CreateValidatorMsg(addr, val, amt, sdk.AccAddress(val.Address()), *randomEthAddress)
 	msg.MinSelfDelegation = amt
 	tstaking.Handle(msg, true)
 
@@ -91,8 +96,10 @@ func TestJailedValidatorDelegations(t *testing.T) {
 	stakingParams := app.StakingKeeper.GetParams(ctx)
 	app.StakingKeeper.SetParams(ctx, stakingParams)
 	valAddr, consAddr := sdk.ValAddress(pks[1].Address()), sdk.ConsAddress(pks[0].Address())
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 
-	amt := tstaking.CreateValidatorWithValPower(valAddr, pks[1], 10, true)
+	amt := tstaking.CreateValidatorWithValPower(valAddr, pks[1], 10, sdk.AccAddress(pks[1].Address()), *randomEthAddress, true)
 	staking.EndBlocker(ctx, app.StakingKeeper)
 
 	// set dummy signing info
@@ -106,7 +113,7 @@ func TestJailedValidatorDelegations(t *testing.T) {
 	// unbond validator total self-delegations (which should jail the validator)
 	valAcc := sdk.AccAddress(valAddr)
 	tstaking.Undelegate(valAcc, valAddr, amt, true)
-	_, err := app.StakingKeeper.CompleteUnbonding(ctx, sdk.AccAddress(valAddr), valAddr)
+	_, err = app.StakingKeeper.CompleteUnbonding(ctx, sdk.AccAddress(valAddr), valAddr)
 	require.Nil(t, err, "expected complete unbonding validator to be ok, got: %v", err)
 
 	// verify validator still exists and is jailed
@@ -150,10 +157,12 @@ func TestHandleAbsentValidator(t *testing.T) {
 
 	power := int64(100)
 	addr, val := sdk.ValAddress(pks[0].Address()), pks[0]
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
 	slh := slashing.NewHandler(app.SlashingKeeper)
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
-	amt := tstaking.CreateValidatorWithValPower(addr, val, power, true)
+	amt := tstaking.CreateValidatorWithValPower(addr, val, power, sdk.AccAddress(val.Address()), *randomEthAddress, true)
 	staking.EndBlocker(ctx, app.StakingKeeper)
 
 	require.Equal(

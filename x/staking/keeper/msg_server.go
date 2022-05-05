@@ -74,10 +74,16 @@ func (k msgServer) CreateValidator(goCtx context.Context, msg *types.MsgCreateVa
 	if err != nil {
 		return nil, err
 	}
+	if _, found := k.GetValidatorByOrchestratorAddress(ctx, orchAddr); found {
+		return nil, types.ErrValidatorOrchestratorAddressExists
+	}
 
 	evmAddr, err := types.NewEthAddress(msg.EthAddress)
 	if err != nil {
 		return nil, err
+	}
+	if _, found := k.GetValidatorByEthereumAddress(ctx, *evmAddr); found {
+		return nil, types.ErrValidatorEthereumAddressExists
 	}
 
 	validator, err := types.NewValidator(valAddr, pk, msg.Description, orchAddr, *evmAddr)
@@ -178,10 +184,24 @@ func (k msgServer) EditValidator(goCtx context.Context, msg *types.MsgEditValida
 	}
 
 	if msg.EthAddress != "" {
+		evmAddr, err := types.NewEthAddress(msg.EthAddress)
+		if err != nil {
+			return nil, err
+		}
+		if _, found := k.GetValidatorByEthereumAddress(ctx, *evmAddr); found {
+			return nil, types.ErrValidatorEthereumAddressExists
+		}
 		validator.EthAddress = msg.EthAddress
 	}
 
 	if msg.Orchestrator != "" {
+		orchAddr, err := sdk.AccAddressFromBech32(msg.Orchestrator)
+		if err != nil {
+			return nil, err
+		}
+		if _, found := k.GetValidatorByOrchestratorAddress(ctx, orchAddr); found {
+			return nil, types.ErrValidatorOrchestratorAddressExists
+		}
 		validator.Orchestrator = msg.Orchestrator
 	}
 

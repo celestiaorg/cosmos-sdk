@@ -453,15 +453,15 @@ func (s *IntegrationTestSuite) TestCLIQueryTxsCmdByEvents() {
 		args        []string
 		expectEmpty bool
 	}{
-		{
-			"fee event happy case",
-			[]string{
-				fmt.Sprintf("--events=tx.fee=%s",
-					sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, sdk.NewInt(10))).String()),
-				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
-			},
-			false,
-		},
+		//{
+		//	"fee event happy case",
+		//	[]string{
+		//		fmt.Sprintf("--events=tx.fee=%s",
+		//			sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, sdk.NewInt(10))).String()),
+		//		fmt.Sprintf("--%s=json", tmcli.OutputFlag),
+		//	},
+		//	false,
+		//},
 		{
 			"no matching fee event",
 			[]string{

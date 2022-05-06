@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -28,15 +27,11 @@ func Test_TestnetCmd(t *testing.T) {
 	err = genutiltest.ExecInitCmd(simapp.ModuleBasics, home, encodingConfig.Marshaler)
 	require.NoError(t, err)
 
-	randomEthAddress, err := teststaking.RandomEthAddress()
-	require.NoError(t, err)
-
 	serverCtx := server.NewContext(viper.New(), cfg, logger)
 	clientCtx := client.Context{}.
 		WithCodec(encodingConfig.Marshaler).
 		WithHomeDir(home).
-		WithTxConfig(encodingConfig.TxConfig).
-		WithEthereumAddress(randomEthAddress.GetAddress())
+		WithTxConfig(encodingConfig.TxConfig)
 
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, server.ServerContextKey, serverCtx)

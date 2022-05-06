@@ -12,6 +12,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 type msgServer struct {
@@ -399,18 +400,12 @@ func (k msgServer) Undelegate(goCtx context.Context, msg *types.MsgUndelegate) (
 	}, nil
 }
 
-func (k msgServer) validateEthereumAddress(ctx sdk.Context, ethAddr string) (types.EthAddress, error) {
-	evmAddr, err := types.NewEthAddress(ethAddr)
-	if err != nil {
-		return types.EthAddress{}, err
+func (k msgServer) validateEthereumAddress(ctx sdk.Context, ethAddr string) (common.Address, error) {
+	evmAddr := common.BytesToAddress([]byte(ethAddr))
+	if _, found := k.GetValidatorByEthereumAddress(ctx, evmAddr); found {
+		return common.Address{}, types.ErrValidatorEthereumAddressExists
 	}
-	if evmAddr.GetAddress() == types.EthZeroAddress.GetAddress() {
-		return types.EthAddress{}, types.ErrValidatorEthereumZeroAddress
-	}
-	if _, found := k.GetValidatorByEthereumAddress(ctx, *evmAddr); found {
-		return types.EthAddress{}, types.ErrValidatorEthereumAddressExists
-	}
-	return *evmAddr, nil
+	return evmAddr, nil
 }
 
 func (k msgServer) validateOrchestratorAddress(ctx sdk.Context, orchAddr string) (sdk.AccAddress, error) {

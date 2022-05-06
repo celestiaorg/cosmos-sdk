@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 	tmcfg "github.com/tendermint/tendermint/config"
 	tmflags "github.com/tendermint/tendermint/libs/cli/flags"
@@ -166,7 +167,7 @@ type (
 		grpcWeb *http.Server
 
 		EthPrivateKey *ecdsa.PrivateKey
-		EthereumAddr  *stakingtypes.EthAddress
+		EthereumAddr  common.Address
 
 		OrchestratorAddr sdk.AccAddress
 	}
@@ -313,8 +314,7 @@ func New(t *testing.T, cfg Config) *Network {
 		ethPrivateKey, err := crypto.GenerateKey()
 		require.NoError(t, err)
 		orchEthPublicKey := ethPrivateKey.Public().(*ecdsa.PublicKey)
-		ethAddr, err := stakingtypes.NewEthAddress(crypto.PubkeyToAddress(*orchEthPublicKey).Hex())
-		require.NoError(t, err)
+		ethAddr := crypto.PubkeyToAddress(*orchEthPublicKey)
 
 		createValMsg, err := stakingtypes.NewMsgCreateValidator(
 			sdk.ValAddress(addr),
@@ -324,7 +324,7 @@ func New(t *testing.T, cfg Config) *Network {
 			stakingtypes.NewCommissionRates(commission, sdk.OneDec(), sdk.OneDec()),
 			sdk.OneInt(),
 			addr,
-			*ethAddr,
+			ethAddr,
 		)
 		require.NoError(t, err)
 

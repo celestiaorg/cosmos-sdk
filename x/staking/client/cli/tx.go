@@ -16,6 +16,7 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 // default values
@@ -145,18 +146,15 @@ func NewEditValidatorCmd() *cobra.Command {
 				orchAddr = &addr
 			}
 
-			var evmAddr *types.EthAddress
+			var evmAddr common.Address
 			if evmAddrString != "" {
-				evmAddr, err = types.NewEthAddress(evmAddrString)
-				if err != nil {
-					return err
-				}
+				evmAddr = common.HexToAddress(evmAddrString)
 			}
 
 			msg := types.NewMsgEditValidator(
 				sdk.ValAddress(valAddr), description,
 				newRate, newMinSelfDelegation,
-				orchAddr, evmAddr,
+				orchAddr, &evmAddr,
 			)
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
@@ -362,16 +360,13 @@ func newBuildCreateValidatorMsg(clientCtx client.Context, txf tx.Factory, fs *fl
 		return txf, nil, err
 	}
 
-	evmAddr, err := types.NewEthAddress(evmAddrString)
-	if err != nil {
-		return txf, nil, err
-	}
+	evmAddr := common.BytesToAddress([]byte(evmAddrString))
 
 	msg, err := types.NewMsgCreateValidator(
 		sdk.ValAddress(valAddr), pk,
 		amount, description,
 		commissionRates, minSelfDelegation,
-		orchAddr, *evmAddr,
+		orchAddr, evmAddr,
 	)
 	if err != nil {
 		return txf, nil, err
@@ -593,16 +588,13 @@ func BuildCreateValidatorMsg(clientCtx client.Context, config TxCreateValidatorC
 		return txBldr, nil, err
 	}
 
-	evmAddr, err := types.NewEthAddress(config.EthereumAddress)
-	if err != nil {
-		return txBldr, nil, err
-	}
+	evmAddr := common.BytesToAddress([]byte(config.EthereumAddress))
 
 	msg, err := types.NewMsgCreateValidator(
 		sdk.ValAddress(valAddr), config.PubKey,
 		amount, description,
 		commissionRates, minSelfDelegation,
-		orchAddr, *evmAddr,
+		orchAddr, evmAddr,
 	)
 
 	if err != nil {

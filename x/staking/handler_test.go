@@ -162,9 +162,6 @@ func TestDuplicatesMsgCreateValidator(t *testing.T) {
 	// two validators can't have the same ethereum address
 	tstaking.CreateValidator(addr2, pk2, valTokens, sdk.AccAddress(pk2.Address()), *randomEthAddress, false)
 
-	// validator can't have the zero ethereum address
-	tstaking.CreateValidator(addr2, pk2, valTokens, sdk.AccAddress(pk2.Address()), *types.EthZeroAddress, false)
-
 	// must have different pubkey and operator
 	tstaking.CreateValidator(addr2, pk2, valTokens, sdk.AccAddress(pk2.Address()), *randomEthAddress2, true)
 
@@ -461,10 +458,6 @@ func TestEditValidatorOrchestratorEthereumChecks(t *testing.T) {
 
 	// duplicate eth address
 	msgEditValidator := types.NewMsgEditValidator(addr2, types.Description{}, nil, nil, nil, randomEthAddress)
-	tstaking.Handle(msgEditValidator, false)
-
-	// zero eth address
-	msgEditValidator = types.NewMsgEditValidator(addr2, types.Description{}, nil, nil, nil, types.EthZeroAddress)
 	tstaking.Handle(msgEditValidator, false)
 
 	// duplicate orch address

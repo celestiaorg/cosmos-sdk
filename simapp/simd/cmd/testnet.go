@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	"net"
 	"os"
 	"path/filepath"
@@ -35,13 +36,11 @@ import (
 )
 
 var (
-	flagNodeDirPrefix       = "node-dir-prefix"
-	flagNumValidators       = "v"
-	flagOutputDir           = "output-dir"
-	flagNodeDaemonHome      = "node-daemon-home"
-	flagStartingIPAddress   = "starting-ip-address"
-	flagOrchestratorAddress = "orchestrator-address"
-	flagEthereumAddress     = "ethereum-address"
+	flagNodeDirPrefix     = "node-dir-prefix"
+	flagNumValidators     = "v"
+	flagOutputDir         = "output-dir"
+	flagNodeDaemonHome    = "node-daemon-home"
+	flagStartingIPAddress = "starting-ip-address"
 )
 
 // get cmd to initialize all files for tendermint testnet and application
@@ -78,8 +77,7 @@ Example:
 
 			return InitTestnet(
 				clientCtx, cmd, config, mbm, genBalIterator, outputDir, chainID, minGasPrices,
-				nodeDirPrefix, nodeDaemonHome, startingIPAddress, keyringBackend, algo,
-				numValidators,
+				nodeDirPrefix, nodeDaemonHome, startingIPAddress, keyringBackend, algo, numValidators,
 			)
 		},
 	}
@@ -93,8 +91,6 @@ Example:
 	cmd.Flags().String(server.FlagMinGasPrices, fmt.Sprintf("0.000006%s", sdk.DefaultBondDenom), "Minimum gas prices to accept for transactions; All fees in a tx must meet this minimum (e.g. 0.01photino,0.001stake)")
 	cmd.Flags().String(flags.FlagKeyringBackend, flags.DefaultKeyringBackend, "Select keyring's backend (os|file|test)")
 	cmd.Flags().String(flags.FlagKeyAlgorithm, string(hd.Secp256k1Type), "Key signing algorithm to generate keys for")
-	cmd.Flags().String(flagOrchestratorAddress, "", "Orchestrator address to use when signing attestations transactions (defaults to validator address)")
-	cmd.Flags().String(flagEthereumAddress, "", "Ethereum address to use when signing attetations")
 
 	return cmd
 }
@@ -102,7 +98,6 @@ Example:
 const nodeDirPerm = 0755
 
 // Initialize the testnet
-// If orchestrator address is empty, it defaults to validator address
 func InitTestnet(
 	clientCtx client.Context,
 	cmd *cobra.Command,
@@ -212,27 +207,11 @@ func InitTestnet(
 		genBalances = append(genBalances, banktypes.Balance{Address: addr.String(), Coins: coins.Sort()})
 		genAccounts = append(genAccounts, authtypes.NewBaseAccount(addr, nil, 0, 0))
 
-		var orchAddress sdk.AccAddress
-		if clientCtx.OrchestratorAddress == "" {
-			orchAddress = sdk.AccAddress(valPubKeys[i].Address())
-		} else {
-			orchAddress, err = sdk.AccAddressFromBech32(clientCtx.OrchestratorAddress)
-			if err != nil {
-				return err
-			}
-		}
+		orchAddress := sdk.AccAddress(valPubKeys[i].Address())
 
-		var ethAddress *stakingtypes.EthAddress
-		if clientCtx.EthereumAddress != "" {
-			ethAddress, err = stakingtypes.NewEthAddress(clientCtx.EthereumAddress)
-			if err != nil {
-				return err
-			}
-		} else {
-			ethAddress, err = stakingtypes.NewEthAddress("0x91DEd26b5f38B065FC0204c7929Da6b2A21277Cd")
-			if err != nil {
-				return err
-			}
+		ethAddress, err := teststaking.RandomEthAddress()
+		if err != nil {
+			return err
 		}
 
 		valTokens := sdk.TokensFromConsensusPower(100, sdk.DefaultPowerReduction)

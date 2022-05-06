@@ -78,7 +78,6 @@ const (
 	FlagLogFormat = "log_format"
 
 	// QGB related flags
-	// FIXME: can we have these
 	FlagOrchestratorAddress = "orchestrator-address"
 	FlagEthereumAddress     = "ethereum-address"
 )

@@ -1,7 +1,9 @@
 package simulation
 
 import (
+	"crypto/ecdsa"
 	"fmt"
+	"github.com/ethereum/go-ethereum/crypto"
 	"math/rand"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -146,7 +148,9 @@ func SimulateMsgCreateValidator(ak types.AccountKeeper, bk types.BankKeeper, k k
 			simtypes.RandomDecAmount(r, maxCommission),
 		)
 
-		ethAddr, _ := types.NewEthAddress("0x91DEd26b5f38B065FC0204c7929Da6b2A21277Cd")
+		ethPrivateKey, _ := crypto.GenerateKey()
+		orchEthPublicKey := ethPrivateKey.Public().(*ecdsa.PublicKey)
+		ethAddr, _ := types.NewEthAddress(crypto.PubkeyToAddress(*orchEthPublicKey).Hex())
 		orchAddr := simAccount.Address
 
 		msg, err := types.NewMsgCreateValidator(address, simAccount.ConsKey.PubKey(), selfDelegation, description, commission, sdk.OneInt(), orchAddr, *ethAddr)

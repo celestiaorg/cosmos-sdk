@@ -53,10 +53,6 @@ type Context struct {
 	FeeGranter        sdk.AccAddress
 	Viper             *viper.Viper
 
-	// QGB related
-	OrchestratorAddress string
-	EthereumAddress     string
-
 	// TODO: Deprecated (remove).
 	LegacyAmino *codec.LegacyAmino
 }
@@ -254,18 +250,6 @@ func (ctx Context) WithViper(prefix string) Context {
 	v.SetEnvPrefix(prefix)
 	v.AutomaticEnv()
 	ctx.Viper = v
-	return ctx
-}
-
-// WithEthAddress returns a copy of the context with an updated ethereum address.
-func (ctx Context) WithEthereumAddress(eth string) Context {
-	ctx.EthereumAddress = eth
-	return ctx
-}
-
-// WithOrchestratorAddress returns a copy of the context with an updated ethereum address.
-func (ctx Context) WithOrchestratorAddress(orch string) Context {
-	ctx.OrchestratorAddress = orch
 	return ctx
 }
 

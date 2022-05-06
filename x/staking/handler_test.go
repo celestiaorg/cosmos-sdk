@@ -156,6 +156,15 @@ func TestDuplicatesMsgCreateValidator(t *testing.T) {
 	// two validators can't have the same pubkey
 	tstaking.CreateValidator(addr2, pk1, valTokens, sdk.AccAddress(pk1.Address()), *randomEthAddress2, false)
 
+	// two validators can't have the same orchestrator address
+	tstaking.CreateValidator(addr2, pk2, valTokens, sdk.AccAddress(pk1.Address()), *randomEthAddress2, false)
+
+	// two validators can't have the same ethereum address
+	tstaking.CreateValidator(addr2, pk2, valTokens, sdk.AccAddress(pk2.Address()), *randomEthAddress, false)
+
+	// validator can't have the zero ethereum address
+	tstaking.CreateValidator(addr2, pk2, valTokens, sdk.AccAddress(pk2.Address()), *types.EthZeroAddress, false)
+
 	// must have different pubkey and operator
 	tstaking.CreateValidator(addr2, pk2, valTokens, sdk.AccAddress(pk2.Address()), *randomEthAddress2, true)
 
@@ -431,6 +440,36 @@ func TestEditValidatorIncreaseMinSelfDelegationBeyondCurrentBond(t *testing.T) {
 
 	newMinSelfDelegation := initBond.Add(sdk.OneInt())
 	msgEditValidator := types.NewMsgEditValidator(validatorAddr, types.Description{}, nil, &newMinSelfDelegation, nil, nil)
+	tstaking.Handle(msgEditValidator, false)
+}
+
+func TestEditValidatorOrchestratorEthereumChecks(t *testing.T) {
+	initPower := int64(1000000)
+	app, ctx, _, valAddrs := bootstrapHandlerGenesisTest(t, initPower, 10, sdk.TokensFromConsensusPower(initPower, sdk.DefaultPowerReduction))
+
+	addr1, addr2 := valAddrs[0], valAddrs[1]
+	pk1, pk2 := PKs[0], PKs[1]
+	randomEthAddress, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
+	randomEthAddress2, err := teststaking.RandomEthAddress()
+	require.NoError(t, err)
+	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
+
+	tstaking.CreateValidatorWithValPower(addr1, pk1, 10, sdk.AccAddress(pk1.Address()), *randomEthAddress, true)
+	tstaking.CreateValidatorWithValPower(addr2, pk2, 10, sdk.AccAddress(pk2.Address()), *randomEthAddress2, true)
+	app.StakingKeeper.ApplyAndReturnValidatorSetUpdates(ctx)
+
+	// duplicate eth address
+	msgEditValidator := types.NewMsgEditValidator(addr2, types.Description{}, nil, nil, nil, randomEthAddress)
+	tstaking.Handle(msgEditValidator, false)
+
+	// zero eth address
+	msgEditValidator = types.NewMsgEditValidator(addr2, types.Description{}, nil, nil, nil, types.EthZeroAddress)
+	tstaking.Handle(msgEditValidator, false)
+
+	// duplicate orch address
+	duplicateOrch := sdk.AccAddress(pk1.Address())
+	msgEditValidator = types.NewMsgEditValidator(addr2, types.Description{}, nil, nil, &duplicateOrch, nil)
 	tstaking.Handle(msgEditValidator, false)
 }
 

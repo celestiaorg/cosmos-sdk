@@ -70,12 +70,12 @@ func (k msgServer) CreateValidator(goCtx context.Context, msg *types.MsgCreateVa
 		}
 	}
 
-	orchAddr, err := k.validateOrchestratorAddress(goCtx, msg.Orchestrator)
+	orchAddr, err := k.validateOrchestratorAddress(ctx, msg.Orchestrator)
 	if err != nil {
 		return nil, err
 	}
 
-	evmAddr, err := k.validateEthereumAddress(goCtx, msg.EthAddress)
+	evmAddr, err := k.validateEthereumAddress(ctx, msg.EthAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +178,7 @@ func (k msgServer) EditValidator(goCtx context.Context, msg *types.MsgEditValida
 	}
 
 	if msg.Orchestrator != "" {
-		_, err := k.validateOrchestratorAddress(goCtx, msg.Orchestrator)
+		_, err := k.validateOrchestratorAddress(ctx, msg.Orchestrator)
 		if err != nil {
 			return nil, err
 		}
@@ -186,7 +186,7 @@ func (k msgServer) EditValidator(goCtx context.Context, msg *types.MsgEditValida
 	}
 
 	if msg.EthAddress != "" {
-		_, err := k.validateEthereumAddress(goCtx, msg.EthAddress)
+		_, err := k.validateEthereumAddress(ctx, msg.EthAddress)
 		if err != nil {
 			return nil, err
 		}
@@ -399,8 +399,7 @@ func (k msgServer) Undelegate(goCtx context.Context, msg *types.MsgUndelegate) (
 	}, nil
 }
 
-func (k msgServer) validateEthereumAddress(goCtx context.Context, ethAddr string) (types.EthAddress, error) {
-	ctx := sdk.UnwrapSDKContext(goCtx)
+func (k msgServer) validateEthereumAddress(ctx sdk.Context, ethAddr string) (types.EthAddress, error) {
 	evmAddr, err := types.NewEthAddress(ethAddr)
 	if err != nil {
 		return types.EthAddress{}, err
@@ -414,8 +413,7 @@ func (k msgServer) validateEthereumAddress(goCtx context.Context, ethAddr string
 	return *evmAddr, nil
 }
 
-func (k msgServer) validateOrchestratorAddress(goCtx context.Context, orchAddr string) (sdk.AccAddress, error) {
-	ctx := sdk.UnwrapSDKContext(goCtx)
+func (k msgServer) validateOrchestratorAddress(ctx sdk.Context, orchAddr string) (sdk.AccAddress, error) {
 	addr, err := sdk.AccAddressFromBech32(orchAddr)
 	if err != nil {
 		return sdk.AccAddress{}, err

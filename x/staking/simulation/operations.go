@@ -151,7 +151,7 @@ func SimulateMsgCreateValidator(ak types.AccountKeeper, bk types.BankKeeper, k k
 		// this is mainly to have a deterministic way of generating an Ethereum address on every run
 		bytesOrchAddressWithoutPrefix := simAccount.Address.Bytes()[len([]byte(sdk.Bech32MainPrefix)):]
 		doubleOrchAddressBytes := append(bytesOrchAddressWithoutPrefix, bytesOrchAddressWithoutPrefix...) // to have a long enough bytes array
-		ethAddr, _ := types.NewEthAddress("0x" + fmt.Sprintf("%X", doubleOrchAddressBytes[:(types.ETHContractAddressLen/2)-2]))
+		ethAddr, _ := types.NewEthAddress("0x" + fmt.Sprintf("%X", doubleOrchAddressBytes[:(types.ETHContractAddressLen/2)-1]))
 
 		msg, err := types.NewMsgCreateValidator(address, simAccount.ConsKey.PubKey(), selfDelegation, description, commission, sdk.OneInt(), orchAddr, *ethAddr)
 		if err != nil {

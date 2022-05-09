@@ -13,7 +13,6 @@ import (
 const (
 	// ETHContractAddressLen is the length of contract address strings
 	ETHContractAddressLen = 42
-	EthZeroAddress        = "0x0000000000000000000000000000000000000000"
 )
 
 var EthZeroAddress, _ = NewEthAddress("0x0000000000000000000000000000000000000000")

@@ -14,7 +14,7 @@ import (
 
 // SimAppChainID hardcoded chainID for simulation
 const (
-	DefaultGenTxGas = 2100000 // An increase is needed when adding checks to staking/msg_server.go
+	DefaultGenTxGas = 2500000 // An increase is needed when adding checks to staking/msg_server.go
 	SimAppChainID   = "simulation-app"
 )
 

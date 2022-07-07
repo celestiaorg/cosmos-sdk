@@ -146,18 +146,21 @@ func NewEditValidatorCmd() *cobra.Command {
 				orchAddr = &addr
 			}
 
-			var evmAddr common.Address
+			var evmAddr *common.Address
 			if evmAddrString != "" {
 				if !common.IsHexAddress(evmAddrString) {
 					return types.ErrEthAddressNotHex
 				}
-				evmAddr = common.HexToAddress(evmAddrString)
+				addr := common.HexToAddress(evmAddrString)
+				evmAddr = &addr
+			} else {
+				evmAddr = nil
 			}
 
 			msg := types.NewMsgEditValidator(
 				sdk.ValAddress(valAddr), description,
 				newRate, newMinSelfDelegation,
-				orchAddr, &evmAddr,
+				orchAddr, evmAddr,
 			)
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)

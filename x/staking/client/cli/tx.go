@@ -366,7 +366,7 @@ func newBuildCreateValidatorMsg(clientCtx client.Context, txf tx.Factory, fs *fl
 	if !common.IsHexAddress(evmAddrString) {
 		return txf, nil, types.ErrEthAddressNotHex
 	}
-	evmAddr := common.BytesToAddress([]byte(evmAddrString))
+	evmAddr := common.HexToAddress(evmAddrString)
 
 	msg, err := types.NewMsgCreateValidator(
 		sdk.ValAddress(valAddr), pk,

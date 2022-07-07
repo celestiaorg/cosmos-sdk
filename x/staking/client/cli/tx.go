@@ -148,6 +148,9 @@ func NewEditValidatorCmd() *cobra.Command {
 
 			var evmAddr common.Address
 			if evmAddrString != "" {
+				if !common.IsHexAddress(evmAddrString) {
+					return types.ErrEthAddressNotHex
+				}
 				evmAddr = common.HexToAddress(evmAddrString)
 			}
 
@@ -360,6 +363,9 @@ func newBuildCreateValidatorMsg(clientCtx client.Context, txf tx.Factory, fs *fl
 		return txf, nil, err
 	}
 
+	if !common.IsHexAddress(evmAddrString) {
+		return txf, nil, types.ErrEthAddressNotHex
+	}
 	evmAddr := common.BytesToAddress([]byte(evmAddrString))
 
 	msg, err := types.NewMsgCreateValidator(
@@ -588,7 +594,10 @@ func BuildCreateValidatorMsg(clientCtx client.Context, config TxCreateValidatorC
 		return txBldr, nil, err
 	}
 
-	evmAddr := common.BytesToAddress([]byte(config.EthereumAddress))
+	if !common.IsHexAddress(config.EthereumAddress) {
+		return txBldr, nil, types.ErrEthAddressNotHex
+	}
+	evmAddr := common.HexToAddress(config.EthereumAddress)
 
 	msg, err := types.NewMsgCreateValidator(
 		sdk.ValAddress(valAddr), config.PubKey,

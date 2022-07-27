@@ -677,6 +677,7 @@ func (s *IntegrationTestSuite) TestCLIQueryTxsCmdByEvents() {
 
 			out, err := clitestutil.ExecTestCLICmd(clientCtx, cmd, tc.args)
 			if tc.expectError != "" {
+				s.Require().Error(err)
 				s.Require().Equal(tc.expectError, err.Error())
 				return
 			}

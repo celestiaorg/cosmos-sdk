@@ -157,8 +157,6 @@ func NewEditValidatorCmd() *cobra.Command {
 				}
 				addr := common.HexToAddress(evmAddrString)
 				evmAddr = &addr
-			} else {
-				evmAddr = nil
 			}
 
 			msg := types.NewMsgEditValidator(

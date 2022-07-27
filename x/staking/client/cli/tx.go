@@ -650,7 +650,7 @@ func BuildCreateValidatorMsg(clientCtx client.Context, config TxCreateValidatorC
 
 	orchAddr, err := sdk.AccAddressFromBech32(config.OrchestratorAddress)
 	if err != nil {
-		return txBldr, nil, err
+		return txBldr, nil, sdkerrors.Wrap(err, "orchestrator address")
 	}
 
 	if !common.IsHexAddress(config.EthereumAddress) {

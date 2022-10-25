@@ -31,7 +31,7 @@ func TestUnJailNotBonded(t *testing.T) {
 	// create max (5) validators all with the same power
 	for i := uint32(0); i < p.MaxValidators; i++ {
 		addr, val := valAddrs[i], pks[i]
-		randomEthAddress, err := teststaking.RandomEthAddress()
+		randomEthAddress, err := teststaking.RandomEVMAddress()
 		require.NoError(t, err)
 		tstaking.CreateValidatorWithValPower(addr, val, 100, sdk.AccAddress(val.Address()), *randomEthAddress, true)
 	}
@@ -42,7 +42,7 @@ func TestUnJailNotBonded(t *testing.T) {
 	// create a 6th validator with less power than the cliff validator (won't be bonded)
 	addr, val := valAddrs[5], pks[5]
 	amt := app.StakingKeeper.TokensFromConsensusPower(ctx, 50)
-	randomEthAddress, err := teststaking.RandomEthAddress()
+	randomEthAddress, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 	msg := tstaking.CreateValidatorMsg(addr, val, amt, sdk.AccAddress(val.Address()), *randomEthAddress)
 	msg.MinSelfDelegation = amt
@@ -95,7 +95,7 @@ func TestHandleNewValidator(t *testing.T) {
 	addr, val := valAddrs[0], pks[0]
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 	ctx = ctx.WithBlockHeight(app.SlashingKeeper.SignedBlocksWindow(ctx) + 1)
-	randomEthAddress, err := teststaking.RandomEthAddress()
+	randomEthAddress, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 
 	// Validator created
@@ -142,7 +142,7 @@ func TestHandleAlreadyJailed(t *testing.T) {
 	pks := simapp.CreateTestPubKeys(1)
 	addr, val := valAddrs[0], pks[0]
 	power := int64(100)
-	randomEthAddress, err := teststaking.RandomEthAddress()
+	randomEthAddress, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
@@ -205,7 +205,7 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 	consAddr := sdk.ConsAddress(addr)
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 	valAddr := sdk.ValAddress(addr)
-	randomEthAddress, err := teststaking.RandomEthAddress()
+	randomEthAddress, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 
 	tstaking.CreateValidatorWithValPower(valAddr, val, power, sdk.AccAddress(val.Address()), *randomEthAddress, true)
@@ -221,7 +221,7 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 	}
 
 	// kick first validator out of validator set
-	randomEthAddress2, err := teststaking.RandomEthAddress()
+	randomEthAddress2, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 	tstaking.CreateValidatorWithValPower(sdk.ValAddress(pks[1].Address()), pks[1], power+1, sdk.AccAddress(pks[1].Address()), *randomEthAddress2, true)
 	validatorUpdates = staking.EndBlocker(ctx, app.StakingKeeper)

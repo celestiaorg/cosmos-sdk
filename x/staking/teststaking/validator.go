@@ -20,7 +20,7 @@ func NewValidator(t testing.TB, operator sdk.ValAddress, pubKey cryptotypes.PubK
 	return v
 }
 
-func RandomEthAddress() (*common.Address, error) {
+func RandomEVMAddress() (*common.Address, error) {
 	ethPrivateKey, err := crypto.GenerateKey()
 	if err != nil {
 		return nil, err

@@ -39,7 +39,7 @@ func bootstrapSlashTest(t *testing.T, power int64) (*simapp.SimApp, sdk.Context,
 	require.NoError(t, testutil.FundModuleAccount(app.BankKeeper, ctx, bondedPool.GetName(), bondedCoins))
 
 	for i := int64(0); i < numVals; i++ {
-		randomEthAddress, err := teststaking.RandomEthAddress()
+		randomEthAddress, err := teststaking.RandomEVMAddress()
 		require.NoError(t, err)
 		validator := teststaking.NewValidator(t, addrVals[i], PKs[i], sdk.AccAddress(PKs[i].Address()), *randomEthAddress)
 		validator, _ = validator.AddTokensFromDel(amt)

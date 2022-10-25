@@ -362,7 +362,7 @@ func getTestingValidator(t *testing.T, app *simapp.SimApp, ctx sdk.Context, acco
 	account := accounts[n]
 	valPubKey := account.PubKey
 	valAddr := sdk.ValAddress(account.PubKey.Address().Bytes())
-	randomEthAddress, err := teststaking.RandomEthAddress()
+	randomEthAddress, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 	validator := teststaking.NewValidator(t, valAddr, valPubKey, sdk.AccAddress(valPubKey.Address()), *randomEthAddress)
 	validator, err = validator.SetInitialCommission(commission)

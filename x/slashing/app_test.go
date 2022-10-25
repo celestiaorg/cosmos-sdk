@@ -64,7 +64,7 @@ func TestSlashingMsgs(t *testing.T) {
 	description := stakingtypes.NewDescription("foo_moniker", "", "", "", "")
 	commission := stakingtypes.NewCommissionRates(sdk.ZeroDec(), sdk.ZeroDec(), sdk.ZeroDec())
 
-	randomEthAddress, err := teststaking.RandomEthAddress()
+	randomEthAddress, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 	createValidatorMsg, err := stakingtypes.NewMsgCreateValidator(
 		sdk.ValAddress(addr1), valKey.PubKey(), bondCoin, description, commission, sdk.OneInt(),

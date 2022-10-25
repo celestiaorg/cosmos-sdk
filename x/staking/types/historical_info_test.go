@@ -22,11 +22,11 @@ var header = tmproto.Header{
 }
 
 func createValidators(t *testing.T) []types.Validator {
-	randomEthAddress1, err := teststaking.RandomEthAddress()
+	randomEthAddress1, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
-	randomEthAddress2, err := teststaking.RandomEthAddress()
+	randomEthAddress2, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
-	randomEthAddress3, err := teststaking.RandomEthAddress()
+	randomEthAddress3, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 	return []types.Validator{
 		newValidator(t, valAddr1, pk1, sdk.AccAddress(pk1.Address()), *randomEthAddress1),

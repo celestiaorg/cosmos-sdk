@@ -341,7 +341,7 @@ type Validator struct {
 	Orchestrator string `protobuf:"bytes,12,opt,name=orchestrator,proto3" json:"orchestrator,omitempty"`
 	// This is a hex encoded 0x Ethereum public key that will be used by this
 	// validator on Ethereum
-	EthAddress string `protobuf:"bytes,13,opt,name=eth_address,json=ethAddress,proto3" json:"eth_address,omitempty"`
+	EVMAddress string `protobuf:"bytes,13,opt,name=eth_address,json=ethAddress,proto3" json:"eth_address,omitempty"`
 }
 
 func (m *Validator) Reset()      { *m = Validator{} }
@@ -2251,10 +2251,10 @@ func (m *Validator) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if len(m.EthAddress) > 0 {
-		i -= len(m.EthAddress)
-		copy(dAtA[i:], m.EthAddress)
-		i = encodeVarintStaking(dAtA, i, uint64(len(m.EthAddress)))
+	if len(m.EVMAddress) > 0 {
+		i -= len(m.EVMAddress)
+		copy(dAtA[i:], m.EVMAddress)
+		i = encodeVarintStaking(dAtA, i, uint64(len(m.EVMAddress)))
 		i--
 		dAtA[i] = 0x6a
 	}
@@ -3183,7 +3183,7 @@ func (m *Validator) Size() (n int) {
 	if l > 0 {
 		n += 1 + l + sovStaking(uint64(l))
 	}
-	l = len(m.EthAddress)
+	l = len(m.EVMAddress)
 	if l > 0 {
 		n += 1 + l + sovStaking(uint64(l))
 	}
@@ -4469,7 +4469,7 @@ func (m *Validator) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 13:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EthAddress", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field EVMAddress", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -4497,7 +4497,7 @@ func (m *Validator) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.EthAddress = string(dAtA[iNdEx:postIndex])
+			m.EVMAddress = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex

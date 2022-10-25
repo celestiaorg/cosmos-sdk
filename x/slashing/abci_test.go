@@ -27,7 +27,7 @@ func TestBeginBlocker(t *testing.T) {
 
 	// bond the validator
 	power := int64(100)
-	randomEthAddress, err := teststaking.RandomEthAddress()
+	randomEthAddress, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 	amt := tstaking.CreateValidatorWithValPower(addr, pk, power, sdk.AccAddress(pk.Address()), *randomEthAddress, true)
 	staking.EndBlocker(ctx, app.StakingKeeper)

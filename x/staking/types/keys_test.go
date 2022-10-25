@@ -27,7 +27,7 @@ var (
 func TestGetValidatorPowerRank(t *testing.T) {
 	valAddr1 := sdk.ValAddress(keysAddr1)
 
-	randomEthAddress, err := teststaking.RandomEthAddress()
+	randomEthAddress, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 
 	val1 := newValidator(t, valAddr1, keysPK1, sdk.AccAddress(keysPK1.Address()), *randomEthAddress)

@@ -20,13 +20,13 @@ import (
 )
 
 func TestValidatorTestEquivalent(t *testing.T) {
-	randomEthAddress1, err := teststaking.RandomEthAddress()
+	randomEthAddress1, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 	val1 := newValidator(t, valAddr1, pk1, sdk.AccAddress(pk1.Address()), *randomEthAddress1)
 	val2 := newValidator(t, valAddr1, pk1, sdk.AccAddress(pk1.Address()), *randomEthAddress1)
 	require.Equal(t, val1.String(), val2.String())
 
-	randomEthAddress2, err := teststaking.RandomEthAddress()
+	randomEthAddress2, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 	val2 = newValidator(t, valAddr2, pk2, sdk.AccAddress(pk2.Address()), *randomEthAddress2)
 	require.NotEqual(t, val1.String(), val2.String())
@@ -62,7 +62,7 @@ func TestUpdateDescription(t *testing.T) {
 }
 
 func TestABCIValidatorUpdate(t *testing.T) {
-	randomEthAddress, err := teststaking.RandomEthAddress()
+	randomEthAddress, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 	validator := newValidator(t, valAddr1, pk1, sdk.AccAddress(pk1.Address()), *randomEthAddress)
 	abciVal := validator.ABCIValidatorUpdate(sdk.DefaultPowerReduction)
@@ -73,7 +73,7 @@ func TestABCIValidatorUpdate(t *testing.T) {
 }
 
 func TestABCIValidatorUpdateZero(t *testing.T) {
-	randomEthAddress, err := teststaking.RandomEthAddress()
+	randomEthAddress, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 	validator := newValidator(t, valAddr1, pk1, sdk.AccAddress(pk1.Address()), *randomEthAddress)
 	abciVal := validator.ABCIValidatorUpdateZero()
@@ -109,7 +109,7 @@ func TestRemoveTokens(t *testing.T) {
 }
 
 func TestAddTokensValidatorBonded(t *testing.T) {
-	randomEthAddress, err := teststaking.RandomEthAddress()
+	randomEthAddress, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 	validator := newValidator(t, valAddr1, pk1, sdk.AccAddress(pk1.Address()), *randomEthAddress)
 	validator = validator.UpdateStatus(types.Bonded)
@@ -121,7 +121,7 @@ func TestAddTokensValidatorBonded(t *testing.T) {
 }
 
 func TestAddTokensValidatorUnbonding(t *testing.T) {
-	randomEthAddress, err := teststaking.RandomEthAddress()
+	randomEthAddress, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 	validator := newValidator(t, valAddr1, pk1, sdk.AccAddress(pk1.Address()), *randomEthAddress)
 	validator = validator.UpdateStatus(types.Unbonding)
@@ -134,7 +134,7 @@ func TestAddTokensValidatorUnbonding(t *testing.T) {
 }
 
 func TestAddTokensValidatorUnbonded(t *testing.T) {
-	randomEthAddress, err := teststaking.RandomEthAddress()
+	randomEthAddress, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 	validator := newValidator(t, valAddr1, pk1, sdk.AccAddress(pk1.Address()), *randomEthAddress)
 	validator = validator.UpdateStatus(types.Unbonded)
@@ -170,7 +170,7 @@ func TestRemoveDelShares(t *testing.T) {
 }
 
 func TestAddTokensFromDel(t *testing.T) {
-	randomEthAddress, err := teststaking.RandomEthAddress()
+	randomEthAddress, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 	validator := newValidator(t, valAddr1, pk1, sdk.AccAddress(pk1.Address()), *randomEthAddress)
 
@@ -186,7 +186,7 @@ func TestAddTokensFromDel(t *testing.T) {
 }
 
 func TestUpdateStatus(t *testing.T) {
-	randomEthAddress, err := teststaking.RandomEthAddress()
+	randomEthAddress, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 	validator := newValidator(t, valAddr1, pk1, sdk.AccAddress(pk1.Address()), *randomEthAddress)
 	validator, _ = validator.AddTokensFromDel(sdk.NewInt(100))
@@ -216,7 +216,7 @@ func TestPossibleOverflow(t *testing.T) {
 }
 
 func TestValidatorMarshalUnmarshalJSON(t *testing.T) {
-	randomEthAddress, err := teststaking.RandomEthAddress()
+	randomEthAddress, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 	validator := newValidator(t, valAddr1, pk1, sdk.AccAddress(pk1.Address()), *randomEthAddress)
 	js, err := legacy.Cdc.MarshalJSON(validator)
@@ -230,7 +230,7 @@ func TestValidatorMarshalUnmarshalJSON(t *testing.T) {
 }
 
 func TestValidatorSetInitialCommission(t *testing.T) {
-	randomEthAddress, err := teststaking.RandomEthAddress()
+	randomEthAddress, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 	val := newValidator(t, valAddr1, pk1, sdk.AccAddress(pk1.Address()), *randomEthAddress)
 	testCases := []struct {
@@ -273,7 +273,7 @@ func TestValidatorsSortDeterminism(t *testing.T) {
 	// Create random validator slice
 	for i := range vals {
 		pk := ed25519.GenPrivKey().PubKey()
-		randomEthAddress, err := teststaking.RandomEthAddress()
+		randomEthAddress, err := teststaking.RandomEVMAddress()
 		require.NoError(t, err)
 		vals[i] = newValidator(t, sdk.ValAddress(pk.Address()), pk, sdk.AccAddress(pk.Address()), *randomEthAddress)
 	}
@@ -302,7 +302,7 @@ func TestValidatorsSortTendermint(t *testing.T) {
 	for i := range vals {
 		pk := ed25519.GenPrivKey().PubKey()
 		pk2 := ed25519.GenPrivKey().PubKey()
-		randomEthAddress, err := teststaking.RandomEthAddress()
+		randomEthAddress, err := teststaking.RandomEVMAddress()
 		require.NoError(t, err)
 		vals[i] = newValidator(t, sdk.ValAddress(pk2.Address()), pk, sdk.AccAddress(pk.Address()), *randomEthAddress)
 		vals[i].Status = types.Bonded
@@ -336,7 +336,7 @@ func TestValidatorToTm(t *testing.T) {
 
 	for i := range vals {
 		pk := ed25519.GenPrivKey().PubKey()
-		randomEthAddress, err := teststaking.RandomEthAddress()
+		randomEthAddress, err := teststaking.RandomEVMAddress()
 		require.NoError(t, err)
 		val := newValidator(t, sdk.ValAddress(pk.Address()), pk, sdk.AccAddress(pk.Address()), *randomEthAddress)
 		val.Status = types.Bonded

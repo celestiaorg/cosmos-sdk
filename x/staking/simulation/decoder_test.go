@@ -37,7 +37,7 @@ func TestDecodeStore(t *testing.T) {
 	dec := simulation.NewDecodeStore(cdc)
 	bondTime := time.Now().UTC()
 
-	randomEthAddress, err := teststaking.RandomEthAddress()
+	randomEthAddress, err := teststaking.RandomEVMAddress()
 	require.NoError(t, err)
 	val, err := types.NewValidator(valAddr1, delPk1, types.NewDescription("test", "test", "test", "test", "test"), sdk.AccAddress(delPk1.Address()), *randomEthAddress)
 	require.NoError(t, err)

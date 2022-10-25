@@ -135,7 +135,7 @@ type MsgEditValidator struct {
 	CommissionRate    *github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,3,opt,name=commission_rate,json=commissionRate,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"commission_rate,omitempty"`
 	MinSelfDelegation *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,4,opt,name=min_self_delegation,json=minSelfDelegation,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"min_self_delegation,omitempty"`
 	Orchestrator      string                                  `protobuf:"bytes,5,opt,name=orchestrator,proto3" json:"orchestrator,omitempty"`
-	EthAddress        string                                  `protobuf:"bytes,6,opt,name=eth_address,json=ethAddress,proto3" json:"eth_address,omitempty"`
+	EVMAddress        string                                  `protobuf:"bytes,6,opt,name=eth_address,json=ethAddress,proto3" json:"eth_address,omitempty"`
 }
 
 func (m *MsgEditValidator) Reset()         { *m = MsgEditValidator{} }
@@ -1055,10 +1055,10 @@ func (m *MsgEditValidator) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if len(m.EthAddress) > 0 {
-		i -= len(m.EthAddress)
-		copy(dAtA[i:], m.EthAddress)
-		i = encodeVarintTx(dAtA, i, uint64(len(m.EthAddress)))
+	if len(m.EVMAddress) > 0 {
+		i -= len(m.EVMAddress)
+		copy(dAtA[i:], m.EVMAddress)
+		i = encodeVarintTx(dAtA, i, uint64(len(m.EVMAddress)))
 		i--
 		dAtA[i] = 0x32
 	}
@@ -1525,7 +1525,7 @@ func (m *MsgEditValidator) Size() (n int) {
 	if l > 0 {
 		n += 1 + l + sovTx(uint64(l))
 	}
-	l = len(m.EthAddress)
+	l = len(m.EVMAddress)
 	if l > 0 {
 		n += 1 + l + sovTx(uint64(l))
 	}
@@ -1966,7 +1966,7 @@ func (m *MsgCreateValidator) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 9:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EthAddress", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field EVMAddress", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -2267,7 +2267,7 @@ func (m *MsgEditValidator) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 6:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EthAddress", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field EVMAddress", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -2295,7 +2295,7 @@ func (m *MsgEditValidator) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.EthAddress = string(dAtA[iNdEx:postIndex])
+			m.EVMAddress = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex

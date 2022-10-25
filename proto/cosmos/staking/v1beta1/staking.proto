@@ -128,7 +128,7 @@ message Validator {
   // references the key that is being delegated to
   string orchestrator = 12;
   // This is a hex encoded 0x EVM public key that will be used by this
-  // validator on EVM
+  // validator on the target EVM chain.
   string evm_address = 13;
 }
 

@@ -148,7 +148,7 @@ func (msg MsgCreateValidator) UnpackInterfaces(unpacker codectypes.AnyUnpacker) 
 func NewMsgEditValidator(
 	valAddr sdk.ValAddress, description Description,
 	newRate *sdk.Dec, newMinSelfDelegation *sdk.Int,
-	newOrch *sdk.AccAddress, newEVM *common.Address,
+	newOrch *sdk.AccAddress, newEVMAddress *common.Address,
 ) *MsgEditValidator {
 	// TODO add test for Orchestrator and EVM addresses edit
 	var orch string
@@ -158,11 +158,11 @@ func NewMsgEditValidator(
 		orch = ""
 	}
 
-	var evm string
-	if newEVM != nil {
-		evm = newEVM.Hex()
+	var evmStringAddress string
+	if newEVMAddress != nil {
+		evmStringAddress = newEVMAddress.Hex()
 	} else {
-		evm = ""
+		evmStringAddress = ""
 	}
 
 	return &MsgEditValidator{
@@ -171,7 +171,7 @@ func NewMsgEditValidator(
 		ValidatorAddress:  valAddr.String(),
 		MinSelfDelegation: newMinSelfDelegation,
 		Orchestrator:      orch,
-		EvmAddress:        evm,
+		EvmAddress:        evmStringAddress,
 	}
 }
 

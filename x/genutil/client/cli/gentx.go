@@ -118,7 +118,7 @@ $ %s gentx my-key-name 1000000stake --home=/path/to/home/dir --keyring-backend=o
 
 			evmAddress, err := cmd.Flags().GetString(flags.FlagEVMAddress)
 			if err != nil {
-				return errors.Wrapf(err, "failed to get the evm address")
+				return errors.Wrapf(err, "failed to get the EVM address")
 			}
 
 			// set flags for creating a gentx

@@ -85,7 +85,7 @@ func (k Keeper) GetValidatorByEVMAddress(ctx sdk.Context, evm common.Address) (t
 	// Issue: https://github.com/celestiaorg/cosmos-sdk/issues/129
 	validators := k.GetAllValidators(ctx)
 	for _, val := range validators {
-		if val.EVMAddress == evm.Hex() {
+		if val.EvmAddress == evm.Hex() {
 			return val, true
 		}
 	}

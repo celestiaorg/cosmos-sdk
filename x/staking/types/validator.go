@@ -60,7 +60,7 @@ func NewValidator(operator sdk.ValAddress, pubKey cryptotypes.PubKey, descriptio
 		Commission:        NewCommission(sdk.ZeroDec(), sdk.ZeroDec(), sdk.ZeroDec()),
 		MinSelfDelegation: sdk.OneInt(),
 		Orchestrator:      orchAddr.String(),
-		EVMAddress:        evmAddress.Hex(),
+		EvmAddress:        evmAddress.Hex(),
 	}, nil
 }
 

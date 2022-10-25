@@ -53,7 +53,7 @@ func NewMsgCreateValidator(
 		Commission:        commission,
 		MinSelfDelegation: minSelfDelegation,
 		Orchestrator:      orch.String(),
-		EthAddress:        eth.Hex(),
+		EvmAddress:        eth.Hex(),
 	}, nil
 }
 
@@ -171,7 +171,7 @@ func NewMsgEditValidator(
 		ValidatorAddress:  valAddr.String(),
 		MinSelfDelegation: newMinSelfDelegation,
 		Orchestrator:      orch,
-		EVMAddress:        evm,
+		EvmAddress:        evm,
 	}
 }
 

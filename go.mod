@@ -76,7 +76,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bgentry/go-netrc v0.0.0-20140422174119-9fd32a8b3d3d // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.1.2 // indirect
-	github.com/celestiaorg/nmt v0.11.0 // indirect
+	github.com/celestiaorg/nmt v0.12.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.1.1 // indirect
 	github.com/cespare/xxhash v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
@@ -173,7 +173,7 @@ replace (
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 
 	github.com/jhump/protoreflect => github.com/jhump/protoreflect v1.9.0
-	github.com/tendermint/tendermint => github.com/celestiaorg/celestia-core v1.12.0-tm-v0.34.23
+	github.com/tendermint/tendermint => github.com/celestiaorg/celestia-core v1.12.1-tm-v0.34.23
 )
 
 retract (

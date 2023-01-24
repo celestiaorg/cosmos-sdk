@@ -568,6 +568,12 @@ func (app *BaseApp) getState(mode runTxMode) *state {
 	return app.checkState
 }
 
+// NewProcessProposalContext returns a context with a branched version of the
+// DeliverTx state that is safe to use during ProcessProposal.
+func (app *BaseApp) NewProcessProposalContext(h tmproto.Header) sdk.Context {
+	return sdk.NewContext(app.deliverState.ms.CacheMultiStore(), h, false, app.logger)
+}
+
 // retrieve the context for the tx w/ txBytes and other memoized values.
 func (app *BaseApp) getContextForTx(mode runTxMode, txBytes []byte) sdk.Context {
 	ctx := app.getState(mode).ctx.

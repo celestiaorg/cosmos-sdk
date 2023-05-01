@@ -2,8 +2,9 @@ package keeper_test
 
 import (
 	"fmt"
-	"github.com/ethereum/go-ethereum/common"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"

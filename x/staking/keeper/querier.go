@@ -3,8 +3,9 @@ package keeper
 import (
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/common"
 	"strings"
+
+	"github.com/ethereum/go-ethereum/common"
 
 	abci "github.com/tendermint/tendermint/abci/types"
 

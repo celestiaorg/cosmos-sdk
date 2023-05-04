@@ -63,7 +63,7 @@ func (m MsgSubmitProposal) ValidateBasic() error {
 
 	// Check if no Messages are proposed
 	if len(m.Messages) == 0 {
-		return sdkerrors.Wrap(types.ErrNoProposalMsgs, "Msgs length must be non-nil")
+		return sdkerrors.Wrap(types.ErrNoProposalMsgs, "Msgs length must be non-zero")
 	}
 
 	msgs, err := m.GetMsgs()

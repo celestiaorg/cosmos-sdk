@@ -292,7 +292,7 @@ func TestInitWithConsensusParams(t *testing.T) {
 
 	serverCtx := server.NewContext(viper.New(), cfg, logger)
 
-	// set new defult consensus params
+	// set new default consensus params
 	cps := coretypes.DefaultConsensusParams()
 	cps.Block.MaxBytes = 100000000
 	cps.Block.MaxGas = 420420420

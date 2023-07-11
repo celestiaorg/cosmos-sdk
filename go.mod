@@ -180,7 +180,7 @@ replace (
 	// replace broken goleveldb.
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	// use cometbft
-	github.com/tendermint/tendermint => github.com/celestiaorg/celestia-core v1.23.0-tm-v0.34.28.0.20230711160958-8da9e6a9d557 // v1.22.0-tm-v0.34.28
+	github.com/tendermint/tendermint => github.com/celestiaorg/celestia-core v1.24.0-tm-v0.34.28
 )
 
 retract (

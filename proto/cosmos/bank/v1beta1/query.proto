@@ -130,8 +130,10 @@ message QuerySpendableBalancesResponse {
   repeated cosmos.base.v1beta1.Coin balances = 1
       [(gogoproto.nullable) = false, (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"];
 
+  int64 query_time = 2;
+
   // pagination defines the pagination in the response.
-  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+  cosmos.base.query.v1beta1.PageResponse pagination = 3;
 }
 
 // QueryTotalSupplyRequest is the request type for the Query/TotalSupply RPC

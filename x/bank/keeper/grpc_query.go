@@ -108,7 +108,7 @@ func (k BaseKeeper) SpendableBalances(ctx context.Context, req *types.QuerySpend
 		result = append(result, sdk.NewCoin(c.Denom, spendable.AmountOf(c.Denom)))
 	}
 
-	return &types.QuerySpendableBalancesResponse{Balances: result, Pagination: pageRes}, nil
+	return &types.QuerySpendableBalancesResponse{Balances: result, QueryTime: sdkCtx.BlockTime().Unix(), Pagination: pageRes}, nil
 }
 
 // TotalSupply implements the Query/TotalSupply gRPC method

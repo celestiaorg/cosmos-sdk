@@ -3,6 +3,7 @@ package baseapp
 import (
 	"context"
 	"strconv"
+	"time"
 
 	gogogrpc "github.com/gogo/protobuf/grpc"
 	grpcmiddleware "github.com/grpc-ecosystem/go-grpc-middleware"
@@ -55,6 +56,25 @@ func (app *BaseApp) RegisterGRPCServer(server gogogrpc.Server) {
 		// Add relevant gRPC headers
 		if height == 0 {
 			height = sdkCtx.BlockHeight() // If height was not set in the request, set it to the latest
+		}
+
+		// Get block time header from the request context, if present.
+		var blockTime int64
+		if blockTimes := md.Get(grpctypes.GRPCBlockTimeHeader); len(blockTimes) == 1 {
+			blockTime, err = strconv.ParseInt(blockTimes[0], 10, 64)
+			if err != nil {
+				return nil, sdkerrors.Wrapf(
+					sdkerrors.ErrInvalidRequest,
+					"Baseapp.RegisterGRPCServer: invalid blockTime header %q: %v", grpctypes.GRPCBlockTimeHeader, err)
+			}
+			if blockTime <= 0 {
+				// Reject invalid heights.
+				return nil, sdkerrors.Wrap(
+					sdkerrors.ErrInvalidRequest,
+					"cannot query with blockTime <= 0; please provide a valid blockTime",
+				)
+			}
+			sdkCtx = sdkCtx.WithBlockTime(time.Unix(blockTime, 0))
 		}
 
 		// Attach the sdk.Context into the gRPC's context.Context.

@@ -52,11 +52,6 @@ func (s msgServer) CreateVestingAccount(goCtx context.Context, msg *types.MsgCre
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid start and end time (must be start < end)")
 	}
 
-	ctx = sdk.UnwrapSDKContext(goCtx)
-	if err := s.BankKeeper.IsSendEnabledCoins(ctx, msg.Amount...); err != nil {
-		return nil, err
-	}
-
 	if bk.BlockedAddr(to) {
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to receive funds", msg.ToAddress)
 	}

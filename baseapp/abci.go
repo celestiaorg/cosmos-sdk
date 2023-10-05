@@ -60,6 +60,9 @@ func (app *BaseApp) InitChain(req abci.RequestInitChain) (res abci.ResponseInitC
 	// to state.
 	if req.ConsensusParams != nil {
 		app.StoreConsensusParams(app.deliverState.ctx, req.ConsensusParams)
+		if req.ConsensusParams.Version != nil {
+			app.appVersion = req.ConsensusParams.Version.AppVersion
+		}
 	}
 
 	if app.initChainer == nil {

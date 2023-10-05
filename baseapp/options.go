@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/codec/types"
@@ -110,8 +111,10 @@ func (app *BaseApp) SetVersion(v string) {
 	app.version = v
 }
 
-// SetProtocolVersion sets the application's protocol version
-func (app *BaseApp) SetProtocolVersion(v uint64) {
+// SetAppVersion sets the application's protocol version
+func (app *BaseApp) SetAppVersion(ctx sdk.Context, v uint64) {
+	vp := &tmproto.VersionParams{AppVersion: v}
+	app.paramStore.Set(ctx, ParamStoreKeyVersionParams, vp)
 	app.appVersion = v
 }
 

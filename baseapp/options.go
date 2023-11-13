@@ -113,8 +113,12 @@ func (app *BaseApp) SetVersion(v string) {
 
 // SetAppVersion sets the application's protocol version
 func (app *BaseApp) SetAppVersion(ctx sdk.Context, v uint64) {
-	vp := &tmproto.VersionParams{AppVersion: v}
-	app.paramStore.Set(ctx, ParamStoreKeyVersionParams, vp)
+	// TODO: could make this less hacky in the future since the SDK
+	// shouldn't have to know about the app versioning scheme
+	if ctx.BlockHeader().Version.App >= 2 {
+		vp := &tmproto.VersionParams{AppVersion: v}
+		app.paramStore.Set(ctx, ParamStoreKeyVersionParams, vp)
+	}
 	app.appVersion = v
 }
 

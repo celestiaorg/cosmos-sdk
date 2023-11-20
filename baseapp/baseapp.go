@@ -517,7 +517,7 @@ func (app *BaseApp) StoreConsensusParams(ctx sdk.Context, cp *abci.ConsensusPara
 	app.paramStore.Set(ctx, ParamStoreKeyEvidenceParams, cp.Evidence)
 	app.paramStore.Set(ctx, ParamStoreKeyValidatorParams, cp.Validator)
 	// NOTE: we only persist the app version from v2 onwards
-	if cp.Version.AppVersion >=2 {
+	if cp.Version.AppVersion >= 2 {
 		app.paramStore.Set(ctx, ParamStoreKeyVersionParams, cp.Version)
 	}
 }

@@ -133,7 +133,7 @@ func (app *BaseApp) Info(req abci.RequestInfo) abci.ResponseInfo {
 		}
 		// get and set the app version
 		_ = app.AppVersion(ctx)
-	}	
+	}
 	return abci.ResponseInfo{
 		Data:             app.name,
 		Version:          app.version,

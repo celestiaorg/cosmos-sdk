@@ -516,7 +516,10 @@ func (app *BaseApp) StoreConsensusParams(ctx sdk.Context, cp *abci.ConsensusPara
 	app.paramStore.Set(ctx, ParamStoreKeyBlockParams, cp.Block)
 	app.paramStore.Set(ctx, ParamStoreKeyEvidenceParams, cp.Evidence)
 	app.paramStore.Set(ctx, ParamStoreKeyValidatorParams, cp.Validator)
-	app.paramStore.Set(ctx, ParamStoreKeyVersionParams, cp.Version)
+	// NOTE: we only persist the app version from v2 onwards
+	if cp.Version.AppVersion >=2 {
+		app.paramStore.Set(ctx, ParamStoreKeyVersionParams, cp.Version)
+	}
 }
 
 // getMaximumBlockGas gets the maximum gas from the consensus params. It panics

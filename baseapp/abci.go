@@ -38,10 +38,9 @@ const (
 func (app *BaseApp) InitChain(req abci.RequestInitChain) (res abci.ResponseInitChain) {
 	// On a new chain, we consider the init chain block height as 0, even though
 	// req.InitialHeight is 1 by default.
-	initHeader := tmproto.Header{
-		ChainID: req.ChainId,
-		Time:    req.Time,
-		Version: tmversion.Consensus{App: req.ConsensusParams.Version.AppVersion},
+	initHeader := tmproto.Header{ChainID: req.ChainId, Time: req.Time}
+	if req.ConsensusParams != nil && req.ConsensusParams.Version != nil {
+		initHeader.Version = tmversion.Consensus{App: req.ConsensusParams.Version.AppVersion}
 	}
 
 	// If req.InitialHeight is > 1, then we set the initial version in the
@@ -63,8 +62,12 @@ func (app *BaseApp) InitChain(req abci.RequestInitChain) (res abci.ResponseInitC
 	// Store the consensus params in the BaseApp's paramstore. Note, this must be
 	// done after the deliver state and context have been set as it's persisted
 	// to state.
-	app.StoreConsensusParams(app.deliverState.ctx, req.ConsensusParams)
-	app.appVersion = req.ConsensusParams.Version.AppVersion
+	if req.ConsensusParams != nil {
+		app.StoreConsensusParams(app.deliverState.ctx, req.ConsensusParams)
+		if req.ConsensusParams.Version != nil {
+			app.appVersion = req.ConsensusParams.Version.AppVersion
+		}
+	}
 
 	if app.initChainer == nil {
 		return res

@@ -280,5 +280,6 @@ func TestManager_EndBlock(t *testing.T) {
 	// test panic
 	mockAppModule1.EXPECT().EndBlock(gomock.Any(), gomock.Eq(req)).Times(1).Return([]abci.ValidatorUpdate{{}})
 	mockAppModule2.EXPECT().EndBlock(gomock.Any(), gomock.Eq(req)).Times(1).Return([]abci.ValidatorUpdate{{}})
+	mm.EndBlock(sdk.Context{}, req)
 	require.Panics(t, func() { mm.EndBlock(sdk.Context{}, req) })
 }

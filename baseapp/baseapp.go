@@ -493,6 +493,8 @@ func (app *BaseApp) GetConsensusParams(ctx sdk.Context) *abci.ConsensusParams {
 
 		app.paramStore.Get(ctx, ParamStoreKeyVersionParams, &vp)
 		cp.Version = &vp
+	} else if app.appVersion != 0 {
+		cp.Version = &tmproto.VersionParams{AppVersion: app.appVersion}
 	}
 
 	return cp

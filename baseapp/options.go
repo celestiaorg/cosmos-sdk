@@ -3,6 +3,7 @@ package baseapp
 import (
 	"fmt"
 	"io"
+	"sort"
 
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
@@ -293,6 +294,9 @@ func (sm StoreMigrations) ToStoreUpgrades() *storetypes.StoreUpgrades {
 		deleted[i] = name
 		i++
 	}
+	// sort them to ensure deterministic order
+	sort.Strings(added)
+	sort.Strings(deleted)
 	return &storetypes.StoreUpgrades{
 		Added:   added,
 		Deleted: deleted,

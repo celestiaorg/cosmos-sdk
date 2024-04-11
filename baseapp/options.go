@@ -12,6 +12,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	"github.com/cosmos/cosmos-sdk/store"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -160,6 +161,20 @@ func (app *BaseApp) SetEndBlocker(endBlocker sdk.EndBlocker) {
 	app.endBlocker = endBlocker
 }
 
+func (app *BaseApp) SetMigrateModuleFn(migrator MigrateModuleFn) {
+	if app.sealed {
+		panic("cannot set migrate module fn: baseapp is sealed")
+	}
+	app.migrator.moduleMigrator = migrator
+}
+
+func (app *BaseApp) SetMigrateStoreFn(migrator MigrateStoreFn) {
+	if app.sealed {
+		panic("cannot set migrate store fn: baseapp is sealed")
+	}
+	app.migrator.storeMigrator = migrator
+}
+
 func (app *BaseApp) SetAnteHandler(ah sdk.AnteHandler) {
 	if app.sealed {
 		panic("SetAnteHandler() on sealed BaseApp")
@@ -262,4 +277,24 @@ func (app *BaseApp) SetQueryMultiStore(ms sdk.MultiStore) {
 		panic("SetQueryMultiStore() on sealed BaseApp")
 	}
 	app.qms = ms
+}
+
+// ToStoreUpgrades converts the StoreMigrations to StoreUpgrades.
+func (sm StoreMigrations) ToStoreUpgrades() *storetypes.StoreUpgrades {
+	added := make([]string, len(sm.Added))
+	deleted := make([]string, len(sm.Deleted))
+	i := 0
+	for name := range sm.Added {
+		added[i] = name
+		i++
+	}
+	i = 0
+	for name := range sm.Deleted {
+		deleted[i] = name
+		i++
+	}
+	return &storetypes.StoreUpgrades{
+		Added:   added,
+		Deleted: deleted,
+	}
 }

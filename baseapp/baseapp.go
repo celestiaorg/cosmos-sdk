@@ -228,7 +228,6 @@ func (app *BaseApp) GetAppVersionFromParamStore(ctx sdk.Context) uint64 {
 	if app.paramStore.Has(ctx, ParamStoreKeyVersionParams) {
 		var vp tmproto.VersionParams
 		app.paramStore.Get(ctx, ParamStoreKeyVersionParams, &vp)
-		// set the app version
 		return vp.AppVersion
 	}
 	return 0

@@ -21,6 +21,7 @@ const (
 	FormatDefault    = ""
 	FormatPrometheus = "prometheus"
 	FormatText       = "text"
+	ContentTypeText  = `text/plain; version=` + expfmt.TextVersion + `; charset=utf-8`
 )
 
 // Config defines the configuration options for application telemetry.
@@ -155,7 +156,7 @@ func (m *Metrics) gatherPrometheus() (GatherResponse, error) {
 		}
 	}
 
-	return GatherResponse{ContentType: string(expfmt.NewFormat(expfmt.TypeTextPlain)), Metrics: buf.Bytes()}, nil
+	return GatherResponse{ContentType: ContentTypeText, Metrics: buf.Bytes()}, nil
 }
 
 func (m *Metrics) gatherGeneric() (GatherResponse, error) {

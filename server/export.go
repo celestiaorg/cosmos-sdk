@@ -94,6 +94,9 @@ func ExportCmd(appExporter types.AppExporter, defaultNodeHome string) *cobra.Com
 				Validator: tmproto.ValidatorParams{
 					PubKeyTypes: exported.ConsensusParams.Validator.PubKeyTypes,
 				},
+				Version: tmproto.VersionParams{
+					AppVersion: exported.ConsensusParams.GetVersion().GetAppVersion(),
+				},
 			}
 
 			// NOTE: Tendermint uses a custom JSON decoder for GenesisDoc

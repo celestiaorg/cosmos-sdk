@@ -55,6 +55,9 @@ var DefaultConsensusParams = &abci.ConsensusParams{
 			tmtypes.ABCIPubKeyTypeEd25519,
 		},
 	},
+	Version: &tmproto.VersionParams{
+		AppVersion: 1,
+	},
 }
 
 // SetupOptions defines arguments that are passed into `Simapp` constructor.

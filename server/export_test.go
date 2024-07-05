@@ -52,6 +52,7 @@ func TestExportCmd_ConsensusParams(t *testing.T) {
 	require.Equal(t, simapp.DefaultConsensusParams.Evidence.MaxAgeNumBlocks, exportedGenDoc.ConsensusParams.Evidence.MaxAgeNumBlocks)
 
 	require.Equal(t, simapp.DefaultConsensusParams.Validator.PubKeyTypes, exportedGenDoc.ConsensusParams.Validator.PubKeyTypes)
+	require.Equal(t, simapp.DefaultConsensusParams.Version.AppVersion, exportedGenDoc.ConsensusParams.Version.AppVersion)
 }
 
 func TestExportCmd_HomeDir(t *testing.T) {
@@ -152,6 +153,7 @@ func setupApp(t *testing.T, tempDir string) (*simapp.SimApp, context.Context, *t
 			AppStateBytes:   genDoc.AppState,
 		},
 	)
+	app.SetInitialAppVersionInConsensusParams(app.NewContext(false, tmproto.Header{}), simapp.DefaultConsensusParams.Version.AppVersion)
 	app.Commit()
 
 	cmd := server.ExportCmd(

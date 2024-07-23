@@ -29,34 +29,57 @@ import (
 )
 
 func TestExportCmd_ConsensusParams(t *testing.T) {
-	tempDir := t.TempDir()
-
-	_, ctx, genDoc, cmd := setupApp(t, tempDir)
-
-	output := &bytes.Buffer{}
-	cmd.SetOut(output)
-	cmd.SetArgs([]string{fmt.Sprintf("--%s=%s", flags.FlagHome, tempDir)})
-	require.NoError(t, cmd.ExecuteContext(ctx))
-
-	var exportedGenDoc tmtypes.GenesisDoc
-	err := tmjson.Unmarshal(output.Bytes(), &exportedGenDoc)
-	if err != nil {
-		t.Fatalf("error unmarshaling exported genesis doc: %s", err)
+	tests := []struct {
+		name               string
+		appVersion         uint64
+		expectedAppVersion uint64
+	}{
+		{
+			name:               "NoAppVersionExport",
+			appVersion:         1,
+			expectedAppVersion: 0,
+		},
+		{
+			name:               "ExportedAppVersion",
+			appVersion:         2,
+			expectedAppVersion: 2,
+		},
 	}
+	for _, utest := range tests {
+		t.Run(utest.name, func(t *testing.T) {
+			tempDir := t.TempDir()
 
-	require.Equal(t, simapp.DefaultConsensusParams.Block.MaxBytes, exportedGenDoc.ConsensusParams.Block.MaxBytes)
-	require.Equal(t, simapp.DefaultConsensusParams.Block.MaxGas, exportedGenDoc.ConsensusParams.Block.MaxGas)
-	require.Equal(t, genDoc.ConsensusParams.Block.TimeIotaMs, exportedGenDoc.ConsensusParams.Block.TimeIotaMs)
+			_, ctx, genDoc, cmd := setupApp(t, tempDir, utest.appVersion)
 
-	require.Equal(t, simapp.DefaultConsensusParams.Evidence.MaxAgeDuration, exportedGenDoc.ConsensusParams.Evidence.MaxAgeDuration)
-	require.Equal(t, simapp.DefaultConsensusParams.Evidence.MaxAgeNumBlocks, exportedGenDoc.ConsensusParams.Evidence.MaxAgeNumBlocks)
+			getCommandResult := func(cmd *cobra.Command) tmtypes.GenesisDoc {
+				output := &bytes.Buffer{}
+				cmd.SetOut(output)
+				cmd.SetArgs([]string{fmt.Sprintf("--%s=%s", flags.FlagHome, tempDir)})
+				require.NoError(t, cmd.ExecuteContext(ctx))
 
-	require.Equal(t, simapp.DefaultConsensusParams.Validator.PubKeyTypes, exportedGenDoc.ConsensusParams.Validator.PubKeyTypes)
-	require.Equal(t, simapp.DefaultConsensusParams.Version.AppVersion, exportedGenDoc.ConsensusParams.Version.AppVersion)
+				var exportedGenDoc tmtypes.GenesisDoc
+				err := tmjson.Unmarshal(output.Bytes(), &exportedGenDoc)
+				if err != nil {
+					t.Fatalf("error unmarshaling exported genesis doc: %s", err)
+				}
+				return exportedGenDoc
+			}
+
+			exportedGenDoc := getCommandResult(cmd)
+			consensusParams := simapp.NewDefaultConsensusParams()
+			require.Equal(t, consensusParams.Block.MaxBytes, exportedGenDoc.ConsensusParams.Block.MaxBytes)
+			require.Equal(t, consensusParams.Block.MaxGas, exportedGenDoc.ConsensusParams.Block.MaxGas)
+			require.Equal(t, genDoc.ConsensusParams.Block.TimeIotaMs, exportedGenDoc.ConsensusParams.Block.TimeIotaMs)
+			require.Equal(t, consensusParams.Evidence.MaxAgeDuration, exportedGenDoc.ConsensusParams.Evidence.MaxAgeDuration)
+			require.Equal(t, consensusParams.Evidence.MaxAgeNumBlocks, exportedGenDoc.ConsensusParams.Evidence.MaxAgeNumBlocks)
+			require.Equal(t, consensusParams.Validator.PubKeyTypes, exportedGenDoc.ConsensusParams.Validator.PubKeyTypes)
+			require.Equal(t, utest.expectedAppVersion, exportedGenDoc.ConsensusParams.Version.AppVersion)
+		})
+	}
 }
 
 func TestExportCmd_HomeDir(t *testing.T) {
-	_, ctx, _, cmd := setupApp(t, t.TempDir())
+	_, ctx, _, cmd := setupApp(t, t.TempDir(), 1)
 
 	cmd.SetArgs([]string{fmt.Sprintf("--%s=%s", flags.FlagHome, "foobar")})
 
@@ -95,7 +118,7 @@ func TestExportCmd_Height(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			tempDir := t.TempDir()
-			app, ctx, _, cmd := setupApp(t, tempDir)
+			app, ctx, _, cmd := setupApp(t, tempDir, 1)
 
 			// Fast forward to block `tc.fastForward`.
 			for i := int64(2); i <= tc.fastForward; i++ {
@@ -120,7 +143,7 @@ func TestExportCmd_Height(t *testing.T) {
 	}
 }
 
-func setupApp(t *testing.T, tempDir string) (*simapp.SimApp, context.Context, *tmtypes.GenesisDoc, *cobra.Command) {
+func setupApp(t *testing.T, tempDir string, appVersion uint64) (*simapp.SimApp, context.Context, *tmtypes.GenesisDoc, *cobra.Command) {
 	t.Helper()
 
 	if err := createConfigFolder(tempDir); err != nil {
@@ -146,14 +169,16 @@ func setupApp(t *testing.T, tempDir string) (*simapp.SimApp, context.Context, *t
 	genDoc.AppState = stateBytes
 
 	require.NoError(t, saveGenesisFile(genDoc, serverCtx.Config.GenesisFile()))
+	consensusParams := simapp.NewDefaultConsensusParams()
+	consensusParams.Version.AppVersion = appVersion
 	app.InitChain(
 		abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
-			ConsensusParams: simapp.DefaultConsensusParams,
+			ConsensusParams: consensusParams,
 			AppStateBytes:   genDoc.AppState,
 		},
 	)
-	app.SetInitialAppVersionInConsensusParams(app.NewContext(false, tmproto.Header{}), simapp.DefaultConsensusParams.Version.AppVersion)
+	app.SetInitialAppVersionInConsensusParams(app.NewContext(false, tmproto.Header{}), consensusParams.Version.AppVersion)
 	app.Commit()
 
 	cmd := server.ExportCmd(

@@ -45,11 +45,11 @@ func TestExportCmd_ConsensusParams(t *testing.T) {
 			expectedAppVersion: 2,
 		},
 	}
-	for _, utest := range tests {
-		t.Run(utest.name, func(t *testing.T) {
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
 			tempDir := t.TempDir()
 
-			_, ctx, genDoc, cmd := setupApp(t, tempDir, utest.appVersion)
+			_, ctx, genDoc, cmd := setupApp(t, tempDir, test.appVersion)
 
 			getCommandResult := func(cmd *cobra.Command) tmtypes.GenesisDoc {
 				output := &bytes.Buffer{}
@@ -72,7 +72,7 @@ func TestExportCmd_ConsensusParams(t *testing.T) {
 			require.Equal(t, simapp.DefaultConsensusParams.Evidence.MaxAgeDuration, exportedGenDoc.ConsensusParams.Evidence.MaxAgeDuration)
 			require.Equal(t, simapp.DefaultConsensusParams.Evidence.MaxAgeNumBlocks, exportedGenDoc.ConsensusParams.Evidence.MaxAgeNumBlocks)
 			require.Equal(t, simapp.DefaultConsensusParams.Validator.PubKeyTypes, exportedGenDoc.ConsensusParams.Validator.PubKeyTypes)
-			require.Equal(t, utest.expectedAppVersion, exportedGenDoc.ConsensusParams.Version.AppVersion)
+			require.Equal(t, test.expectedAppVersion, exportedGenDoc.ConsensusParams.Version.AppVersion)
 		})
 	}
 }

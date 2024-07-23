@@ -38,28 +38,6 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
-func NewDefaultConsensusParams() *abci.ConsensusParams {
-	return &abci.ConsensusParams{
-		Block: &abci.BlockParams{
-			MaxBytes: 200000,
-			MaxGas:   2000000,
-		},
-		Evidence: &tmproto.EvidenceParams{
-			MaxAgeNumBlocks: 302400,
-			MaxAgeDuration:  504 * time.Hour, // 3 weeks is the max duration
-			MaxBytes:        10000,
-		},
-		Validator: &tmproto.ValidatorParams{
-			PubKeyTypes: []string{
-				tmtypes.ABCIPubKeyTypeEd25519,
-			},
-		},
-		Version: &tmproto.VersionParams{
-			AppVersion: 1,
-		},
-	}
-}
-
 // DefaultConsensusParams defines the default Tendermint consensus params used in
 // SimApp testing.
 var DefaultConsensusParams = &abci.ConsensusParams{
@@ -76,9 +54,6 @@ var DefaultConsensusParams = &abci.ConsensusParams{
 		PubKeyTypes: []string{
 			tmtypes.ABCIPubKeyTypeEd25519,
 		},
-	},
-	Version: &tmproto.VersionParams{
-		AppVersion: 1,
 	},
 }
 

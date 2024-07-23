@@ -66,13 +66,12 @@ func TestExportCmd_ConsensusParams(t *testing.T) {
 			}
 
 			exportedGenDoc := getCommandResult(cmd)
-			consensusParams := simapp.NewDefaultConsensusParams()
-			require.Equal(t, consensusParams.Block.MaxBytes, exportedGenDoc.ConsensusParams.Block.MaxBytes)
-			require.Equal(t, consensusParams.Block.MaxGas, exportedGenDoc.ConsensusParams.Block.MaxGas)
+			require.Equal(t, simapp.DefaultConsensusParams.Block.MaxBytes, exportedGenDoc.ConsensusParams.Block.MaxBytes)
+			require.Equal(t, simapp.DefaultConsensusParams.Block.MaxGas, exportedGenDoc.ConsensusParams.Block.MaxGas)
 			require.Equal(t, genDoc.ConsensusParams.Block.TimeIotaMs, exportedGenDoc.ConsensusParams.Block.TimeIotaMs)
-			require.Equal(t, consensusParams.Evidence.MaxAgeDuration, exportedGenDoc.ConsensusParams.Evidence.MaxAgeDuration)
-			require.Equal(t, consensusParams.Evidence.MaxAgeNumBlocks, exportedGenDoc.ConsensusParams.Evidence.MaxAgeNumBlocks)
-			require.Equal(t, consensusParams.Validator.PubKeyTypes, exportedGenDoc.ConsensusParams.Validator.PubKeyTypes)
+			require.Equal(t, simapp.DefaultConsensusParams.Evidence.MaxAgeDuration, exportedGenDoc.ConsensusParams.Evidence.MaxAgeDuration)
+			require.Equal(t, simapp.DefaultConsensusParams.Evidence.MaxAgeNumBlocks, exportedGenDoc.ConsensusParams.Evidence.MaxAgeNumBlocks)
+			require.Equal(t, simapp.DefaultConsensusParams.Validator.PubKeyTypes, exportedGenDoc.ConsensusParams.Validator.PubKeyTypes)
 			require.Equal(t, utest.expectedAppVersion, exportedGenDoc.ConsensusParams.Version.AppVersion)
 		})
 	}
@@ -169,16 +168,16 @@ func setupApp(t *testing.T, tempDir string, appVersion uint64) (*simapp.SimApp, 
 	genDoc.AppState = stateBytes
 
 	require.NoError(t, saveGenesisFile(genDoc, serverCtx.Config.GenesisFile()))
-	consensusParams := simapp.NewDefaultConsensusParams()
-	consensusParams.Version.AppVersion = appVersion
 	app.InitChain(
 		abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
-			ConsensusParams: consensusParams,
+			ConsensusParams: simapp.DefaultConsensusParams,
 			AppStateBytes:   genDoc.AppState,
 		},
 	)
-	app.SetInitialAppVersionInConsensusParams(app.NewContext(false, tmproto.Header{}), consensusParams.Version.AppVersion)
+	if appVersion >= 2 {
+		app.SetInitialAppVersionInConsensusParams(app.NewContext(false, tmproto.Header{}), appVersion)
+	}
 	app.Commit()
 
 	cmd := server.ExportCmd(

@@ -143,6 +143,8 @@ github.com/bytedance/sonic v1.8.0 h1:ea0Xadu+sHlu7x5O3gKhRpQ1IKiMrSiHttPF0ybECuA
 github.com/bytedance/sonic v1.8.0/go.mod h1:i736AoUSYt75HyZLoJW9ERYxcy6eaN6h4BZXU064P/U=
 github.com/c-bata/go-prompt v0.2.2/go.mod h1:VzqtzE2ksDBcdln8G7mk2RX9QyGjH+OVqOCSiVIqS34=
 github.com/casbin/casbin/v2 v2.1.2/go.mod h1:YcPU1XXisHhLzuxH9coDNf2FbKpjGlbCg3n9yuLkIJQ=
+github.com/celestiaorg/celestia-core v1.42.0-tm-v0.34.35 h1:bWy5XOgeuuSLe0Lc/htL9/QLEURBjA1JTvEko6bEBhg=
+github.com/celestiaorg/celestia-core v1.42.0-tm-v0.34.35/go.mod h1:/fK0n3ps09t5uErBQe1QZbrE81L81MNUzWpFyWQLDT0=
 github.com/celestiaorg/nmt v0.22.1 h1:t7fqoP5MJ8mBns5DB2XjfcPxQpS3CKMkY+v+BEkDxYc=
 github.com/celestiaorg/nmt v0.22.1/go.mod h1:ia/EpCk0enD5yO5frcxoNoFToz2Ghtk2i+blmCRjIY8=
 github.com/cenkalti/backoff v2.2.1+incompatible h1:tNowT99t7UNflLxfYYSlKYsBpXdEet03Pg2g16Swow4=

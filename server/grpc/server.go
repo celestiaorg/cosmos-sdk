@@ -1,7 +1,9 @@
 package grpc
 
 import (
+	"context"
 	"fmt"
+	coregrpc "github.com/tendermint/tendermint/rpc/grpc"
 	"net"
 	"time"
 
@@ -33,6 +35,10 @@ func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config
 		grpc.MaxSendMsgSize(maxSendMsgSize),
 		grpc.MaxRecvMsgSize(maxRecvMsgSize),
 	)
+
+	api := coregrpc.NewBlockAPI()
+	go api.StartNewBlockEventListener(context.Background())
+	coregrpc.RegisterBlockAPIServer(grpcSrv, api)
 
 	app.RegisterGRPCServer(grpcSrv)
 

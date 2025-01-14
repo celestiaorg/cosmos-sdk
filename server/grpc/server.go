@@ -36,6 +36,7 @@ func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config
 		grpc.MaxRecvMsgSize(maxRecvMsgSize),
 	)
 
+	// start the gRPC block API
 	api := coregrpc.NewBlockAPI()
 	go api.StartNewBlockEventListener(context.Background())
 	coregrpc.RegisterBlockAPIServer(grpcSrv, api)

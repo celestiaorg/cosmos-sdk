@@ -409,6 +409,7 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 	if config.GRPC.Enable {
 		grpcSrv, err = servergrpc.StartGRPCServer(clientCtx, app, config.GRPC)
 		if err != nil {
+			ctx.Logger.Error("grpc server error", "err", err.Error())
 			return err
 		}
 		defer grpcSrv.Stop()

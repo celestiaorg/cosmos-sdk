@@ -594,7 +594,7 @@ func SignWithLedger(k *Record, msg []byte) (sig []byte, pub types.PubKey, err er
 		return nil, nil, fmt.Errorf("the public key that the user attempted to sign with does not match the public key on the ledger device. %v does not match %v", pubKey.String(), ledgerPubKey.String())
 	}
 
-	sig, err = priv.Sign(msg)
+	sig, err = priv.SignLedgerAminoJSON(msg)
 	if err != nil {
 		return nil, nil, err
 	}

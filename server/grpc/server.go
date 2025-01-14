@@ -3,9 +3,10 @@ package grpc
 import (
 	"context"
 	"fmt"
-	coregrpc "github.com/tendermint/tendermint/rpc/grpc"
 	"net"
 	"time"
+
+	coregrpc "github.com/tendermint/tendermint/rpc/grpc"
 
 	"google.golang.org/grpc"
 

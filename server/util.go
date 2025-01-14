@@ -213,8 +213,6 @@ func interceptConfigs(rootViper *viper.Viper, customAppTemplate string, customCo
 		}
 
 		conf.RPC.PprofListenAddress = "localhost:6060"
-		conf.P2P.RecvRate = 5120000
-		conf.P2P.SendRate = 5120000
 		tmcfg.WriteConfigFile(tmCfgFile, conf)
 
 	case err != nil:

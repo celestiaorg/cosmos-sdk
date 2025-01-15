@@ -35,7 +35,7 @@ in for Tendermint and other lower-level libraries (eg. [IAVL](https://github.com
 
 We are interested in bugs in other modules, however the above are most likely to
 have significant vulnerabilities, due to the complexity / nuance involved. We
-also recommend you to read the [specification](https://github.com/cosmos/cosmos-sdk/blob/main/docs/building-modules/README.md) of each module before digging into
+also recommend you to read the [specification](docs/spec/README.md) of each module before digging into
 the code.
 
 ### How we process Tx parameters

@@ -42,6 +42,9 @@ func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config
 	go api.StartNewBlockEventListener(context.Background())
 	coregrpc.RegisterBlockAPIServer(grpcSrv, api)
 
+	// start the gRPC blobstream API
+	coregrpc.RegisterBlobstreamAPIServer(grpcSrv, coregrpc.NewBlobstreamAPI())
+
 	app.RegisterGRPCServer(grpcSrv)
 
 	// Reflection allows consumers to build dynamic clients that can write to any

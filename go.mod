@@ -1,4 +1,4 @@
-go 1.23.1
+go 1.23.5
 
 module github.com/cosmos/cosmos-sdk
 
@@ -72,7 +72,7 @@ require (
 	github.com/aws/aws-sdk-go v1.40.45 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bgentry/go-netrc v0.0.0-20140422174119-9fd32a8b3d3d // indirect
-	github.com/celestiaorg/nmt v0.22.2 // indirect
+	github.com/celestiaorg/nmt v0.23.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.1.3 // indirect
 	github.com/cespare/xxhash v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -183,7 +183,7 @@ replace (
 	// replace broken goleveldb.
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	// use cometbft
-	github.com/tendermint/tendermint => github.com/celestiaorg/celestia-core v1.45.0-tm-v0.34.35
+	github.com/tendermint/tendermint => github.com/celestiaorg/celestia-core v1.48.0-tm-v0.34.35.0.20250204161850-26db8ccc19d4
 )
 
 retract (

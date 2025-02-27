@@ -54,7 +54,7 @@ halt-time = {{ .BaseConfig.HaltTime }}
 # It has no bearing on application state pruning which is determined by the
 # "pruning-*" configurations.
 #
-# Note: Tendermint block pruning is dependant on this parameter in conunction
+# Note: Tendermint block pruning is dependent on this parameter in conunction
 # with the unbonding (safety threshold) period, state pruning and state sync
 # snapshot parameters to determine the correct minimum value of
 # ResponseCommit.RetainHeight.
@@ -98,7 +98,7 @@ app-db-backend = "{{ .BaseConfig.AppDBBackend }}"
 service-name = "{{ .Telemetry.ServiceName }}"
 
 # Enabled enables the application telemetry functionality. When enabled,
-# an in-memory sink is also enabled by default. Operators may also enabled
+# an in-memory sink is also enabled by default. Operators may also enable
 # other sinks such as Prometheus.
 enabled = {{ .Telemetry.Enabled }}
 
@@ -165,7 +165,7 @@ enable = {{ .Rosetta.Enable }}
 # Address defines the Rosetta API server to listen on.
 address = "{{ .Rosetta.Address }}"
 
-# Network defines the name of the blockchain that will be returned by Rosetta.
+# Blockchain defines the name of the blockchain that will be returned by Rosetta.
 blockchain = "{{ .Rosetta.Blockchain }}"
 
 # Network defines the name of the network that will be returned by Rosetta.
@@ -178,7 +178,7 @@ retries = {{ .Rosetta.Retries }}
 offline = {{ .Rosetta.Offline }}
 
 # EnableDefaultSuggestedFee defines if the server should suggest fee by default.
-# If 'construction/medata' is called without gas limit and gas price,
+# If 'construction/metadata' is called without gas limit and gas price,
 # suggested fee based on gas-to-suggest and denom-to-suggest will be given.
 enable-fee-suggestion = {{ .Rosetta.EnableFeeSuggestion }}
 

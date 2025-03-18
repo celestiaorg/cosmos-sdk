@@ -36,6 +36,16 @@ func RegisterInterfaces(registry types.InterfaceRegistry) {
 		&PermanentLockedAccount{},
 	)
 
+	registry.RegisterInterface(
+		"cosmos.auth.v1beta1.AccountI",
+		(*sdk.AccountI)(nil),
+		&BaseVestingAccount{},
+		&ContinuousVestingAccount{},
+		&DelayedVestingAccount{},
+		&PeriodicVestingAccount{},
+		&PermanentLockedAccount{},
+	)
+
 	registry.RegisterImplementations(
 		(*sdk.AccountI)(nil),
 		&BaseVestingAccount{},

@@ -15,6 +15,10 @@ import (
 // Compile-time type assertions
 var (
 	_ sdk.AccountI                = (*BaseVestingAccount)(nil)
+	_ sdk.AccountI                = (*ContinuousVestingAccount)(nil)
+	_ sdk.AccountI                = (*PeriodicVestingAccount)(nil)
+	_ sdk.AccountI                = (*DelayedVestingAccount)(nil)
+	_ sdk.AccountI                = (*PermanentLockedAccount)(nil)
 	_ vestexported.VestingAccount = (*ContinuousVestingAccount)(nil)
 	_ vestexported.VestingAccount = (*PeriodicVestingAccount)(nil)
 	_ vestexported.VestingAccount = (*DelayedVestingAccount)(nil)
@@ -279,8 +283,8 @@ func (cva ContinuousVestingAccount) GetStartTime() int64 {
 
 // Validate checks for errors on the account fields
 func (cva ContinuousVestingAccount) Validate() error {
-	if cva.GetStartTime() >= cva.GetEndTime() {
-		return errors.New("vesting start-time cannot be before end-time")
+	if cva.GetStartTime() > cva.GetEndTime() {
+		return errors.New("vesting start-time cannot be after end-time")
 	}
 
 	return cva.BaseVestingAccount.Validate()
@@ -289,6 +293,7 @@ func (cva ContinuousVestingAccount) Validate() error {
 // UpdateSchedule updates the vesting schedule for a continuous vesting account.
 // It delegates to the base vesting account implementation and adjusts end time if needed.
 func (cva *ContinuousVestingAccount) UpdateSchedule(amount sdk.Coins) error {
+	// the base vesting account implementation is wrong, we should be updating the vesting schedule based on the vesting account not in the base type.
 	if err := cva.BaseVestingAccount.UpdateSchedule(amount); err != nil {
 		return err
 	}
@@ -433,89 +438,63 @@ func (pva PeriodicVestingAccount) Validate() error {
 // It takes in the amount of coins from the rewards and updates the vesting schedule
 // based on the ratio of delegated vesting to total delegated coins.
 func (pva *PeriodicVestingAccount) UpdateSchedule(amount sdk.Coins) error {
-	if err := pva.BaseVestingAccount.UpdateSchedule(amount); err != nil {
-		return err
-	}
-
 	// If there are no periods or amount is zero, nothing to do
 	if len(pva.VestingPeriods) == 0 || amount.IsZero() {
 		return nil
 	}
 
-	// For periodic vesting, distribute the new amount proportionally across existing periods
-	// or add a new period if the account's end time has passed
-	currentTime := time.Now().Unix()
+	// Calculate what portion of the amount should be applied based on delegated vesting ratio
+	totalDelegated := pva.DelegatedFree.Add(pva.DelegatedVesting...)
+	if totalDelegated.IsZero() {
+		return nil // No delegations, nothing to update
+	}
 
-	if currentTime > pva.EndTime {
-		// Account has completed vesting, add a new period
-		// Use the average length of existing periods as a reference
-		totalLength := int64(0)
-		for _, period := range pva.VestingPeriods {
-			totalLength += period.Length
+	var updatedAmount sdk.Coins
+	for _, coin := range amount {
+		denom := coin.Denom
+		totalDelegatedForDenom := totalDelegated.AmountOf(denom)
+		delegatedVestingForDenom := pva.DelegatedVesting.AmountOf(denom)
+
+		// For new denominations, allow the amount to be free
+		if totalDelegatedForDenom.IsZero() {
+			continue
 		}
 
-		avgPeriodLength := totalLength / int64(len(pva.VestingPeriods))
-		if avgPeriodLength <= 0 {
-			avgPeriodLength = 30 * 24 * 60 * 60 // Default to 30 days if can't determine
-		}
+		ratio := math.LegacyNewDecFromInt(delegatedVestingForDenom).Quo(math.LegacyNewDecFromInt(totalDelegatedForDenom))
+		amountToUse := math.LegacyNewDecFromInt(coin.Amount).Mul(ratio).RoundInt()
 
-		newPeriod := Period{
-			Length: avgPeriodLength,
-			Amount: amount,
-		}
+		fmt.Println("amountToUse", amountToUse)
 
-		pva.VestingPeriods = append(pva.VestingPeriods, newPeriod)
-		pva.EndTime += avgPeriodLength
-	} else {
-		// Account is still vesting, distribute proportionally across remaining periods
-		remainingPeriods := 0
-		for i := range pva.VestingPeriods {
-			periodEndTime := pva.StartTime
-			for j := 0; j <= i; j++ {
-				periodEndTime += pva.VestingPeriods[j].Length
-			}
-
-			if periodEndTime > currentTime {
-				remainingPeriods++
-			}
-		}
-
-		if remainingPeriods == 0 {
-			remainingPeriods = 1 // At least one period should remain
-		}
-
-		// Distribute amount evenly across remaining periods
-		amountPerPeriod := sdk.NewCoins()
-		for _, coin := range amount {
-			amtPerPeriod := coin.Amount.Quo(math.NewInt(int64(remainingPeriods)))
-			if !amtPerPeriod.IsZero() {
-				amountPerPeriod = amountPerPeriod.Add(sdk.NewCoin(coin.Denom, amtPerPeriod))
-			}
-		}
-
-		periodCount := 0
-		for i := range pva.VestingPeriods {
-			periodEndTime := pva.StartTime
-			for j := 0; j <= i; j++ {
-				periodEndTime += pva.VestingPeriods[j].Length
-			}
-
-			if periodEndTime > currentTime {
-				if periodCount < remainingPeriods-1 {
-					pva.VestingPeriods[i].Amount = pva.VestingPeriods[i].Amount.Add(amountPerPeriod...)
-					periodCount++
-				} else {
-					// Last period gets any remaining amount
-					remaining := amount
-					for d := 0; d < periodCount; d++ {
-						remaining = remaining.Sub(amountPerPeriod...)
-					}
-					pva.VestingPeriods[i].Amount = pva.VestingPeriods[i].Amount.Add(remaining...)
-				}
-			}
+		if !amountToUse.IsZero() {
+			updatedAmount = updatedAmount.Add(sdk.NewCoin(denom, amountToUse))
 		}
 	}
 
+	// Distribute the updated amount across all periods
+	amountPerPeriod := sdk.NewCoins()
+	for _, coin := range updatedAmount {
+		amtPerPeriod := coin.Amount.Quo(math.NewInt(int64(len(pva.VestingPeriods))))
+		if !amtPerPeriod.IsZero() {
+			amountPerPeriod = amountPerPeriod.Add(sdk.NewCoin(coin.Denom, amtPerPeriod))
+		}
+	}
+
+	// Add the amount to each period
+	for i := range pva.VestingPeriods {
+		if i == len(pva.VestingPeriods)-1 {
+			// Last period gets any remaining amount
+			remaining := updatedAmount
+			for d := 0; d < len(pva.VestingPeriods)-1; d++ {
+				remaining = remaining.Sub(amountPerPeriod...)
+			}
+			pva.VestingPeriods[i].Amount = pva.VestingPeriods[i].Amount.Add(remaining...)
+		} else {
+			pva.VestingPeriods[i].Amount = pva.VestingPeriods[i].Amount.Add(amountPerPeriod...)
+		}
+	}
+
+	// Add the calculated amount to original vesting
+	pva.OriginalVesting = pva.OriginalVesting.Add(updatedAmount...)
 	return nil
 }
 

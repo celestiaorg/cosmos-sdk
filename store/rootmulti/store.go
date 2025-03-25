@@ -1093,6 +1093,10 @@ func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore
 	}
 }
 
+func (rs *Store) GetCommitInfo(ver int64) (*types.CommitInfo, error) {
+	return getCommitInfo(rs.db, ver)
+}
+
 // Gets commitInfo from disk.
 func getCommitInfo(db dbm.DB, ver int64) (*types.CommitInfo, error) {
 	cInfoKey := fmt.Sprintf(commitInfoKeyFmt, ver)

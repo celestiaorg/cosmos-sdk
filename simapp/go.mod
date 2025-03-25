@@ -68,6 +68,7 @@ require (
 	github.com/bgentry/go-netrc v0.0.0-20140422174119-9fd32a8b3d3d // indirect
 	github.com/bgentry/speakeasy v0.1.1-0.20220910012023-760eaf8b6816 // indirect
 	github.com/bits-and-blooms/bitset v1.8.0 // indirect
+	github.com/celestiaorg/go-square/v2 v2.1.0 // indirect
 	github.com/celestiaorg/nmt v0.23.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.1.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -236,7 +237,7 @@ replace (
 	// use cosmos fork of keyring
 	github.com/99designs/keyring => github.com/cosmos/keyring v1.2.0
 	// celestia-core
-	github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core v0.38.11-0.20250321105625-57e36546e8a3 // marko/core_changes_v3
+	github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core v0.38.11-0.20250325150452-89ef6e8a5cb3 // marko/core_changes_v3
 	// Simapp always use the latest version of the cosmos-sdk
 	github.com/cosmos/cosmos-sdk => ../.
 	// Fix upstream GHSA-h395-qcrw-5vmq and GHSA-3vp4-m3rf-835h vulnerabilities.

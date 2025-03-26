@@ -133,6 +133,7 @@ func (h Hooks) BeforeDelegationCreated(ctx context.Context, delAddr sdk.AccAddre
 }
 
 // withdraw delegation rewards (which also increments period)
+// This implements CIP-30 (https://github.com/celestiaorg/CIPs/blob/main/cips/cip-030.md)
 func (h Hooks) BeforeDelegationSharesModified(ctx context.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress) error {
 	val, err := h.k.stakingKeeper.Validator(ctx, valAddr)
 	if err != nil {
@@ -144,7 +145,9 @@ func (h Hooks) BeforeDelegationSharesModified(ctx context.Context, delAddr sdk.A
 		return err
 	}
 
-	if _, err := h.k.withdrawDelegationRewards(ctx, val, del); err != nil {
+	// withdrawNow is set to false, withdrawn will be stored in state
+	// and not moved from the distribution module account
+	if _, err := h.k.withdrawDelegationRewards(ctx, val, del, false); err != nil {
 		return err
 	}
 

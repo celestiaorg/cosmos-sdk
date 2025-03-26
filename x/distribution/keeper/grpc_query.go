@@ -2,10 +2,12 @@ package keeper
 
 import (
 	"context"
+	stderrors "errors"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"cosmossdk.io/collections"
 	"cosmossdk.io/errors"
 	"cosmossdk.io/store/prefix"
 
@@ -233,13 +235,29 @@ func (k Querier) DelegationRewards(ctx context.Context, req *types.QueryDelegati
 	if err != nil {
 		return nil, err
 	}
+
 	del, err := k.stakingKeeper.Delegation(ctx, delAdr, valAdr)
 	if err != nil {
 		return nil, err
 	}
 
+	outstanding, err := k.UserOutstandingRewards.Get(
+		ctx,
+		collections.Join(sdk.AccAddress(delAdr), sdk.ValAddress(valAdr)),
+	)
+	// we do not need to check errors if del is not nil
+	// an empty struct is fine for the use case.
+
 	if del == nil {
-		return nil, types.ErrNoDelegationExists
+		if stderrors.Is(err, collections.ErrNotFound) {
+			return nil, types.ErrNoDelegationExists
+		} else if err != nil {
+			return nil, err
+		}
+
+		return &types.QueryDelegationRewardsResponse{
+			Rewards: sdk.NewDecCoinsFromCoins(outstanding.Rewards...),
+		}, nil
 	}
 
 	endingPeriod, err := k.IncrementValidatorPeriod(ctx, val)
@@ -251,6 +269,9 @@ func (k Querier) DelegationRewards(ctx context.Context, req *types.QueryDelegati
 	if err != nil {
 		return nil, err
 	}
+
+	// merge the rewards
+	rewards = rewards.Add(sdk.NewDecCoinsFromCoins(outstanding.Rewards...)...)
 
 	return &types.QueryDelegationRewardsResponse{Rewards: rewards}, nil
 }

@@ -192,3 +192,14 @@ message CommunityPoolSpendProposalWithDeposit {
   string amount      = 4;
   string deposit     = 5;
 }
+
+// UserPendingRewards represents a pending withdrawn rewards
+// that is a reward that has not been claimed yet, but that
+// is outside of the reward pool.
+message UserOutstandingRewards {
+  repeated cosmos.base.v1beta1.Coin rewards = 1 [
+    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins",
+    (gogoproto.nullable)     = false,
+    (amino.dont_omitempty)   = true
+  ];
+}

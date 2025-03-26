@@ -326,6 +326,37 @@ func (k Querier) DelegationTotalRewards(ctx context.Context, req *types.QueryDel
 		return nil, err
 	}
 
+	outstandingRewards := map[string]sdk.Coins{}
+	err = k.UserOutstandingRewards.Indexes.Delegators.Walk(
+		ctx,
+		(&collections.Range[sdk.AccAddress]{}).Prefix(sdk.AccAddress(delAdr)),
+		func(indexingKey sdk.AccAddress, indexedKey collections.Pair[sdk.AccAddress, sdk.ValAddress]) (stop bool, err error) {
+			outstanding, err := k.UserOutstandingRewards.Get(ctx, indexedKey)
+			if err != nil {
+				return false, err
+			}
+
+			if _, ok := outstandingRewards[string(indexingKey)]; !ok {
+				outstandingRewards[string(indexingKey)] = sdk.NewCoins()
+			}
+
+			outstandingRewards[string(indexingKey)] = outstandingRewards[string(indexingKey)].Add(outstanding.Rewards...)
+
+			return false, nil
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, delReward := range delRewards {
+		if outstanding, ok := outstandingRewards[delReward.ValidatorAddress]; ok {
+			decCoins := sdk.NewDecCoinsFromCoins(outstanding...)
+
+			delReward.Reward = delReward.Reward.Add(decCoins...)
+			total = total.Add(decCoins...)
+		}
+	}
+
 	return &types.QueryDelegationTotalRewardsResponse{Rewards: delRewards, Total: total}, nil
 }
 

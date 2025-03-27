@@ -55,11 +55,8 @@ var (
 	ValidatorAccumulatedCommissionPrefix = []byte{0x07} // key for accumulated validator commission
 	ValidatorSlashEventPrefix            = []byte{0x08} // key for validator slash fraction
 
-	ParamsKey = collections.NewPrefix(9) // key for distribution module params
-
-	UserOutstandingRewardsKey         = collections.NewPrefix(10) // key for user outstanding rewards
-	UserOutstandingRewardsDelIndexKey = collections.NewPrefix(11) // key for user outstanding rewards by delegator index
-	UserOutstandingRewardsValIndexKey = collections.NewPrefix(12) // key for user outstanding rewards by validator index
+	ParamsKey                 = collections.NewPrefix(9)  // key for distribution module params
+	UserOutstandingRewardsKey = collections.NewPrefix(10) // key for user outstanding rewards
 )
 
 // GetValidatorOutstandingRewardsAddress creates an address from a validator's outstanding rewards key.

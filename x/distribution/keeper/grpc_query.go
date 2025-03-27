@@ -327,20 +327,17 @@ func (k Querier) DelegationTotalRewards(ctx context.Context, req *types.QueryDel
 	}
 
 	outstandingRewards := map[string]sdk.Coins{}
-	err = k.UserOutstandingRewards.Indexes.Delegators.Walk(
+	err = k.UserOutstandingRewards.Walk(
 		ctx,
-		(&collections.Range[sdk.AccAddress]{}).Prefix(sdk.AccAddress(delAdr)),
-		func(indexingKey sdk.AccAddress, indexedKey collections.Pair[sdk.AccAddress, sdk.ValAddress]) (stop bool, err error) {
-			outstanding, err := k.UserOutstandingRewards.Get(ctx, indexedKey)
-			if err != nil {
-				return false, err
+		collections.NewPrefixedPairRange[sdk.AccAddress, sdk.ValAddress](sdk.AccAddress(delAdr)),
+		func(key collections.Pair[sdk.AccAddress, sdk.ValAddress], value types.UserOutstandingRewards) (stop bool, err error) {
+			valKey := key.K2().String()
+
+			if _, ok := outstandingRewards[valKey]; !ok {
+				outstandingRewards[valKey] = sdk.NewCoins()
 			}
 
-			if _, ok := outstandingRewards[string(indexingKey)]; !ok {
-				outstandingRewards[string(indexingKey)] = sdk.NewCoins()
-			}
-
-			outstandingRewards[string(indexingKey)] = outstandingRewards[string(indexingKey)].Add(outstanding.Rewards...)
+			outstandingRewards[valKey] = outstandingRewards[valKey].Add(value.Rewards...)
 
 			return false, nil
 		})

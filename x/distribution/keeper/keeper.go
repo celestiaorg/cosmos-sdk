@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"cosmossdk.io/collections"
-	"cosmossdk.io/collections/indexes"
 	"cosmossdk.io/core/store"
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/log"
@@ -33,11 +32,9 @@ type Keeper struct {
 	FeePool collections.Item[types.FeePool]
 	// UserOutstandingRewards is an indexed of automatically withdrawn rewards
 	// yet to be claimed by the user.
-	// the indexes are a delegator index and a validator index.
-	UserOutstandingRewards *collections.IndexedMap[
+	UserOutstandingRewards collections.Map[
 		collections.Pair[sdk.AccAddress, sdk.ValAddress],
 		types.UserOutstandingRewards,
-		UserOutstandingRewardsIndexes,
 	]
 
 	feeCollectorName string // name of the FeeCollector ModuleAccount
@@ -65,29 +62,12 @@ func NewKeeper(
 		authority:        authority,
 		Params:           collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
 		FeePool:          collections.NewItem(sb, types.FeePoolKey, "fee_pool", codec.CollValue[types.FeePool](cdc)),
-		UserOutstandingRewards: collections.NewIndexedMap(
+		UserOutstandingRewards: collections.NewMap(
 			sb,
 			types.UserOutstandingRewardsKey,
 			"user_outstanding_rewards",
 			collections.PairKeyCodec(sdk.AccAddressKey, sdk.ValAddressKey),
 			codec.CollValue[types.UserOutstandingRewards](cdc),
-			UserOutstandingRewardsIndexes{
-				Delegators: indexes.NewUnique(
-					sb,
-					types.UserOutstandingRewardsDelIndexKey, "user_outstanding_rewards_by_delegator",
-					sdk.AccAddressKey,
-					collections.PairKeyCodec(sdk.AccAddressKey, sdk.ValAddressKey),
-					func(key collections.Pair[sdk.AccAddress, sdk.ValAddress], v types.UserOutstandingRewards) (sdk.AccAddress, error) {
-						return key.K1(), nil
-					}),
-				Validators: indexes.NewUnique(sb,
-					types.UserOutstandingRewardsValIndexKey, "user_outstanding_rewards_by_validator",
-					sdk.ValAddressKey,
-					collections.PairKeyCodec(sdk.AccAddressKey, sdk.ValAddressKey),
-					func(key collections.Pair[sdk.AccAddress, sdk.ValAddress], v types.UserOutstandingRewards) (sdk.ValAddress, error) {
-						return key.K2(), nil
-					}),
-			},
 		),
 	}
 
@@ -288,18 +268,4 @@ func (k Keeper) FundCommunityPool(ctx context.Context, amount sdk.Coins, sender 
 
 	feePool.CommunityPool = feePool.CommunityPool.Add(sdk.NewDecCoinsFromCoins(amount...)...)
 	return k.FeePool.Set(ctx, feePool)
-}
-
-type UserOutstandingRewardsIndexes struct {
-	// Delegators is a unique index that indexes outstanding rewards by their account address.
-	Delegators *indexes.Unique[sdk.AccAddress, collections.Pair[sdk.AccAddress, sdk.ValAddress], types.UserOutstandingRewards]
-	// Validators is a unique index that indexes outstanding rewards by their validator address.
-	Validators *indexes.Unique[sdk.ValAddress, collections.Pair[sdk.AccAddress, sdk.ValAddress], types.UserOutstandingRewards]
-}
-
-func (i UserOutstandingRewardsIndexes) IndexesList() []collections.Index[collections.Pair[sdk.AccAddress, sdk.ValAddress], types.UserOutstandingRewards] {
-	return []collections.Index[collections.Pair[sdk.AccAddress, sdk.ValAddress], types.UserOutstandingRewards]{
-		i.Validators,
-		i.Delegators,
-	}
 }

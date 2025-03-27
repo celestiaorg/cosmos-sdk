@@ -47,6 +47,8 @@ Ref: https://keepachangelog.com/en/1.0.0/
 * (crypto/keyring) [#8](https://github.com/01builders/cosmos-sdk/pull/8) Fix error wrapping in pkg crypto/keyring. Removed `cockroachdb/errors` in favour of `errorsmod.Wrap`.
 * (x/consensus) [#9](https://github.com/01builders/cosmos-sdk/pull/9) Address bug where sending `MsgUpdateParams` to `x/consensus` would overwrite `AppVersion` with zero value. Always use existing `AppVersion` param.
 * (client) [#435](https://github.com/celestiaorg/cosmos-sdk/pull/435) Extend the `CometRPC` interface with cometbft `rpcclient.MempoolClient`.
+* (baseapp) [#432](https://github.com/celestiaorg/cosmos-sdk/pull/432) Extend the `sdk.EndBlock` type with `TimeoutInfo` to be propagated to `ResponseFinalizeBlock`.
+* (auth/tx) [#432](https://github.com/celestiaorg/cosmos-sdk/pull/432) Set the `prove` flag to `false` for tx queries. 
 
 ## [Unreleased-Cosmos-SDK]
 

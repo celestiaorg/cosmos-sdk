@@ -3,6 +3,8 @@ package keeper
 import (
 	"context"
 	stderrors "errors"
+	"maps"
+	"slices"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -287,7 +289,7 @@ func (k Querier) DelegationTotalRewards(ctx context.Context, req *types.QueryDel
 	}
 
 	total := sdk.DecCoins{}
-	var delRewards []types.DelegationDelegatorReward
+	delRewards := map[string]types.DelegationDelegatorReward{}
 
 	delAdr, err := k.authKeeper.AddressCodec().StringToBytes(req.DelegatorAddress)
 	if err != nil {
@@ -317,7 +319,7 @@ func (k Querier) DelegationTotalRewards(ctx context.Context, req *types.QueryDel
 				panic(err)
 			}
 
-			delRewards = append(delRewards, types.NewDelegationDelegatorReward(del.GetValidatorAddr(), delReward))
+			delRewards[del.GetValidatorAddr()] = types.NewDelegationDelegatorReward(del.GetValidatorAddr(), delReward)
 			total = total.Add(delReward...)
 			return false
 		},
@@ -345,16 +347,19 @@ func (k Querier) DelegationTotalRewards(ctx context.Context, req *types.QueryDel
 		return nil, err
 	}
 
-	for _, delReward := range delRewards {
-		if outstanding, ok := outstandingRewards[delReward.ValidatorAddress]; ok {
+	for valAddr, outstanding := range outstandingRewards {
+		if delReward, ok := delRewards[valAddr]; ok {
 			decCoins := sdk.NewDecCoinsFromCoins(outstanding...)
 
 			delReward.Reward = delReward.Reward.Add(decCoins...)
 			total = total.Add(decCoins...)
+			delRewards[valAddr] = delReward
+		} else {
+			delRewards[valAddr] = types.NewDelegationDelegatorReward(valAddr, sdk.NewDecCoinsFromCoins(outstanding...))
 		}
 	}
 
-	return &types.QueryDelegationTotalRewardsResponse{Rewards: delRewards, Total: total}, nil
+	return &types.QueryDelegationTotalRewardsResponse{Rewards: slices.Collect(maps.Values(delRewards)), Total: total}, nil
 }
 
 // DelegatorValidators queries the validators list of a delegator

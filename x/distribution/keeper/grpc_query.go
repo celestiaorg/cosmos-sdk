@@ -273,7 +273,9 @@ func (k Querier) DelegationRewards(ctx context.Context, req *types.QueryDelegati
 	}
 
 	// merge the rewards
-	rewards = rewards.Add(sdk.NewDecCoinsFromCoins(outstanding.Rewards...)...)
+	if !outstanding.Rewards.IsZero() {
+		rewards = rewards.Add(sdk.NewDecCoinsFromCoins(outstanding.Rewards...)...)
+	}
 
 	return &types.QueryDelegationRewardsResponse{Rewards: rewards}, nil
 }
@@ -348,14 +350,14 @@ func (k Querier) DelegationTotalRewards(ctx context.Context, req *types.QueryDel
 	}
 
 	for valAddr, outstanding := range outstandingRewards {
-		if delReward, ok := delRewards[valAddr]; ok {
-			decCoins := sdk.NewDecCoinsFromCoins(outstanding...)
+		decCoins := sdk.NewDecCoinsFromCoins(outstanding...)
+		total = total.Add(decCoins...)
 
+		if delReward, ok := delRewards[valAddr]; ok {
 			delReward.Reward = delReward.Reward.Add(decCoins...)
-			total = total.Add(decCoins...)
 			delRewards[valAddr] = delReward
 		} else {
-			delRewards[valAddr] = types.NewDelegationDelegatorReward(valAddr, sdk.NewDecCoinsFromCoins(outstanding...))
+			delRewards[valAddr] = types.NewDelegationDelegatorReward(valAddr, decCoins)
 		}
 	}
 

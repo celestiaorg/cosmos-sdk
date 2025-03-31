@@ -46,7 +46,8 @@ Ref: https://keepachangelog.com/en/1.0.0/
 * (x/auth) [#7](https://github.com/01builders/cosmos-sdk/pull/7) Support legacy global AccountNumber.
 * (crypto/keyring) [#8](https://github.com/01builders/cosmos-sdk/pull/8) Fix error wrapping in pkg crypto/keyring. Removed `cockroachdb/errors` in favour of `errorsmod.Wrap`.
 * (x/consensus) [#9](https://github.com/01builders/cosmos-sdk/pull/9) Address bug where sending `MsgUpdateParams` to `x/consensus` would overwrite `AppVersion` with zero value. Always use existing `AppVersion` param.
-* [#442](https://github.com/celestiaorg/cosmos-sdk/pull/442) Added a limit of 200 grants pruned per `BeginBlock` and the `PruneExpiredGrants` message that prunes 75 expired grants on every run.
+* (client) [#435](https://github.com/celestiaorg/cosmos-sdk/pull/435) Extend the `CometRPC` interface with cometbft `rpcclient.MempoolClient`.
+* (x/authz) [#442](https://github.com/celestiaorg/cosmos-sdk/pull/442) Added a limit of 200 grants pruned per `BeginBlock` and the `PruneExpiredGrants` message that prunes 75 expired grants on every run.
 
 ## [Unreleased-Cosmos-SDK]
 

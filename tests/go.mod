@@ -235,8 +235,8 @@ replace (
 	// We always want to test against the latest version of the simapp.
 	cosmossdk.io/simapp => ../simapp
 	github.com/99designs/keyring => github.com/cosmos/keyring v1.2.0
-	// celestia-core
-	github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core v0.38.11-0.20250325150452-89ef6e8a5cb3 // marko/core_changes_v3
+	// celestia-core HEAD of v0.38.x-celestia
+	github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core v0.38.11-0.20250331172655-bbd3b9bdd1ee
 	// We always want to test against the latest version of the SDK.
 	github.com/cosmos/cosmos-sdk => ../.
 	// Fix upstream GHSA-h395-qcrw-5vmq and GHSA-3vp4-m3rf-835h vulnerabilities.

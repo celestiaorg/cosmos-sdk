@@ -214,8 +214,8 @@ require (
 )
 
 replace (
-	// celestia-core
-	github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core v0.38.11-0.20250325150452-89ef6e8a5cb3 // marko/core_changes_v3
+	// celestia-core HEAD of v0.38.x-celestia
+	github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core v0.38.11-0.20250331172655-bbd3b9bdd1ee
 
 	github.com/cosmos/cosmos-sdk => ../../.
 )

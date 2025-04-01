@@ -25,8 +25,6 @@ import (
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authsims "github.com/cosmos/cosmos-sdk/x/auth/simulation"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	"github.com/cosmos/cosmos-sdk/x/auth/vesting"
-	vestingtypes "github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
 	"github.com/cosmos/cosmos-sdk/x/bank"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
@@ -109,7 +107,6 @@ func initFixture(t testing.TB) *fixture {
 
 	authModule := auth.NewAppModule(cdc, accountKeeper, authsims.RandomGenesisAccounts, nil)
 	bankModule := bank.NewAppModule(cdc, bankKeeper, accountKeeper, nil)
-	vestingModule := vesting.NewAppModule(accountKeeper, bankKeeper)
 	stakingModule := staking.NewAppModule(cdc, stakingKeeper, accountKeeper, bankKeeper, nil)
 	distrModule := distribution.NewAppModule(cdc, distrKeeper, accountKeeper, bankKeeper, stakingKeeper, nil)
 
@@ -133,7 +130,6 @@ func initFixture(t testing.TB) *fixture {
 		banktypes.ModuleName:    bankModule,
 		stakingtypes.ModuleName: stakingModule,
 		distrtypes.ModuleName:   distrModule,
-		vestingtypes.ModuleName: vestingModule,
 	})
 
 	sdkCtx := sdk.UnwrapSDKContext(integrationApp.Context())

@@ -257,7 +257,7 @@ func (k Keeper) withdrawDelegationRewards(ctx context.Context, val stakingtypes.
 		vestingAcc := k.authKeeper.GetAccount(ctx, withdrawAddr)
 		if v, ok := vestingAcc.(types.VestingAccount); ok {
 			// update account with rewards being sent
-			if err := v.UpdateSchedule(finalRewards); err != nil {
+			if err := v.UpdateSchedule(sdk.UnwrapSDKContext(ctx).BlockTime(), finalRewards); err != nil {
 				return nil, err
 			}
 

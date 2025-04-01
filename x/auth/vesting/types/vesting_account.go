@@ -166,38 +166,6 @@ func (bva BaseVestingAccount) Validate() error {
 	return bva.BaseAccount.Validate()
 }
 
-// UpdateSchedule updates the vesting schedule for a base vesting account.
-// It calculates the proportion of the passed amount that should be used for updating
-// based on the ratio of delegated vesting to total delegation.
-func (bva *BaseVestingAccount) UpdateSchedule(amount sdk.Coins) error {
-	totalDelegated := bva.DelegatedFree.Add(bva.DelegatedVesting...)
-	if totalDelegated.IsZero() {
-		return nil // No delegations, nothing to update
-	}
-
-	// Calculate what portion of the amount should be applied based on delegated vesting ratio
-	var updatedAmount sdk.Coins
-	for _, coin := range amount {
-		denom := coin.Denom
-		totalDelegatedForDenom := totalDelegated.AmountOf(denom)
-		if totalDelegatedForDenom.IsZero() {
-			continue
-		}
-
-		delegatedVestingForDenom := bva.DelegatedVesting.AmountOf(denom)
-		ratio := math.LegacyNewDecFromInt(delegatedVestingForDenom).Quo(math.LegacyNewDecFromInt(totalDelegatedForDenom))
-		amountToUse := math.LegacyNewDecFromInt(coin.Amount).Mul(ratio).RoundInt()
-
-		if !amountToUse.IsZero() {
-			updatedAmount = updatedAmount.Add(sdk.NewCoin(denom, amountToUse))
-		}
-	}
-
-	// Add the calculated amount to original vesting
-	bva.OriginalVesting = bva.OriginalVesting.Add(updatedAmount...)
-	return nil
-}
-
 // Continuous Vesting Account
 
 var (
@@ -283,19 +251,65 @@ func (cva ContinuousVestingAccount) GetStartTime() int64 {
 
 // Validate checks for errors on the account fields
 func (cva ContinuousVestingAccount) Validate() error {
-	if cva.GetStartTime() > cva.GetEndTime() {
-		return errors.New("vesting start-time cannot be after end-time")
+	if cva.GetStartTime() >= cva.GetEndTime() {
+		return errors.New("vesting start-time cannot be before or equal to end-time")
 	}
 
 	return cva.BaseVestingAccount.Validate()
 }
 
 // UpdateSchedule updates the vesting schedule for a continuous vesting account.
-// It delegates to the base vesting account implementation and adjusts end time if needed.
-func (cva *ContinuousVestingAccount) UpdateSchedule(amount sdk.Coins) error {
-	// the base vesting account implementation is wrong, we should be updating the vesting schedule based on the vesting account not in the base type.
-	if err := cva.BaseVestingAccount.UpdateSchedule(amount); err != nil {
-		return err
+// It adds a portion of the input amount to the OriginalVesting schedule.
+// The portion added corresponds to the fraction of the vesting schedule that has *not* yet occurred at the provided blockTime.
+// Denominations in the input amount that are not present in the OriginalVesting schedule are ignored.
+//
+// Mathematical Explanation:
+// Let OV be the OriginalVesting coins, A be the input amount, and t be the blockTime.
+// For each denomination d present in both OV and A:
+//
+//	Let OV_d be the original vesting amount for d.
+//	Let A_d be the input amount for d.
+//	Let V_d(t) be the amount vested for d at time t (from GetVestedCoins).
+//	The unvested fraction is max(0, 1 - V_d(t) / OV_d).
+//	The amount added to original vesting for d (ΔOV_d) is:
+//	  ΔOV_d = A_d * max(0, 1 - V_d(t) / OV_d)
+//
+// The new original vesting becomes OV'_d = OV_d + ΔOV_d.
+func (cva *ContinuousVestingAccount) UpdateSchedule(blockTime time.Time, amount sdk.Coins) error {
+	originalVesting := cva.BaseVestingAccount.GetOriginalVesting()
+	vestedCoins := cva.GetVestedCoins(blockTime)
+
+	var amountToAdd sdk.Coins
+
+	for _, coin := range amount {
+		origCoin := originalVesting.AmountOf(coin.Denom)
+		if origCoin.IsZero() {
+			// If the denomination wasn't originally vesting, skip it.
+			// Do not add new denominations to the original vesting schedule during an update.
+			continue
+		}
+
+		vestedCoin := vestedCoins.AmountOf(coin.Denom)
+
+		// Calculate the fraction that has already vested
+		vestedRatio := math.LegacyNewDecFromInt(vestedCoin).Quo(math.LegacyNewDecFromInt(origCoin))
+
+		// Calculate the fraction that is still vesting (1 - vestedRatio)
+		vestingRatio := math.LegacyOneDec().Sub(vestedRatio)
+		if vestingRatio.IsNegative() {
+			// Clamp to zero if somehow vestedRatio > 1
+			vestingRatio = math.LegacyZeroDec()
+		}
+
+		// Scale the input amount by the vesting fraction
+		addAmt := math.LegacyNewDecFromInt(coin.Amount).Mul(vestingRatio).RoundInt()
+
+		amountToAdd = amountToAdd.Add(sdk.NewCoin(coin.Denom, addAmt))
+	}
+
+	// Add the calculated portion to the original vesting amount
+	if !amountToAdd.IsZero() {
+		cva.BaseVestingAccount.OriginalVesting = cva.BaseVestingAccount.OriginalVesting.Add(amountToAdd...)
 	}
 
 	return nil
@@ -437,64 +451,7 @@ func (pva PeriodicVestingAccount) Validate() error {
 // UpdateSchedule updates the vesting schedule for a periodic vesting account.
 // It takes in the amount of coins from the rewards and updates the vesting schedule
 // based on the ratio of delegated vesting to total delegated coins.
-func (pva *PeriodicVestingAccount) UpdateSchedule(amount sdk.Coins) error {
-	// If there are no periods or amount is zero, nothing to do
-	if len(pva.VestingPeriods) == 0 || amount.IsZero() {
-		return nil
-	}
-
-	// Calculate what portion of the amount should be applied based on delegated vesting ratio
-	totalDelegated := pva.DelegatedFree.Add(pva.DelegatedVesting...)
-	if totalDelegated.IsZero() {
-		return nil // No delegations, nothing to update
-	}
-
-	var updatedAmount sdk.Coins
-	for _, coin := range amount {
-		denom := coin.Denom
-		totalDelegatedForDenom := totalDelegated.AmountOf(denom)
-		delegatedVestingForDenom := pva.DelegatedVesting.AmountOf(denom)
-
-		// For new denominations, allow the amount to be free
-		if totalDelegatedForDenom.IsZero() {
-			continue
-		}
-
-		ratio := math.LegacyNewDecFromInt(delegatedVestingForDenom).Quo(math.LegacyNewDecFromInt(totalDelegatedForDenom))
-		amountToUse := math.LegacyNewDecFromInt(coin.Amount).Mul(ratio).RoundInt()
-
-		fmt.Println("amountToUse", amountToUse)
-
-		if !amountToUse.IsZero() {
-			updatedAmount = updatedAmount.Add(sdk.NewCoin(denom, amountToUse))
-		}
-	}
-
-	// Distribute the updated amount across all periods
-	amountPerPeriod := sdk.NewCoins()
-	for _, coin := range updatedAmount {
-		amtPerPeriod := coin.Amount.Quo(math.NewInt(int64(len(pva.VestingPeriods))))
-		if !amtPerPeriod.IsZero() {
-			amountPerPeriod = amountPerPeriod.Add(sdk.NewCoin(coin.Denom, amtPerPeriod))
-		}
-	}
-
-	// Add the amount to each period
-	for i := range pva.VestingPeriods {
-		if i == len(pva.VestingPeriods)-1 {
-			// Last period gets any remaining amount
-			remaining := updatedAmount
-			for d := 0; d < len(pva.VestingPeriods)-1; d++ {
-				remaining = remaining.Sub(amountPerPeriod...)
-			}
-			pva.VestingPeriods[i].Amount = pva.VestingPeriods[i].Amount.Add(remaining...)
-		} else {
-			pva.VestingPeriods[i].Amount = pva.VestingPeriods[i].Amount.Add(amountPerPeriod...)
-		}
-	}
-
-	// Add the calculated amount to original vesting
-	pva.OriginalVesting = pva.OriginalVesting.Add(updatedAmount...)
+func (pva *PeriodicVestingAccount) UpdateSchedule(blockTime time.Time, amount sdk.Coins) error {
 	return nil
 }
 
@@ -565,8 +522,32 @@ func (dva DelayedVestingAccount) Validate() error {
 }
 
 // UpdateSchedule updates the vesting schedule for a delayed vesting account.
-func (dva *DelayedVestingAccount) UpdateSchedule(amount sdk.Coins) error {
-	return dva.BaseVestingAccount.UpdateSchedule(amount)
+// If the block time is before the end time, it adds the portion of the input amount
+// corresponding to existing denominations in the original vesting schedule.
+// If the block time is at or after the end time, it does nothing.
+func (dva *DelayedVestingAccount) UpdateSchedule(blockTime time.Time, amount sdk.Coins) error {
+	if blockTime.Unix() >= dva.EndTime {
+		// Account is fully vested, no updates to the original vesting schedule.
+		return nil
+	}
+
+	originalVesting := dva.BaseVestingAccount.GetOriginalVesting()
+	var amountToAdd sdk.Coins
+
+	// Add the full amount for existing denominations since the account is entirely unvested.
+	for _, coin := range amount {
+		if originalVesting.AmountOf(coin.Denom).IsPositive() {
+			// Only add if the denomination exists in the original vesting.
+			amountToAdd = amountToAdd.Add(coin)
+		}
+	}
+
+	// Add the filtered amount to original vesting
+	if !amountToAdd.IsZero() {
+		dva.BaseVestingAccount.OriginalVesting = dva.BaseVestingAccount.OriginalVesting.Add(amountToAdd...)
+	}
+
+	return nil
 }
 
 //-----------------------------------------------------------------------------
@@ -636,6 +617,6 @@ func (plva PermanentLockedAccount) Validate() error {
 }
 
 // UpdateSchedule updates the vesting schedule for a permanent locked account.
-func (plva *PermanentLockedAccount) UpdateSchedule(amount sdk.Coins) error {
-	return plva.BaseVestingAccount.UpdateSchedule(amount)
+func (plva *PermanentLockedAccount) UpdateSchedule(blockTime time.Time, amount sdk.Coins) error {
+	return nil
 }

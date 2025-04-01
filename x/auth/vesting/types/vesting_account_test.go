@@ -926,376 +926,191 @@ func TestVestingAccountTestSuite(t *testing.T) {
 	suite.Run(t, new(VestingAccountTestSuite))
 }
 
-func TestUpdateScheduleBaseVestingAcc(t *testing.T) {
-	now := tmtime.Now()
-	endTime := now.Add(24 * time.Hour)
-	bacc, initialOrigCoins := initBaseAccount() // Use a distinct name for clarity
-
-	testCases := []struct {
-		name             string
-		originalVesting  sdk.Coins
-		delegatedVesting sdk.Coins
-		delegatedFree    sdk.Coins
-		rewardCoins      sdk.Coins
-		expectedVesting  sdk.Coins
-		expectError      bool
-	}{
-		{
-			name:             "no delegations",
-			originalVesting:  initialOrigCoins,
-			delegatedVesting: sdk.NewCoins(),
-			delegatedFree:    sdk.NewCoins(),
-			rewardCoins:      sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			expectedVesting:  initialOrigCoins, // No change expected
-			expectError:      false,
-		},
-		{
-			name:             "50% vesting, 50% free delegation",
-			originalVesting:  initialOrigCoins,
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			rewardCoins:      sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			expectedVesting: sdk.NewCoins( // fee: 1000, stake: 100 + 50 = 150
-				sdk.NewInt64Coin(feeDenom, 1000),
-				sdk.NewInt64Coin(stakeDenom, 150),
-			),
-			expectError: false,
-		},
-		{
-			name:             "100% delegated vesting",
-			originalVesting:  initialOrigCoins,
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			delegatedFree:    sdk.NewCoins(),
-			rewardCoins:      sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			expectedVesting: sdk.NewCoins( // fee: 1000, stake: 100 + 100 = 200
-				sdk.NewInt64Coin(feeDenom, 1000),
-				sdk.NewInt64Coin(stakeDenom, 200),
-			),
-			expectError: false,
-		},
-		{
-			name:             "100% delegated free",
-			originalVesting:  initialOrigCoins,
-			delegatedVesting: sdk.NewCoins(),
-			delegatedFree:    sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			rewardCoins:      sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			expectedVesting:  initialOrigCoins, // No change expected
-			expectError:      false,
-		},
-		{
-			name:             "zero rewards",
-			originalVesting:  initialOrigCoins,
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			rewardCoins:      sdk.NewCoins(),
-			expectedVesting:  initialOrigCoins, // No change expected
-			expectError:      false,
-		},
-		{
-			name:             "delegation exceeds original vesting (should not happen in practice, but test)",
-			originalVesting:  initialOrigCoins,
-			delegatedVesting: initialOrigCoins.Add(sdk.NewInt64Coin(stakeDenom, 1)), // More than available
-			delegatedFree:    sdk.NewCoins(),
-			rewardCoins:      sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			// Expecting update to proceed based on provided delegations, even if inconsistent
-			expectedVesting: initialOrigCoins.Add(sdk.NewInt64Coin(stakeDenom, 100)), // All rewards go to vesting
-			expectError:     false,                                                   // The UpdateSchedule function itself might not error here
-		},
-	}
-
-	for _, tc := range testCases {
-		tc := tc // Capture range variable
-		t.Run(tc.name, func(t *testing.T) {
-			// Create a new base vesting account for each test case
-			bva, err := types.NewBaseVestingAccount(bacc, tc.originalVesting, endTime.Unix())
-			require.NoError(t, err)
-
-			// Set delegations for the test case
-			bva.DelegatedVesting = tc.delegatedVesting
-			bva.DelegatedFree = tc.delegatedFree
-
-			// Update the schedule
-			err = bva.UpdateSchedule(tc.rewardCoins)
-
-			if tc.expectError {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				// Verify the original vesting amount is updated as expected
-				require.Equal(t, tc.expectedVesting, bva.OriginalVesting, "OriginalVesting mismatch")
-				// EndTime should not change for BaseVestingAccount during update
-				require.Equal(t, endTime.Unix(), bva.EndTime, "EndTime mismatch")
-			}
-		})
-	}
-}
-
 func TestUpdateScheduleContinuousVestingAcc(t *testing.T) {
 	now := tmtime.Now()
+	bacc, _ := initBaseAccount()
 
 	testCases := []struct {
-		name             string
-		startTime        int64
-		endTime          int64
-		originalVesting  sdk.Coins
-		delegatedVesting sdk.Coins
-		delegatedFree    sdk.Coins
-		rewardCoins      sdk.Coins
-		expectedVesting  sdk.Coins
-		expectedEndTime  int64
-		testTime         int64 // Time at which test is run (for time-dependent tests)
+		name            string
+		startTime       int64
+		endTime         int64
+		originalVesting sdk.Coins
+		rewardCoins     sdk.Coins
+		testTime        int64 // Time at which UpdateSchedule is called
+		expectedVesting sdk.Coins
+		expectedEndTime int64 // EndTime should not change
+		expectError     bool
 	}{
 		{
-			name:             "basic 50-50 delegation split",
-			startTime:        now.Unix(),
-			endTime:          now.Add(24 * time.Hour).Unix(),
-			originalVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			rewardCoins:      sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			expectedVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 150)), // Original 100 + 50 new
-			expectedEndTime:  now.Add(24 * time.Hour).Unix(),
-			testTime:         now.Add(12 * time.Hour).Unix(),
+			name:            "update halfway through vesting period",
+			startTime:       now.Unix(),
+			endTime:         now.Add(24 * time.Hour).Unix(),
+			originalVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1000)),
+			rewardCoins:     sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
+			testTime:        now.Add(12 * time.Hour).Unix(), // 50% vested
+			// Expected: 1000 (original) + 100 * (1 - 0.5) = 1000 + 50 = 1050
+			expectedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1050)),
+			expectedEndTime: now.Add(24 * time.Hour).Unix(),
 		},
 		{
-			name:             "100% delegated vesting",
-			startTime:        now.Unix(),
-			endTime:          now.Add(24 * time.Hour).Unix(),
-			originalVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			delegatedFree:    sdk.NewCoins(),
-			rewardCoins:      sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			expectedVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 200)), // Original 100 + 100 new
-			expectedEndTime:  now.Add(24 * time.Hour).Unix(),
-			testTime:         now.Add(12 * time.Hour).Unix(),
+			name:            "update 75% through vesting period",
+			startTime:       now.Unix(),
+			endTime:         now.Add(24 * time.Hour).Unix(),
+			originalVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1000)),
+			rewardCoins:     sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
+			testTime:        now.Add(18 * time.Hour).Unix(), // 75% vested
+			// Expected: 1000 + 100 * (1 - 0.75) = 1000 + 25 = 1025
+			expectedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1025)),
+			expectedEndTime: now.Add(24 * time.Hour).Unix(),
 		},
 		{
-			name:             "100% delegated free",
-			startTime:        now.Unix(),
-			endTime:          now.Add(24 * time.Hour).Unix(),
-			originalVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			delegatedVesting: sdk.NewCoins(),
-			delegatedFree:    sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			rewardCoins:      sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			expectedVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)), // No change
-			expectedEndTime:  now.Add(24 * time.Hour).Unix(),
-			testTime:         now.Add(12 * time.Hour).Unix(),
+			name:            "update after vesting period completed",
+			startTime:       now.Add(-48 * time.Hour).Unix(),
+			endTime:         now.Add(-24 * time.Hour).Unix(),
+			originalVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1000)),
+			rewardCoins:     sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
+			testTime:        now.Unix(), // Test time is after end time
+			// Expected: 1000 + 100 * (1 - 1.0) = 1000 + 0 = 1000
+			expectedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1000)),
+			expectedEndTime: now.Add(-24 * time.Hour).Unix(),
 		},
 		{
-			name:             "uneven delegation split (75% vesting, 25% free)",
-			startTime:        now.Unix(),
-			endTime:          now.Add(24 * time.Hour).Unix(),
-			originalVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 75)),
-			delegatedFree:    sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 25)),
-			rewardCoins:      sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			expectedVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 175)), // Original 100 + 75 new
-			expectedEndTime:  now.Add(24 * time.Hour).Unix(),
-			testTime:         now.Add(12 * time.Hour).Unix(),
+			name:            "update at exactly the vesting end time",
+			startTime:       now.Add(-24 * time.Hour).Unix(),
+			endTime:         now.Unix(),
+			originalVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1000)),
+			rewardCoins:     sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
+			testTime:        now.Unix(), // Test time is exactly end time
+			// Expected: 1000 + 100 * (1 - 1.0) = 1000 + 0 = 1000
+			expectedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1000)),
+			expectedEndTime: now.Unix(),
 		},
 		{
-			name:             "large reward amount",
-			startTime:        now.Unix(),
-			endTime:          now.Add(24 * time.Hour).Unix(),
-			originalVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			rewardCoins:      sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 10000)),
-			expectedVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 5100)), // Original 100 + 5000 new
-			expectedEndTime:  now.Add(24 * time.Hour).Unix(),
-			testTime:         now.Add(12 * time.Hour).Unix(),
+			name:            "update before start time",
+			startTime:       now.Add(1 * time.Hour).Unix(),
+			endTime:         now.Add(25 * time.Hour).Unix(),
+			originalVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1000)),
+			rewardCoins:     sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
+			testTime:        now.Unix(), // Test time is before start time
+			// Expected: 1000 + 100 * (1 - 0.0) = 1000 + 100 = 1100
+			expectedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1100)),
+			expectedEndTime: now.Add(25 * time.Hour).Unix(),
+			expectError:     false,
 		},
 		{
-			name:             "partial delegation (50% of vesting delegated)",
-			startTime:        now.Unix(),
-			endTime:          now.Add(24 * time.Hour).Unix(),
-			originalVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(),
-			rewardCoins:      sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			expectedVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 200)), // Original 100 + 100 new
-			expectedEndTime:  now.Add(24 * time.Hour).Unix(),
-			testTime:         now.Add(12 * time.Hour).Unix(),
+			name:            "update at exactly the start time",
+			startTime:       now.Unix(),
+			endTime:         now.Add(24 * time.Hour).Unix(),
+			originalVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1000)),
+			rewardCoins:     sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
+			testTime:        now.Unix(), // Test time is exactly start time
+			// Expected: 1000 + 100 * (1 - 0.0) = 1000 + 100 = 1100
+			expectedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1100)),
+			expectedEndTime: now.Add(24 * time.Hour).Unix(),
+			expectError:     false,
 		},
 		{
-			name:             "update after vesting period completed",
-			startTime:        now.Add(-48 * time.Hour).Unix(), // Start time in the past
-			endTime:          now.Add(-24 * time.Hour).Unix(), // End time in the past
-			originalVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			rewardCoins:      sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			expectedVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 150)), // Original 100 + 50 new
-			expectedEndTime:  now.Add(-24 * time.Hour).Unix(),                 // End time should remain unchanged
-			testTime:         now.Unix(),
+			name:            "multiple denominations, update halfway",
+			startTime:       now.Unix(),
+			endTime:         now.Add(24 * time.Hour).Unix(),
+			originalVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1000), sdk.NewInt64Coin(feeDenom, 500)),
+			rewardCoins:     sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100), sdk.NewInt64Coin(feeDenom, 50)),
+			testTime:        now.Add(12 * time.Hour).Unix(), // 50% vested
+			// Expected: stake: 1000 + 100 * 0.5 = 1050, fee: 500 + 50 * 0.5 = 525
+			expectedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1050), sdk.NewInt64Coin(feeDenom, 525)),
+			expectedEndTime: now.Add(24 * time.Hour).Unix(),
+			expectError:     false,
 		},
 		{
-			name:             "update at exactly the vesting end time",
-			startTime:        now.Add(-24 * time.Hour).Unix(),
-			endTime:          now.Unix(), // End time is now
-			originalVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			rewardCoins:      sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			expectedVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 150)), // Original 100 + 50 new
-			expectedEndTime:  now.Unix(),
-			testTime:         now.Unix(),
+			name:            "rewards contain denom not in original vesting",
+			startTime:       now.Unix(),
+			endTime:         now.Add(24 * time.Hour).Unix(),
+			originalVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1000)),
+			rewardCoins:     sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100), sdk.NewInt64Coin(feeDenom, 50)), // feeDenom not in original
+			testTime:        now.Add(12 * time.Hour).Unix(),                                                  // 50% vested
+			// Expected: stake: 1000 + 100 * 0.5 = 1050. Fee denom ignored.
+			expectedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1050)),
+			expectedEndTime: now.Add(24 * time.Hour).Unix(),
+			expectError:     false,
 		},
 		{
-			name:             "multiple denominations in original vesting",
-			startTime:        now.Unix(),
-			endTime:          now.Add(24 * time.Hour).Unix(),
-			originalVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			rewardCoins:      sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			expectedVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 150)),
-			expectedEndTime:  now.Add(24 * time.Hour).Unix(),
-			testTime:         now.Add(12 * time.Hour).Unix(),
+			name:            "zero rewards",
+			startTime:       now.Unix(),
+			endTime:         now.Add(24 * time.Hour).Unix(),
+			originalVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1000)),
+			rewardCoins:     sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 0)),
+			testTime:        now.Add(12 * time.Hour).Unix(),
+			expectedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1000)), // No change
+			expectedEndTime: now.Add(24 * time.Hour).Unix(),
+			expectError:     false,
 		},
 		{
-			name:             "zero rewards",
-			startTime:        now.Unix(),
-			endTime:          now.Add(24 * time.Hour).Unix(),
-			originalVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			rewardCoins:      sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 0)),
-			expectedVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)), // No change
-			expectedEndTime:  now.Add(24 * time.Hour).Unix(),
-			testTime:         now.Add(12 * time.Hour).Unix(),
+			name:            "nil rewards",
+			startTime:       now.Unix(),
+			endTime:         now.Add(24 * time.Hour).Unix(),
+			originalVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1000)),
+			rewardCoins:     nil,
+			testTime:        now.Add(12 * time.Hour).Unix(),
+			expectedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1000)), // No change
+			expectedEndTime: now.Add(24 * time.Hour).Unix(),
+			expectError:     false,
 		},
 		{
-			name:             "nil rewards",
-			startTime:        now.Unix(),
-			endTime:          now.Add(24 * time.Hour).Unix(),
-			originalVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			rewardCoins:      nil,
-			expectedVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)), // No change
-			expectedEndTime:  now.Add(24 * time.Hour).Unix(),
-			testTime:         now.Add(12 * time.Hour).Unix(),
-		},
-		{
-			name:             "start time equals end time (zero duration)",
-			startTime:        now.Unix(),
-			endTime:          now.Unix(), // Zero duration
-			originalVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			rewardCoins:      sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			expectedVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 150)), // Should still update vesting amount
-			expectedEndTime:  now.Unix(),                                      // End time remains unchanged
-			testTime:         now.Unix(),
-		},
-		{
-			name:             "update before start time",
-			startTime:        now.Add(1 * time.Hour).Unix(), // Starts in the future
-			endTime:          now.Add(25 * time.Hour).Unix(),
-			originalVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			rewardCoins:      sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
-			expectedVesting:  sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 150)),
-			expectedEndTime:  now.Add(25 * time.Hour).Unix(),
-			testTime:         now.Unix(), // Test time is before start time
+			name:            "start time equals end time (zero duration), update before time",
+			startTime:       now.Unix(),
+			endTime:         now.Unix(), // Zero duration
+			originalVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1000)),
+			rewardCoins:     sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),
+			testTime:        now.Add(-1 * time.Hour).Unix(), // Before zero duration start/end time
+			// Expected: 1000 + 100 * (1 - 0.0) = 1000 + 100 = 1100 (not started)
+			expectedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1100)),
+			expectedEndTime: now.Unix(),
+			expectError:     true,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			bacc, _ := initBaseAccount()
 			cva, err := types.NewContinuousVestingAccount(bacc, tc.originalVesting, tc.startTime, tc.endTime)
+			if tc.expectError {
+				require.Error(t, err)
+				return
+			}
 			require.NoError(t, err)
 
-			// Setup delegations
-			cva.DelegatedVesting = tc.delegatedVesting
-			cva.DelegatedFree = tc.delegatedFree
+			// Store original vesting before update for comparison
+			originalVestingBeforeUpdate := cva.GetOriginalVesting()
 
-			// Only test future vesting if the vesting period hasn't completed yet and has a non-zero duration
-			if tc.endTime > tc.testTime && tc.endTime > tc.startTime {
-				// Check vested coins at future time points BEFORE update
-				// Calculate several future checkpoints to verify vesting progression
-				duration := tc.endTime - tc.startTime
-				checkpoints := []float64{0.25, 0.5, 0.75, 1.0} // 25%, 50%, 75%, 100% of vesting period
+			// Update the vesting schedule
+			err = cva.UpdateSchedule(time.Unix(tc.testTime, 0), tc.rewardCoins)
+			require.NoError(t, err)
 
-				// Store pre-update vested amounts for each checkpoint
-				preUpdateVestedCoins := make([]sdk.Coins, len(checkpoints))
-				for i, fraction := range checkpoints {
-					// Calculate the checkpoint time
-					checkpointTime := tc.startTime + int64(float64(duration)*fraction)
-					if checkpointTime > tc.testTime {
-						// Only track future checkpoints (after our test time)
-						preUpdateVestedCoins[i] = cva.GetVestedCoins(time.Unix(checkpointTime, 0))
-					}
-				}
+			// Verify results
+			require.Equal(t, tc.expectedVesting, cva.OriginalVesting, "OriginalVesting mismatch")
+			require.Equal(t, tc.expectedEndTime, cva.EndTime, "EndTime mismatch")
 
-				// Update the vesting schedule
-				err = cva.UpdateSchedule(tc.rewardCoins)
-				require.NoError(t, err)
+			// Verify GetVestedCoins logic still works correctly based on the *new* original vesting amount
+			// Check at the test time itself
+			currentVested := cva.GetVestedCoins(time.Unix(tc.testTime, 0))
 
-				// Verify results
-				require.Equal(t, tc.expectedVesting, cva.OriginalVesting)
-				require.Equal(t, tc.expectedEndTime, cva.EndTime)
+			// Check at a future time (e.g., end time) - only if duration > 0
+			if tc.endTime > tc.startTime {
+				futureVested := cva.GetVestedCoins(time.Unix(tc.endTime, 0))
+				require.Equal(t, tc.expectedVesting, futureVested, "Vesting at end time should equal the new original vesting")
 
-				// Check vested coins at the same future time points AFTER update
-				for i, fraction := range checkpoints {
-					checkpointTime := tc.startTime + int64(float64(duration)*fraction)
-					if checkpointTime > tc.testTime {
-						postUpdateVestedCoins := cva.GetVestedCoins(time.Unix(checkpointTime, 0))
-
-						// For cases where rewards are added (expectedVesting > originalVesting)
-						if !tc.expectedVesting.Equal(tc.originalVesting) && fraction > 0 {
-							// Verify more coins vest at each checkpoint after the update
-							for _, coin := range postUpdateVestedCoins {
-								// Find matching coin in pre-update vested coins
-								preUpdateAmt := math.ZeroInt()
-								for _, preCoin := range preUpdateVestedCoins[i] {
-									if preCoin.Denom == coin.Denom {
-										preUpdateAmt = preCoin.Amount
-										break
-									}
-								}
-
-								// If this denomination had vesting coins before the update
-								if !preUpdateAmt.IsZero() {
-									// Verify more coins vest at this checkpoint after the update
-									require.True(t, coin.Amount.GT(preUpdateAmt),
-										"Checkpoint %v (%v%%): Expected more vested coins after update. Got %v, expected more than %v",
-										checkpointTime, fraction*100, coin, preUpdateAmt)
-								}
-							}
+				// Check that vesting progresses correctly after the update
+				if tc.testTime < tc.endTime {
+					midPointTime := tc.testTime + (tc.endTime-tc.testTime)/2
+					midPointVested := cva.GetVestedCoins(time.Unix(midPointTime, 0))
+					require.True(t, midPointVested.IsAllGTE(currentVested), "Vested coins should not decrease over time after update")
+					// If the start time is after test time the currentVested will be empty, not zero. This is due to how GetVestedCoins works.
+					if tc.testTime > tc.startTime {
+						// If the schedule was actually updated, check that more coins vested
+						if !originalVestingBeforeUpdate.Equal(tc.expectedVesting) {
+							require.True(t, midPointVested.IsAnyGT(currentVested), "Expected more coins to vest after update if update occurred before end time")
 						}
 					}
 				}
-			} else {
-				// For cases where vesting has already completed or zero duration
-				err = cva.UpdateSchedule(tc.rewardCoins)
-				require.NoError(t, err)
-
-				// Verify results
-				require.Equal(t, tc.expectedVesting, cva.OriginalVesting)
-				require.Equal(t, tc.expectedEndTime, cva.EndTime)
-			}
-
-			// Verify vesting calculations still work correctly
-			if tc.testTime > tc.startTime && tc.testTime < tc.endTime {
-				// If we're in the middle of vesting, check that GetVestedCoins returns the expected amount
-				elapsed := tc.testTime - tc.startTime
-				duration := tc.endTime - tc.startTime
-
-				// Calculate expected vested coins based on linear vesting
-				expectedVestedRatio := math.LegacyNewDec(elapsed).Quo(math.LegacyNewDec(duration))
-				expectedVestedCoins := sdk.NewCoins()
-
-				for _, coin := range tc.expectedVesting {
-					vestedAmt := math.LegacyNewDec(coin.Amount.Int64()).Mul(expectedVestedRatio).RoundInt64()
-					expectedVestedCoins = expectedVestedCoins.Add(sdk.NewInt64Coin(coin.Denom, vestedAmt))
-				}
-
-				vestedCoins := cva.GetVestedCoins(time.Unix(tc.testTime, 0))
-				require.Equal(t, expectedVestedCoins, vestedCoins)
 			}
 		})
 	}
@@ -1303,207 +1118,312 @@ func TestUpdateScheduleContinuousVestingAcc(t *testing.T) {
 
 func TestUpdateScheduleDelayedVestingAcc(t *testing.T) {
 	now := tmtime.Now()
-	endTime := now.Add(24 * time.Hour).Unix()
 	bacc, initialOrigCoins := initBaseAccount()
 	rewardCoins := sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100))
+	feeReward := sdk.NewInt64Coin(feeDenom, 50)
 
 	testCases := []struct {
-		name             string
-		endTime          int64
-		originalVesting  sdk.Coins
-		delegatedVesting sdk.Coins
-		delegatedFree    sdk.Coins
-		rewardCoins      sdk.Coins
-		expectedVesting  sdk.Coins
-		expectedEndTime  int64 // Delayed vesting EndTime should not change
-		expectError      bool
+		name            string
+		endTime         int64
+		originalVesting sdk.Coins
+		rewardCoins     sdk.Coins
+		testTime        int64 // Time at which UpdateSchedule is called
+		expectedVesting sdk.Coins
+		expectedEndTime int64 // EndTime should not change
 	}{
 		{
-			name:             "50% vesting, 50% free delegation",
-			endTime:          endTime,
-			originalVesting:  initialOrigCoins,
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			rewardCoins:      rewardCoins,
-			expectedVesting:  initialOrigCoins.Add(sdk.NewInt64Coin(stakeDenom, 50)), // 50% rewards added
-			expectedEndTime:  endTime,
-			expectError:      false,
+			name:            "update before end time",
+			endTime:         now.Add(24 * time.Hour).Unix(),
+			originalVesting: initialOrigCoins,
+			rewardCoins:     rewardCoins,
+			testTime:        now.Unix(),
+			// Expected: Add full reward amount as testTime < endTime
+			expectedVesting: initialOrigCoins.Add(rewardCoins...), // stake: 100 + 100 = 200
+			expectedEndTime: now.Add(24 * time.Hour).Unix(),
 		},
 		{
-			name:             "100% vesting delegation",
-			endTime:          endTime,
-			originalVesting:  initialOrigCoins,
-			delegatedVesting: initialOrigCoins,
-			delegatedFree:    sdk.NewCoins(),
-			rewardCoins:      rewardCoins,
-			expectedVesting:  initialOrigCoins.Add(rewardCoins...),
-			expectedEndTime:  endTime,
-			expectError:      false,
+			name:            "update at end time",
+			endTime:         now.Add(24 * time.Hour).Unix(),
+			originalVesting: initialOrigCoins,
+			rewardCoins:     rewardCoins,
+			testTime:        now.Add(24 * time.Hour).Unix(), // Exactly end time
+			// Expected: No change as testTime >= endTime
+			expectedVesting: initialOrigCoins,
+			expectedEndTime: now.Add(24 * time.Hour).Unix(),
 		},
 		{
-			name:             "100% free delegation",
-			endTime:          endTime,
-			originalVesting:  initialOrigCoins,
-			delegatedVesting: sdk.NewCoins(),
-			delegatedFree:    initialOrigCoins,
-			rewardCoins:      rewardCoins,
-			expectedVesting:  initialOrigCoins, // No rewards added
-			expectedEndTime:  endTime,
-			expectError:      false,
+			name:            "update after end time",
+			endTime:         now.Add(-1 * time.Hour).Unix(), // End time already passed
+			originalVesting: initialOrigCoins,
+			rewardCoins:     rewardCoins,
+			testTime:        now.Unix(),
+			// Expected: No change as testTime >= endTime
+			expectedVesting: initialOrigCoins,
+			expectedEndTime: now.Add(-1 * time.Hour).Unix(),
 		},
 		{
-			name:             "zero rewards",
-			endTime:          endTime,
-			originalVesting:  initialOrigCoins,
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			rewardCoins:      sdk.NewCoins(),
-			expectedVesting:  initialOrigCoins,
-			expectedEndTime:  endTime,
-			expectError:      false,
+			name:            "zero rewards, update before end time",
+			endTime:         now.Add(24 * time.Hour).Unix(),
+			originalVesting: initialOrigCoins,
+			rewardCoins:     sdk.NewCoins(),
+			testTime:        now.Unix(),
+			expectedVesting: initialOrigCoins, // No change
+			expectedEndTime: now.Add(24 * time.Hour).Unix(),
 		},
 		{
-			name:             "nil rewards",
-			endTime:          endTime,
-			originalVesting:  initialOrigCoins,
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			rewardCoins:      nil,
-			expectedVesting:  initialOrigCoins,
-			expectedEndTime:  endTime,
-			expectError:      false,
+			name:            "nil rewards, update before end time",
+			endTime:         now.Add(24 * time.Hour).Unix(),
+			originalVesting: initialOrigCoins,
+			rewardCoins:     nil,
+			testTime:        now.Unix(),
+			expectedVesting: initialOrigCoins, // No change
+			expectedEndTime: now.Add(24 * time.Hour).Unix(),
 		},
 		{
-			name:             "update after vesting end time",
-			endTime:          now.Add(-1 * time.Hour).Unix(), // End time already passed
-			originalVesting:  initialOrigCoins,
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			rewardCoins:      rewardCoins,
-			expectedVesting:  initialOrigCoins.Add(sdk.NewInt64Coin(stakeDenom, 50)),
-			expectedEndTime:  now.Add(-1 * time.Hour).Unix(), // End time does not change
-			expectError:      false,
+			name:            "rewards contain denom not in original vesting",
+			endTime:         now.Add(24 * time.Hour).Unix(),
+			originalVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100)),            // Only stake
+			rewardCoins:     sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100), feeReward), // stake + fee
+			testTime:        now.Unix(),
+			// Expected: Add only stake reward as fee is not in original vesting
+			expectedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 200)),
+			expectedEndTime: now.Add(24 * time.Hour).Unix(),
+		},
+		{
+			name:            "multiple denoms, update before end time",
+			endTime:         now.Add(24 * time.Hour).Unix(),
+			originalVesting: initialOrigCoins, // stake + fee
+			rewardCoins:     sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100), feeReward),
+			testTime:        now.Unix(),
+			// Expected: Add both rewards
+			expectedVesting: initialOrigCoins.Add(sdk.NewCoin(stakeDenom, math.NewInt(100))).Add(feeReward),
+			expectedEndTime: now.Add(24 * time.Hour).Unix(),
 		},
 	}
 
 	for _, tc := range testCases {
-		tc := tc // capture range variable
 		t.Run(tc.name, func(t *testing.T) {
 			dva, err := types.NewDelayedVestingAccount(bacc, tc.originalVesting, tc.endTime)
 			require.NoError(t, err)
 
-			// Setup delegations
-			dva.DelegatedVesting = tc.delegatedVesting
-			dva.DelegatedFree = tc.delegatedFree
-
 			// Update schedule
-			err = dva.UpdateSchedule(tc.rewardCoins)
+			err = dva.UpdateSchedule(time.Unix(tc.testTime, 0), tc.rewardCoins)
+			require.NoError(t, err)
 
-			if tc.expectError {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
+			// Verify results
+			require.Equal(t, tc.expectedVesting, dva.OriginalVesting, "OriginalVesting mismatch")
+			require.Equal(t, tc.expectedEndTime, dva.EndTime, "EndTime mismatch")
 
-				// Verify results
-				require.Equal(t, tc.expectedVesting, dva.OriginalVesting, "OriginalVesting mismatch")
-				require.Equal(t, tc.expectedEndTime, dva.EndTime, "EndTime mismatch")
-			}
+			// Verify GetVestedCoins logic still works correctly based on the *new* original vesting amount
+			vestedAtEndTime := dva.GetVestedCoins(time.Unix(tc.endTime, 0))
+			require.Equal(t, tc.expectedVesting, vestedAtEndTime, "Vested coins at end time should equal the new original vesting")
+			vestedBeforeEndTime := dva.GetVestedCoins(time.Unix(tc.endTime-1, 0))
+			require.Nil(t, vestedBeforeEndTime, "No coins should be vested before end time")
 		})
 	}
 }
 
-func TestUpdateSchedulePermanentLockedAcc(t *testing.T) {
-	bacc, initialOrigCoins := initBaseAccount()
-	rewardCoins := sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 100))
+// TestGetVestedCoinsAfterMultipleUpdates verifies that GetVestedCoins returns
+// the correct amounts after multiple UpdateSchedule calls, including consecutive
+// updates at the same time point.
+func TestGetVestedCoinsAfterMultipleUpdates(t *testing.T) {
+	now := tmtime.Now()
+	bacc, _ := initBaseAccount()
 
-	testCases := []struct {
-		name             string
-		originalVesting  sdk.Coins
-		delegatedVesting sdk.Coins
-		delegatedFree    sdk.Coins // DelegatedFree is not applicable but test its handling
-		rewardCoins      sdk.Coins
-		expectedVesting  sdk.Coins
-		expectError      bool
+	// Set up a continuous vesting account with a 100-second vesting period
+	initialVesting := sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1000))
+	startTime := now.Unix()
+	duration := int64(100) // 100 seconds vesting duration
+	endTime := startTime + duration
+
+	// Create the continuous vesting account
+	cva, err := types.NewContinuousVestingAccount(bacc, initialVesting, startTime, endTime)
+	require.NoError(t, err)
+
+	// Define checkpoints at 0%, 25%, 50%, 75%, and 100% of vesting period
+	checkpoints := []struct {
+		offsetPercent int64
+		offsetSeconds int64
+		label         string
 	}{
-		{
-			name:             "50% vesting delegation (free ignored)",
-			originalVesting:  initialOrigCoins,
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)), // Should be ignored by logic
-			rewardCoins:      rewardCoins,
-			expectedVesting:  initialOrigCoins.Add(sdk.NewInt64Coin(stakeDenom, 50)), // 50% rewards added
-			expectError:      false,
-		},
-		{
-			name:             "100% vesting delegation",
-			originalVesting:  initialOrigCoins,
-			delegatedVesting: initialOrigCoins,
-			delegatedFree:    sdk.NewCoins(),
-			rewardCoins:      rewardCoins,
-			expectedVesting:  initialOrigCoins.Add(rewardCoins...),
-			expectError:      false,
-		},
-		{
-			name:             "0% vesting delegation (all free delegation - ignored)",
-			originalVesting:  initialOrigCoins,
-			delegatedVesting: sdk.NewCoins(),
-			delegatedFree:    initialOrigCoins, // Should be ignored
-			rewardCoins:      rewardCoins,
-			expectedVesting:  initialOrigCoins, // 0% rewards added
-			expectError:      false,
-		},
-		{
-			name:             "zero rewards",
-			originalVesting:  initialOrigCoins,
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(),
-			rewardCoins:      sdk.NewCoins(),
-			expectedVesting:  initialOrigCoins,
-			expectError:      false,
-		},
-		{
-			name:             "nil rewards",
-			originalVesting:  initialOrigCoins,
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(),
-			rewardCoins:      nil,
-			expectedVesting:  initialOrigCoins,
-			expectError:      false,
-		},
-		{
-			name:             "rewards in new denom",
-			originalVesting:  initialOrigCoins,
-			delegatedVesting: sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 50)),
-			delegatedFree:    sdk.NewCoins(),
-			rewardCoins:      sdk.NewCoins(sdk.NewInt64Coin("newdenom", 100)),
-			expectedVesting:  initialOrigCoins,
-			expectError:      false,
-		},
+		{0, 0, "start (0%)"},
+		{25, 25, "25%"},
+		{50, 50, "50%"},
+		{75, 75, "75%"},
+		{100, 100, "end (100%)"},
 	}
 
-	for _, tc := range testCases {
-		tc := tc // capture range variable
-		t.Run(tc.name, func(t *testing.T) {
-			plva, err := types.NewPermanentLockedAccount(bacc, tc.originalVesting)
-			require.NoError(t, err)
+	// STEP 1: Check initial vested coins at each checkpoint
+	for _, cp := range checkpoints {
+		checkpointTime := time.Unix(startTime+cp.offsetSeconds, 0)
+		actual := cva.GetVestedCoins(checkpointTime)
 
-			// Setup delegations
-			plva.DelegatedVesting = tc.delegatedVesting
-			plva.DelegatedFree = tc.delegatedFree // Although not used, set for completeness
-
-			// Update schedule
-			err = plva.UpdateSchedule(tc.rewardCoins)
-
-			if tc.expectError {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-
-				// Verify results
-				require.Equal(t, tc.expectedVesting, plva.OriginalVesting, "OriginalVesting mismatch")
-				// End time should always be 0 for permanent locked accounts
-				require.Equal(t, int64(0), plva.EndTime, "EndTime mismatch")
+		if cp.offsetPercent == 0 {
+			require.Nil(t, actual, "At start, vested coins should be nil")
+		} else {
+			// Hardcoded expected values based on 1000 total
+			expectedValues := map[int64]int64{
+				25:  250,  // 25% of 1000
+				50:  500,  // 50% of 1000
+				75:  750,  // 75% of 1000
+				100: 1000, // 100% of 1000
 			}
-		})
+			expected := sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, expectedValues[cp.offsetPercent]))
+			require.Equal(t, expected, actual,
+				"Initial vested coins at %s mismatch. Expected: %v, Got: %v",
+				cp.label, expected, actual)
+		}
 	}
+
+	// STEP 2: First update at 25% mark (add 400 tokens * 75% unvested = 300 tokens)
+	update1Time := time.Unix(startTime+25, 0)
+	update1Amount := sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 400))
+	err = cva.UpdateSchedule(update1Time, update1Amount)
+	require.NoError(t, err)
+
+	// Verify total after first update: 1300 tokens
+	expectedTotal1 := int64(1300)
+	actualTotal1 := cva.GetOriginalVesting().AmountOf(stakeDenom).Int64()
+	require.Equal(t, expectedTotal1, actualTotal1,
+		"OriginalVesting mismatch after 25% update. Expected: %v, Got: %v",
+		expectedTotal1, actualTotal1)
+
+	// Check vested coins at all checkpoints at or after the 25% mark
+	for _, cp := range checkpoints {
+		// Skip checkpoints before the update point
+		if cp.offsetSeconds < 25 {
+			continue
+		}
+
+		checkpointTime := time.Unix(startTime+cp.offsetSeconds, 0)
+		actual := cva.GetVestedCoins(checkpointTime)
+
+		// Hardcoded expected values based on 1300 total
+		expectedValues := map[int64]int64{
+			25:  325,  // 25% of 1300
+			50:  650,  // 50% of 1300
+			75:  975,  // 75% of 1300
+			100: 1300, // 100% of 1300
+		}
+		expected := sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, expectedValues[cp.offsetPercent]))
+		require.Equal(t, expected, actual,
+			"After 25% update, vested coins at %s mismatch. Expected: %v, Got: %v",
+			cp.label, expected, actual)
+	}
+
+	// STEP 3: Second update at 50% mark (add 400 tokens * 50% unvested = 200 tokens)
+	update2Time := time.Unix(startTime+50, 0)
+	update2Amount := sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 400))
+	err = cva.UpdateSchedule(update2Time, update2Amount)
+	require.NoError(t, err)
+
+	// Verify total after second update: 1500 tokens
+	expectedTotal2 := int64(1500)
+	actualTotal2 := cva.GetOriginalVesting().AmountOf(stakeDenom).Int64()
+	require.Equal(t, expectedTotal2, actualTotal2,
+		"OriginalVesting mismatch after first 50% update. Expected: %v, Got: %v",
+		expectedTotal2, actualTotal2)
+
+	// Check vested coins at all checkpoints at or after the 50% mark
+	for _, cp := range checkpoints {
+		// Skip checkpoints before the update point
+		if cp.offsetSeconds < 50 {
+			continue
+		}
+
+		checkpointTime := time.Unix(startTime+cp.offsetSeconds, 0)
+		actual := cva.GetVestedCoins(checkpointTime)
+
+		// Hardcoded expected values based on 1500 total
+		expectedValues := map[int64]int64{
+			50:  750,  // 50% of 1500
+			75:  1125, // 75% of 1500
+			100: 1500, // 100% of 1500
+		}
+		expected := sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, expectedValues[cp.offsetPercent]))
+		require.Equal(t, expected, actual,
+			"After first 50% update, vested coins at %s mismatch. Expected: %v, Got: %v",
+			cp.label, expected, actual)
+	}
+
+	// STEP 4: Third update at 50% mark (add 200 tokens * 50% unvested = 100 tokens)
+	update3Time := time.Unix(startTime+50, 0) // Same timestamp as previous update
+	update3Amount := sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 200))
+	err = cva.UpdateSchedule(update3Time, update3Amount)
+	require.NoError(t, err)
+
+	// Verify total after third update: 1600 tokens
+	expectedTotal3 := int64(1600)
+	actualTotal3 := cva.GetOriginalVesting().AmountOf(stakeDenom).Int64()
+	require.Equal(t, expectedTotal3, actualTotal3,
+		"OriginalVesting mismatch after second 50% update. Expected: %v, Got: %v",
+		expectedTotal3, actualTotal3)
+
+	// Check vested coins at all checkpoints at or after the 50% mark
+	for _, cp := range checkpoints {
+		// Skip checkpoints before the update point
+		if cp.offsetSeconds < 50 {
+			continue
+		}
+
+		checkpointTime := time.Unix(startTime+cp.offsetSeconds, 0)
+		actual := cva.GetVestedCoins(checkpointTime)
+
+		// Hardcoded expected values based on 1600 total
+		expectedValues := map[int64]int64{
+			50:  800,  // 50% of 1600
+			75:  1200, // 75% of 1600
+			100: 1600, // 100% of 1600
+		}
+		expected := sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, expectedValues[cp.offsetPercent]))
+		require.Equal(t, expected, actual,
+			"After second 50% update, vested coins at %s mismatch. Expected: %v, Got: %v",
+			cp.label, expected, actual)
+	}
+
+	// STEP 5: Fourth update at 75% mark (add 800 tokens * 25% unvested = 200 tokens)
+	update4Time := time.Unix(startTime+75, 0)
+	update4Amount := sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 800))
+	err = cva.UpdateSchedule(update4Time, update4Amount)
+	require.NoError(t, err)
+
+	// Verify total after fourth update: 1800 tokens
+	expectedTotal4 := int64(1800)
+	actualTotal4 := cva.GetOriginalVesting().AmountOf(stakeDenom).Int64()
+	require.Equal(t, expectedTotal4, actualTotal4,
+		"OriginalVesting mismatch after 75% update. Expected: %v, Got: %v",
+		expectedTotal4, actualTotal4)
+
+	// Check vested coins at all checkpoints at or after the 75% mark
+	for _, cp := range checkpoints {
+		// Skip checkpoints before the update point
+		if cp.offsetSeconds < 75 {
+			continue
+		}
+
+		checkpointTime := time.Unix(startTime+cp.offsetSeconds, 0)
+		actual := cva.GetVestedCoins(checkpointTime)
+
+		// Hardcoded expected values based on 1800 total
+		expectedValues := map[int64]int64{
+			75:  1350, // 75% of 1800
+			100: 1800, // 100% of 1800
+		}
+		expected := sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, expectedValues[cp.offsetPercent]))
+		require.Equal(t, expected, actual,
+			"After 75% update, vested coins at %s mismatch. Expected: %v, Got: %v",
+			cp.label, expected, actual)
+	}
+
+	// BONUS CHECK: Verify that updates after end time have no effect
+	afterEndTime := time.Unix(endTime+10, 0)
+	afterEndAmount := sdk.NewCoins(sdk.NewInt64Coin(stakeDenom, 1000))
+	err = cva.UpdateSchedule(afterEndTime, afterEndAmount)
+	require.NoError(t, err)
+
+	// Original vesting amount should not change
+	finalTotal := cva.GetOriginalVesting().AmountOf(stakeDenom).Int64()
+	require.Equal(t, expectedTotal4, finalTotal,
+		"OriginalVesting should not change after end time update. Expected: %v, Got: %v",
+		expectedTotal4, finalTotal)
 }

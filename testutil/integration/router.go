@@ -3,7 +3,6 @@ package integration
 import (
 	"context"
 	"fmt"
-	"time"
 
 	cmtabcitypes "github.com/cometbft/cometbft/abci/types"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
@@ -106,7 +105,7 @@ func NewIntegrationApp(
 
 	bApp.Commit()
 
-	ctx := sdkCtx.WithBlockHeader(cmtproto.Header{ChainID: appName, Time: time.Now().Round(0).UTC()}).WithIsCheckTx(true)
+	ctx := sdkCtx.WithBlockHeader(cmtproto.Header{ChainID: appName}).WithIsCheckTx(true)
 
 	return &App{
 		BaseApp:       bApp,

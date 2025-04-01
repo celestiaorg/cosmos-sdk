@@ -447,6 +447,7 @@ func TestWithdrawDelegationRewardsBasic(t *testing.T) {
 	accountKeeper.EXPECT().GetModuleAddress("distribution").Return(distrAcc.GetAddress())
 	stakingKeeper.EXPECT().ValidatorAddressCodec().Return(address.NewBech32Codec(sdk.Bech32PrefixValAddr)).AnyTimes()
 	accountKeeper.EXPECT().AddressCodec().Return(address.NewBech32Codec(sdk.Bech32MainPrefix)).AnyTimes()
+	accountKeeper.EXPECT().GetAccount(gomock.Any(), gomock.Any()).Return(nil)
 
 	distrKeeper := keeper.NewKeeper(
 		encCfg.Codec,
@@ -775,6 +776,7 @@ func TestCalculateRewardsMultiDelegatorMultWithdraw(t *testing.T) {
 	accountKeeper.EXPECT().GetModuleAddress("distribution").Return(distrAcc.GetAddress())
 	stakingKeeper.EXPECT().ValidatorAddressCodec().Return(address.NewBech32Codec(sdk.Bech32PrefixValAddr)).AnyTimes()
 	accountKeeper.EXPECT().AddressCodec().Return(address.NewBech32Codec(sdk.Bech32MainPrefix)).AnyTimes()
+	accountKeeper.EXPECT().GetAccount(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	distrKeeper := keeper.NewKeeper(
 		encCfg.Codec,

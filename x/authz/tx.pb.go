@@ -272,7 +272,7 @@ var xxx_messageInfo_MsgRevokeResponse proto.InternalMessageInfo
 
 // MsgPruneExpiredGrants prunes the expired grants.
 //
-// Since x/authz v1.0.0
+// Since cosmos-sdk 0.50.x-celestia
 type MsgPruneExpiredGrants struct {
 	Pruner string `protobuf:"bytes,1,opt,name=pruner,proto3" json:"pruner,omitempty"`
 }
@@ -312,7 +312,7 @@ var xxx_messageInfo_MsgPruneExpiredGrants proto.InternalMessageInfo
 
 // MsgPruneExpiredGrantsResponse defines the Msg/MsgPruneExpiredGrantsResponse response type.
 //
-// Since x/authz v1.0.0
+// Since cosmos-sdk 0.50.x-celestia
 type MsgPruneExpiredGrantsResponse struct {
 }
 
@@ -431,7 +431,7 @@ type MsgClient interface {
 	Revoke(ctx context.Context, in *MsgRevoke, opts ...grpc.CallOption) (*MsgRevokeResponse, error)
 	// PruneExpiredGrants prunes the expired grants. Currently up to 75 at a time.
 	//
-	// Since cosmos-sdk 0.51
+	// Since cosmos-sdk 0.50.x-celestia
 	PruneExpiredGrants(ctx context.Context, in *MsgPruneExpiredGrants, opts ...grpc.CallOption) (*MsgPruneExpiredGrantsResponse, error)
 }
 
@@ -495,7 +495,7 @@ type MsgServer interface {
 	Revoke(context.Context, *MsgRevoke) (*MsgRevokeResponse, error)
 	// PruneExpiredGrants prunes the expired grants. Currently up to 75 at a time.
 	//
-	// Since cosmos-sdk 0.51
+	// Since cosmos-sdk 0.50.x-celestia
 	PruneExpiredGrants(context.Context, *MsgPruneExpiredGrants) (*MsgPruneExpiredGrantsResponse, error)
 }
 
@@ -592,6 +592,7 @@ func _Msg_PruneExpiredGrants_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+var Msg_serviceDesc = _Msg_serviceDesc
 var _Msg_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "cosmos.authz.v1beta1.Msg",
 	HandlerType: (*MsgServer)(nil),

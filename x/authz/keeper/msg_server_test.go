@@ -400,9 +400,7 @@ func (suite *TestSuite) TestPruneExpiredGrants() {
 	suite.Require().Equal(len(addrs), totalGrants)
 
 	// prune expired grants
-	headerInfo := suite.ctx.HeaderInfo()
-	headerInfo.Time = headerInfo.Time.Add(2 * time.Hour)
-	suite.ctx = suite.ctx.WithHeaderInfo(headerInfo)
+	suite.ctx = suite.ctx.WithBlockTime(suite.ctx.BlockTime().Add(2 * time.Hour))
 
 	_, err = suite.authzKeeper.PruneExpiredGrants(suite.ctx, &authz.MsgPruneExpiredGrants{Pruner: addrs[0].String()})
 	suite.Require().NoError(err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"cosmossdk.io/core/appmodule"
 	storetypes "cosmossdk.io/store/types"
@@ -24,6 +25,12 @@ import (
 // skipUpgradeHeightArray is a set of block heights for which the upgrade must be skipped
 func PreBlocker(ctx context.Context, k *keeper.Keeper) (appmodule.ResponsePreBlock, error) {
 	defer telemetry.ModuleMeasureSince(types.ModuleName, telemetry.Now(), telemetry.MetricKeyBeginBlocker)
+
+	if !k.UpgradeTime.IsZero() {
+		k.Logger(ctx).Info(fmt.Sprintf("upgrade benchmark time (ApplyUpgrade -> next PreBlocker) result: %s", time.Since(k.UpgradeTime)))
+		// reset timer
+		k.UpgradeTime = time.Time{}
+	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockHeight := sdkCtx.HeaderInfo().Height
@@ -100,6 +107,13 @@ func PreBlocker(ctx context.Context, k *keeper.Keeper) (appmodule.ResponsePreBlo
 		}
 
 		// We have an upgrade handler for this upgrade name, so apply the upgrade
+		if k.UpgradeTime.IsZero() {
+			now := time.Now()
+			logger.Info(fmt.Sprintf("starting upgrade at time: %s", now))
+
+			k.UpgradeTime = now
+		}
+
 		logger.Info(fmt.Sprintf("applying upgrade \"%s\" at %s", plan.Name, plan.DueAt()))
 		sdkCtx = sdkCtx.WithBlockGasMeter(storetypes.NewInfiniteGasMeter())
 		if err := k.ApplyUpgrade(sdkCtx, plan); err != nil {

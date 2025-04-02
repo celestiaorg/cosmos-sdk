@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/hashicorp/go-metrics"
 
@@ -44,6 +45,8 @@ type Keeper struct {
 	downgradeVerified  bool                            // tells if we've already sanity checked that this binary version isn't being used against an old state.
 	authority          string                          // the address capable of executing and canceling an upgrade. Usually the gov module account
 	initVersionMap     module.VersionMap               // the module version map at init genesis
+
+	UpgradeTime time.Time
 }
 
 // NewKeeper constructs an upgrade Keeper which requires the following arguments:

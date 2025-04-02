@@ -262,24 +262,13 @@ func (cva ContinuousVestingAccount) Validate() error {
 // It adds a portion of the input amount to the OriginalVesting schedule.
 // The portion added corresponds to the fraction of the vesting schedule that has *not* yet occurred at the provided blockTime.
 // Denominations in the input amount that are not present in the OriginalVesting schedule are ignored.
-//
-// Mathematical Explanation:
-// Let OV be the OriginalVesting coins, A be the input amount, and t be the blockTime.
-// For each denomination d present in both OV and A:
-//
-//	Let OV_d be the original vesting amount for d.
-//	Let A_d be the input amount for d.
-//	Let V_d(t) be the amount vested for d at time t (from GetVestedCoins).
-//	The unvested fraction is max(0, 1 - V_d(t) / OV_d).
-//	The amount added to original vesting for d (ΔOV_d) is:
-//	  ΔOV_d = A_d * max(0, 1 - V_d(t) / OV_d)
-//
-// The new original vesting becomes OV'_d = OV_d + ΔOV_d.
 func (cva *ContinuousVestingAccount) UpdateSchedule(blockTime time.Time, amount sdk.Coins) error {
-	originalVesting := cva.BaseVestingAccount.GetOriginalVesting()
-	vestedCoins := cva.GetVestedCoins(blockTime)
+	if blockTime.Unix() >= cva.EndTime {
+		return fmt.Errorf("blockTime is after the vesting end time")
+	}
 
-	var amountToAdd sdk.Coins
+	// add the total amount to the original vesting for the the token already in the vesting account
+	originalVesting := cva.BaseVestingAccount.GetOriginalVesting()
 
 	for _, coin := range amount {
 		origCoin := originalVesting.AmountOf(coin.Denom)
@@ -289,27 +278,7 @@ func (cva *ContinuousVestingAccount) UpdateSchedule(blockTime time.Time, amount 
 			continue
 		}
 
-		vestedCoin := vestedCoins.AmountOf(coin.Denom)
-
-		// Calculate the fraction that has already vested
-		vestedRatio := math.LegacyNewDecFromInt(vestedCoin).Quo(math.LegacyNewDecFromInt(origCoin))
-
-		// Calculate the fraction that is still vesting (1 - vestedRatio)
-		vestingRatio := math.LegacyOneDec().Sub(vestedRatio)
-		if vestingRatio.IsNegative() {
-			// Clamp to zero if somehow vestedRatio > 1
-			vestingRatio = math.LegacyZeroDec()
-		}
-
-		// Scale the input amount by the vesting fraction
-		addAmt := math.LegacyNewDecFromInt(coin.Amount).Mul(vestingRatio).RoundInt()
-
-		amountToAdd = amountToAdd.Add(sdk.NewCoin(coin.Denom, addAmt))
-	}
-
-	// Add the calculated portion to the original vesting amount
-	if !amountToAdd.IsZero() {
-		cva.BaseVestingAccount.OriginalVesting = cva.BaseVestingAccount.OriginalVesting.Add(amountToAdd...)
+		cva.BaseVestingAccount.OriginalVesting = cva.BaseVestingAccount.OriginalVesting.Add(coin)
 	}
 
 	return nil

@@ -623,9 +623,10 @@ func (m *CommunityPoolSpendProposalWithDeposit) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_CommunityPoolSpendProposalWithDeposit proto.InternalMessageInfo
 
-// UserPendingRewards represents a pending withdrawn rewards
-// that is a reward that has not been claimed yet, but that
-// is outside of the reward pool.
+// UserOutstandingRewards represent rewards that a user has claimed with withdrawNow=false.
+// In other words, these are rewards that have been claimed by a user indirectly (e.g. because the user staked more tokens) but have not been moved from the 
+// distribution module account address to the user's account yet. 
+// Note: These rewards do not earn additional staking rewards.
 type UserOutstandingRewards struct {
 	Rewards github_com_cosmos_cosmos_sdk_types.Coins `protobuf:"bytes,1,rep,name=rewards,proto3,castrepeated=github.com/cosmos/cosmos-sdk/types.Coins" json:"rewards"`
 }

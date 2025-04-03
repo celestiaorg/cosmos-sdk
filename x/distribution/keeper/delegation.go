@@ -249,11 +249,11 @@ func (k Keeper) withdrawDelegationRewards(ctx context.Context, val stakingtypes.
 	finalRewards, remainder := rewards.TruncateDecimal()
 
 	// add coins to user account
-	// or put them in pending rewards
+	// or put them in outstanding rewards
 	if !finalRewards.IsZero() {
 		key := collections.Join(sdk.AccAddress(delAddr), sdk.ValAddress(valAddr))
-		// check if the user has pending rewards
-		// we need to check the pending rewards, in case a user has
+		// check if the user has outstanding rewards
+		// we need to check the outstanding rewards, in case a user has
 		// redelegated away and redelegated back to the same validator
 		// or to set them if withdrawNow is false
 		outstanding, err := k.UserOutstandingRewards.Get(ctx, key)
@@ -267,7 +267,7 @@ func (k Keeper) withdrawDelegationRewards(ctx context.Context, val stakingtypes.
 				return nil, err
 			}
 
-			// add the pending rewards to the rewards
+			// add the outstanding rewards to the rewards
 			finalRewards = finalRewards.Add(outstanding.Rewards...)
 
 			err = k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, withdrawAddr, finalRewards)

@@ -3,13 +3,9 @@ package keeper
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strconv"
 
-	"cosmossdk.io/store/prefix"
 	storetypes "cosmossdk.io/store/types"
 
-	"github.com/cosmos/cosmos-sdk/runtime"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
 )
@@ -130,54 +126,4 @@ func (k Keeper) TrackHistoricalInfo(ctx context.Context) error {
 
 	// Set latest HistoricalInfo at current height
 	return k.SetHistoricalInfo(ctx, sdkCtx.BlockHeight(), &historicalEntry)
-}
-
-func (k Keeper) MigrateHistoricalInfoKeys(ctx sdk.Context, iterationLimit int) error {
-	store := runtime.KVStoreAdapter(k.storeService.OpenKVStore(ctx))
-	prefixStore := prefix.NewStore(store, types.HistoricalInfoKey)
-
-	// Check the store to see if there is a value stored under the keySuffix
-	keySuffix := store.Get(types.NextMigrateHistoricalInfoKey)
-	if keySuffix == nil {
-		return nil
-	}
-
-	iterationCounter := 0
-
-	// Start the iterator from the key that is in the store
-	iterator := prefixStore.Iterator(keySuffix, nil)
-	defer iterator.Close()
-
-	for ; iterator.Valid(); iterator.Next() {
-		if iterationCounter >= iterationLimit {
-			ctx.Logger().Info(fmt.Sprintf("Migrated %d historical info entries, next key %s", iterationLimit, iterator.Key()))
-
-			// Set the key in the store after it has been processed
-			store.Set(types.NextMigrateHistoricalInfoKey, keySuffix)
-			break
-		}
-
-		strHeight := iterator.Key()
-
-		intHeight, err := strconv.ParseInt(string(strHeight), 10, 64)
-		if err != nil {
-			return fmt.Errorf("can't parse height from key %q to int64: %v", strHeight, err)
-		}
-
-		newStoreKey := types.GetHistoricalInfoKey(intHeight)
-
-		// Set new key on store. Values don't change.
-		store.Set(newStoreKey, iterator.Value())
-		prefixStore.Delete(iterator.Key())
-
-		iterationCounter++
-	}
-
-	// If the iterator is invalid we have processed the full store
-	if !iterator.Valid() {
-		ctx.Logger().Info("Migration completed for historical info")
-		store.Delete(types.NextMigrateHistoricalInfoKey)
-	}
-
-	return nil
 }

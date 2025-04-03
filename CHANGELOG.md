@@ -46,6 +46,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 * (x/auth) [#7](https://github.com/01builders/cosmos-sdk/pull/7) Support legacy global AccountNumber.
 * (crypto/keyring) [#8](https://github.com/01builders/cosmos-sdk/pull/8) Fix error wrapping in pkg crypto/keyring. Removed `cockroachdb/errors` in favour of `errorsmod.Wrap`.
 * (x/consensus) [#9](https://github.com/01builders/cosmos-sdk/pull/9) Address bug where sending `MsgUpdateParams` to `x/consensus` would overwrite `AppVersion` with zero value. Always use existing `AppVersion` param.
+* (x/distribution) [#437](https://github.com/celestiaorg/cosmos-sdk/pull/437) Implement [CIP-30](https://github.com/celestiaorg/CIPs/blob/main/cips/cip-030.md).
 
 ## [Unreleased-Cosmos-SDK]
 

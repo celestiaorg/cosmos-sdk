@@ -9,5 +9,6 @@ The fork include the following changes compared to upstream:
 * Add v0.52 helpers to facilitate testing
 * Disable heavy bank migrations
 * Support historical account number queries 
+* Support [CIP-30](https://github.com/celestiaorg/CIPs/blob/main/cips/cip-030.md)
 
 Read the [CHANGELOG.md](CHANGELOG.md) for more details.

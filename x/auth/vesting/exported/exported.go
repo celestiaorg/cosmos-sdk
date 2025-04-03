@@ -38,5 +38,6 @@ type VestingAccount interface {
 	GetDelegatedFree() sdk.Coins
 	GetDelegatedVesting() sdk.Coins
 
+	// UpdateSchedule updates the original vesting amount for the account.
 	UpdateSchedule(blockTime time.Time, amount sdk.Coins) error
 }

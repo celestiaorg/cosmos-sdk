@@ -264,20 +264,23 @@ func (cva ContinuousVestingAccount) Validate() error {
 // Denominations in the input amount that are not present in the OriginalVesting schedule are ignored.
 func (cva *ContinuousVestingAccount) UpdateSchedule(blockTime time.Time, amount sdk.Coins) error {
 	if blockTime.Unix() >= cva.EndTime {
-		return fmt.Errorf("blockTime is after the vesting end time")
+		return nil
 	}
 
-	// add the total amount to the original vesting for the the token already in the vesting account
+	// 1. Get the original vesting schedule
 	originalVesting := cva.BaseVestingAccount.GetOriginalVesting()
 
+	// 2. Iterate over the input amount
 	for _, coin := range amount {
+		// 3. Check if the denomination is originally vesting
 		origCoin := originalVesting.AmountOf(coin.Denom)
+		// 4. If the denomination wasn't originally vesting, skip it.
+		// Do not add new denominations to the original vesting schedule during an update.
 		if origCoin.IsZero() {
-			// If the denomination wasn't originally vesting, skip it.
-			// Do not add new denominations to the original vesting schedule during an update.
 			continue
 		}
 
+		// 5. Add the coin to the original vesting schedule
 		cva.BaseVestingAccount.OriginalVesting = cva.BaseVestingAccount.OriginalVesting.Add(coin)
 	}
 
@@ -417,9 +420,7 @@ func (pva PeriodicVestingAccount) Validate() error {
 	return pva.BaseVestingAccount.Validate()
 }
 
-// UpdateSchedule updates the vesting schedule for a periodic vesting account.
-// It takes in the amount of coins from the rewards and updates the vesting schedule
-// based on the ratio of delegated vesting to total delegated coins.
+// UpdateSchedule for periodic vesting accounts is not implemented.
 func (pva *PeriodicVestingAccount) UpdateSchedule(blockTime time.Time, amount sdk.Coins) error {
 	return nil
 }
@@ -491,8 +492,7 @@ func (dva DelayedVestingAccount) Validate() error {
 }
 
 // UpdateSchedule updates the vesting schedule for a delayed vesting account.
-// If the block time is before the end time, it adds the portion of the input amount
-// corresponding to existing denominations in the original vesting schedule.
+// if the block time is before the end time, it adds the input amount to the original vesting schedule.
 // If the block time is at or after the end time, it does nothing.
 func (dva *DelayedVestingAccount) UpdateSchedule(blockTime time.Time, amount sdk.Coins) error {
 	if blockTime.Unix() >= dva.EndTime {

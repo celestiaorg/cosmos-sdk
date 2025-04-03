@@ -54,7 +54,7 @@ func (k Keeper) MigrateDelegationsByValidatorIndex(ctx sdk.Context, iterationLim
 
 	// If the iterator is invalid we have processed the full store
 	if !iterator.Valid() {
-		ctx.Logger().Info("Migration completed")
+		ctx.Logger().Info("successfully completed migration for delegation keys")
 		store.Delete(types.NextMigrateDelegationsByValidatorIndexKey)
 	}
 

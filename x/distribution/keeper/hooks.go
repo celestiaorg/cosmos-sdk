@@ -145,9 +145,9 @@ func (h Hooks) BeforeDelegationSharesModified(ctx context.Context, delAddr sdk.A
 		return err
 	}
 
-	// withdrawNow is set to false, withdrawn will be stored in state
-	// and not moved from the distribution module account
-	if _, err := h.k.withdrawDelegationRewards(ctx, val, del, false); err != nil {
+	// Claim rewards but do not move them from the distribution module account to the user's account
+	withdrawNow := false
+	if _, err := h.k.withdrawDelegationRewards(ctx, val, del, withdrawNow); err != nil {
 		return err
 	}
 

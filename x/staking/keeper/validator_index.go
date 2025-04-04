@@ -62,25 +62,24 @@ func (k Keeper) MigrateDelegationsByValidatorIndex(ctx sdk.Context, iterationLim
 }
 
 // ParseDelegationKey parses given key and returns delagator, validator address bytes
-func ParseDelegationKey(bz []byte) (sdk.AccAddress, sdk.ValAddress, error) {
-	delAddrLen := bz[0]
-	bz = bz[1:] // remove the length byte of delegator address.
-	if len(bz) == 0 {
-		return nil, nil, fmt.Errorf("no bytes left to parse delegator address: %X", bz)
+func ParseDelegationKey(input []byte) (sdk.AccAddress, sdk.ValAddress, error) {
+	delegatorLen := input[0]
+	input = input[1:] // remove the length byte of delegator address.
+	if len(input) == 0 {
+		return nil, nil, fmt.Errorf("no bytes left to parse delegator address: %X", input)
 	}
 
-	del := bz[:int(delAddrLen)]
-	bz = bz[int(delAddrLen):] // remove the length byte of a delegator address
-	if len(bz) == 0 {
-		return nil, nil, fmt.Errorf("no bytes left to parse delegator address: %X", bz)
+	delegator := input[:int(delegatorLen)]
+	input = input[int(delegatorLen):] // remove the delegator address.
+	if len(input) == 0 {
+		return nil, nil, fmt.Errorf("no bytes left to parse validator length: %X", input)
 	}
 
-	bz = bz[1:] // remove the validator address bytes.
-	if len(bz) == 0 {
-		return nil, nil, fmt.Errorf("no bytes left to parse validator address: %X", bz)
+	input = input[1:] // remove the length byte of the validator address.
+	if len(input) == 0 {
+		return nil, nil, fmt.Errorf("no bytes left to parse validator address: %X", input)
 	}
 
-	val := bz
-
-	return del, val, nil
+	validator := input
+	return delegator, validator, nil
 }

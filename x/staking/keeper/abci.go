@@ -8,10 +8,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/runtime"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-<<<<<<< HEAD
 	v5 "github.com/cosmos/cosmos-sdk/x/staking/migrations/v5"
-=======
->>>>>>> release/v0.50.x-celestia
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 

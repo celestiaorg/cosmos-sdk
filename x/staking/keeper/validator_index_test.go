@@ -211,6 +211,11 @@ func TestParseDelegationKey(t *testing.T) {
 			}, []byte{}),
 			wantErr: fmt.Errorf("no bytes left to parse validator address: %X", []byte{}),
 		},
+		{
+			name:    "input with DelegationKey prefix should return error",
+			input:   types.DelegationKey,
+			wantErr: fmt.Errorf("input should not contain the DelegationKey prefix: %X", types.DelegationKey),
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {

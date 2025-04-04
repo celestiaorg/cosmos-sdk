@@ -63,6 +63,10 @@ func (k Keeper) MigrateDelegationsByValidatorIndex(ctx sdk.Context, iterationLim
 
 // ParseDelegationKey parses given key and returns delagator, validator address bytes
 func ParseDelegationKey(input []byte) (sdk.AccAddress, sdk.ValAddress, error) {
+	if len(input) == 0 {
+		return nil, nil, fmt.Errorf("no bytes left to parse delegator length: %X", input)
+	}
+
 	delegatorLen := input[0]
 	input = input[1:] // remove the length byte of delegator address.
 	if len(input) == 0 {

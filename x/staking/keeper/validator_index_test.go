@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	"cosmossdk.io/core/store"
@@ -182,6 +183,33 @@ func TestParseDelegationKey(t *testing.T) {
 			input:         delegationKey,
 			wantDelegator: delegatorAddress,
 			wantValidator: validatorAddress,
+		},
+		{
+			name:    "empty delegation key should return error",
+			input:   []byte{},
+			wantErr: fmt.Errorf("no bytes left to parse delegator length: %X", []byte{}),
+		},
+		{
+			name:    "empty delegator should return error",
+			input:   []byte{byte(delegatorLength)},
+			wantErr: fmt.Errorf("no bytes left to parse delegator address: %X", []byte{}),
+		},
+		{
+			name: "empty validator length should return error",
+			input: bytes.Join([][]byte{
+				{byte(delegatorLength)},
+				delegatorAddress,
+			}, []byte{}),
+			wantErr: fmt.Errorf("no bytes left to parse validator length: %X", []byte{}),
+		},
+		{
+			name: "empty validator should return error",
+			input: bytes.Join([][]byte{
+				{byte(delegatorLength)},
+				delegatorAddress,
+				{byte(validatorLength)},
+			}, []byte{}),
+			wantErr: fmt.Errorf("no bytes left to parse validator address: %X", []byte{}),
 		},
 	}
 	for _, tc := range testCases {

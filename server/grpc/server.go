@@ -19,10 +19,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-const tmFlag = "with-tendermint"
-
 // StartGRPCServer starts a gRPC server on the given address.
-func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config.GRPCConfig) (*grpc.Server, error) {
+func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config.GRPCConfig, withTm bool) (*grpc.Server, error) {
 	maxSendMsgSize := cfg.MaxSendMsgSize
 	if maxSendMsgSize == 0 {
 		maxSendMsgSize = config.DefaultGRPCMaxSendMsgSize
@@ -39,7 +37,7 @@ func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config
 		grpc.MaxRecvMsgSize(maxRecvMsgSize),
 	)
 
-	if isInProcessTm(clientCtx) {
+	if withTm {
 		// start the gRPC block API only if running alongside an in-process tendermint node.
 		api := coregrpc.NewBlockAPI()
 		go api.StartNewBlockEventListener(context.Background())
@@ -95,12 +93,4 @@ func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config
 		// assume server started successfully
 		return grpcSrv, nil
 	}
-}
-
-// isInProcessTm checks if the client is configured to run alongside an in-process Tendermint node.
-func isInProcessTm(clientCtx client.Context) bool {
-	if clientCtx.Viper == nil {
-		return false
-	}
-	return clientCtx.Viper.GetBool(tmFlag)
 }

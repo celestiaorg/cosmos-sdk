@@ -129,3 +129,36 @@ func getValDelegations(ctx sdk.Context, cdc codec.Codec, storeKey storetypes.Sto
 
 	return delegations
 }
+
+func TestParamMigration(t *testing.T) {
+	storeKey := storetypes.NewKVStoreKey(v5.ModuleName)
+	tKey := storetypes.NewTransientStoreKey("transient_test")
+	ctx := testutil.DefaultContext(storeKey, tKey)
+	store := ctx.KVStore(storeKey)
+	cdc := moduletestutil.MakeTestEncodingConfig(staking.AppModuleBasic{}).Codec
+
+	// Setup initial parameters with zero MaxCommissionRate
+	initialParams := stakingtypes.DefaultParams()
+	initialParams.MaxCommissionRate = sdkmath.LegacyZeroDec()
+	bz, err := cdc.Marshal(&initialParams)
+	require.NoError(t, err)
+	store.Set(stakingtypes.ParamsKey, bz)
+
+	// Verify initial parameters have zero MaxCommissionRate
+	var paramsBeforeMigration stakingtypes.Params
+	require.NoError(t, cdc.Unmarshal(store.Get(stakingtypes.ParamsKey), &paramsBeforeMigration))
+	require.True(t, paramsBeforeMigration.MaxCommissionRate.IsZero())
+
+	// Run the migration
+	err = v5.MigrateStore(ctx, store, cdc)
+	require.NoError(t, err)
+
+	// Verify the parameters after migration
+	var paramsAfterMigration stakingtypes.Params
+	require.NoError(t, cdc.Unmarshal(store.Get(stakingtypes.ParamsKey), &paramsAfterMigration))
+
+	// Verify that the MaxCommissionRate was updated to 25%
+	expectedRate := sdkmath.LegacyNewDecWithPrec(25, 2) // 0.25 or 25%
+	require.Equal(t, stakingtypes.DefaultMaxCommissionRate, paramsAfterMigration.MaxCommissionRate)
+	require.Equal(t, expectedRate, paramsAfterMigration.MaxCommissionRate, "MaxCommissionRate should be 25% after migration")
+}

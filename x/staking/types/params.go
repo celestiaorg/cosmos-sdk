@@ -33,9 +33,14 @@ const (
 
 // DefaultMinCommissionRate is set to 0%
 var DefaultMinCommissionRate = math.LegacyZeroDec()
+var DefaultMaxCommissionRate = math.LegacyNewDecWithPrec(25, 2)
 
 // NewParams creates a new Params instance
-func NewParams(unbondingTime time.Duration, maxValidators, maxEntries, historicalEntries uint32, bondDenom string, minCommissionRate math.LegacyDec) Params {
+func NewParams(
+	unbondingTime time.Duration,
+	maxValidators, maxEntries, historicalEntries uint32,
+	bondDenom string,
+	minCommissionRate, maxCommissionRate math.LegacyDec) Params {
 	return Params{
 		UnbondingTime:     unbondingTime,
 		MaxValidators:     maxValidators,
@@ -43,6 +48,7 @@ func NewParams(unbondingTime time.Duration, maxValidators, maxEntries, historica
 		HistoricalEntries: historicalEntries,
 		BondDenom:         bondDenom,
 		MinCommissionRate: minCommissionRate,
+		MaxCommissionRate: maxCommissionRate,
 	}
 }
 
@@ -55,6 +61,7 @@ func DefaultParams() Params {
 		DefaultHistoricalEntries,
 		sdk.DefaultBondDenom,
 		DefaultMinCommissionRate,
+		DefaultMaxCommissionRate,
 	)
 }
 
@@ -96,8 +103,17 @@ func (p Params) Validate() error {
 		return err
 	}
 
-	if err := validateMinCommissionRate(p.MinCommissionRate); err != nil {
+	if err := validateCommissionRate(p.MinCommissionRate); err != nil {
 		return err
+	}
+
+	if err := validateCommissionRate(p.MaxCommissionRate); err != nil {
+		return err
+	}
+
+	// max should be grater than min
+	if p.MaxCommissionRate.LTE(p.MinCommissionRate) {
+		return fmt.Errorf("max commission rate %s should be greater than min commission rate %s", p.MaxCommissionRate, p.MinCommissionRate)
 	}
 
 	if err := validateHistoricalEntries(p.HistoricalEntries); err != nil {
@@ -185,7 +201,7 @@ func ValidatePowerReduction(i interface{}) error {
 	return nil
 }
 
-func validateMinCommissionRate(i interface{}) error {
+func validateCommissionRate(i interface{}) error {
 	v, ok := i.(math.LegacyDec)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)

@@ -36,4 +36,17 @@ func TestValidateParams(t *testing.T) {
 
 	params.MinCommissionRate = math.LegacyNewDec(2)
 	require.Error(t, params.Validate())
+
+	params.MaxCommissionRate = math.LegacyNewDec(2)
+	require.Error(t, params.Validate())
+	params.MaxCommissionRate = math.LegacyNewDec(2)
+	require.Error(t, params.Validate())
+
+	params.MaxCommissionRate = math.LegacyNewDecWithPrec(25, 2)
+	params.MinCommissionRate = math.LegacyNewDecWithPrec(30, 2)
+	require.Error(t, params.Validate())
+
+	params.MaxCommissionRate = math.LegacyNewDecWithPrec(25, 2)
+	params.MinCommissionRate = math.LegacyNewDecWithPrec(25, 2)
+	require.Error(t, params.Validate())
 }

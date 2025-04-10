@@ -7,6 +7,7 @@ import (
 
 	coregrpc "github.com/tendermint/tendermint/rpc/grpc"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 var _ coregrpc.BlockAPIServer = (*blockAPIProxy)(nil)
@@ -16,7 +17,8 @@ type blockAPIProxy struct {
 }
 
 func newBlockAPIProxy(target string) (*blockAPIProxy, error) {
-	clientConn, err := grpc.NewClient(target)
+	target = "0.0.0.0:9099" // todo: hardcore for testing
+	clientConn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
 	}

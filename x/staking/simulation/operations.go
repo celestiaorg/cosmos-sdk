@@ -219,7 +219,11 @@ func SimulateMsgEditValidator(
 		}
 
 		address := val.GetOperator()
-		newCommissionRate := simtypes.RandomDecAmount(r, val.Commission.MaxRate)
+
+		// Ensure the commission rate is always less than 25%
+		maxAllowedRate := math.LegacyNewDecWithPrec(25, 2) // 0.25 or 25%
+		maxRateToUse := math.LegacyMinDec(val.Commission.MaxRate, maxAllowedRate)
+		newCommissionRate := simtypes.RandomDecAmount(r, maxRateToUse)
 
 		if err := val.Commission.ValidateNewRate(newCommissionRate, ctx.BlockHeader().Time); err != nil {
 			// skip as the commission is invalid

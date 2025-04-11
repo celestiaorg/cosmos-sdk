@@ -1055,23 +1055,6 @@ func (s *KeeperTestSuite) TestMsgUpdateParams() {
 			expErrMsg: "minimum commission rate cannot be negative",
 		},
 		{
-			name: "negative max commission rate",
-			input: &stakingtypes.MsgUpdateParams{
-				Authority: keeper.GetAuthority(),
-				Params: stakingtypes.Params{
-					MaxCommissionRate: math.LegacyNewDec(-10),
-					MinCommissionRate: math.LegacyNewDec(0),
-					UnbondingTime:     stakingtypes.DefaultUnbondingTime,
-					MaxValidators:     stakingtypes.DefaultMaxValidators,
-					MaxEntries:        stakingtypes.DefaultMaxEntries,
-					HistoricalEntries: stakingtypes.DefaultHistoricalEntries,
-					BondDenom:         stakingtypes.BondStatusBonded,
-				},
-			},
-			expErr:    true,
-			expErrMsg: "minimum commission rate cannot be negative",
-		},
-		{
 			name: "commission rate cannot be bigger than 100",
 			input: &stakingtypes.MsgUpdateParams{
 				Authority: keeper.GetAuthority(),

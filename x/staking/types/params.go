@@ -102,17 +102,8 @@ func (p Params) Validate() error {
 		return err
 	}
 
-	if err := validateCommissionRate(p.MinCommissionRate); err != nil {
+	if err := validateMinCommissionRate(p.MinCommissionRate); err != nil {
 		return err
-	}
-
-	if err := validateCommissionRate(p.MaxCommissionRate); err != nil {
-		return err
-	}
-
-	// max should be grater than min
-	if p.MaxCommissionRate.LTE(p.MinCommissionRate) {
-		return fmt.Errorf("max commission rate %s should be greater than min commission rate %s", p.MaxCommissionRate, p.MinCommissionRate)
 	}
 
 	if err := validateHistoricalEntries(p.HistoricalEntries); err != nil {
@@ -200,7 +191,7 @@ func ValidatePowerReduction(i interface{}) error {
 	return nil
 }
 
-func validateCommissionRate(i interface{}) error {
+func validateMinCommissionRate(i interface{}) error {
 	v, ok := i.(math.LegacyDec)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)

@@ -17,7 +17,6 @@ const (
 var (
 	DelegationKey                             = []byte{0x31} // key for a delegation
 	HistoricalInfoKey                         = []byte{0x50} // prefix for the historical info
-	ParamsKey                                 = []byte{0x51} // prefix for parameters for module x/staking
 	DelegationByValIndexKey                   = []byte{0x71} // key for delegations by a validator
 	NextMigrateDelegationsByValidatorIndexKey = []byte{0x81} // key used to migrate to the new validator index
 	NextMigrateHistoricalInfoKey              = []byte{0x82} // key used for lazy historical info migration

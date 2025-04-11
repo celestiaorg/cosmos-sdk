@@ -52,17 +52,10 @@ func (k msgServer) CreateValidator(ctx context.Context, msg *types.MsgCreateVali
 		return nil, errorsmod.Wrapf(types.ErrCommissionLTMinRate, "cannot set validator commission to less than minimum rate of %s", minCommRate)
 	}
 
-	maxCommRate, err := k.MaxCommissionRate(ctx)
-	if err != nil {
-		return nil, err
-	}
+	maxCommRate := types.MaxCommissionRate
 
-	if msg.Commission.MaxRate.GT(maxCommRate) {
-		return nil, errorsmod.Wrapf(types.ErrCommissionGTMaxRate, "cannot set validator commission max rate to greater than maximum rate of %s", maxCommRate)
-	}
-
-	if msg.Commission.MaxChangeRate.GT(maxCommRate) {
-		return nil, errorsmod.Wrapf(types.ErrCommissionGTMaxRate, "cannot set validator commission max change rate to greater than maximum rate of %s", maxCommRate)
+	if msg.Commission.Rate.GT(maxCommRate) {
+		return nil, errorsmod.Wrapf(types.ErrCommissionGTMaxRate, "cannot set validator commission max rate to greater than maximum rate of %s, proposed %s", maxCommRate, msg.Commission.MaxRate)
 	}
 
 	// check to see if the pubkey or sender has been registered before
@@ -201,12 +194,10 @@ func (k msgServer) EditValidator(ctx context.Context, msg *types.MsgEditValidato
 			return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "commission rate cannot be less than the min commission rate %s", minCommissionRate.String())
 		}
 
-		maxCommissionRate, err := k.MaxCommissionRate(ctx)
-		if err != nil {
-			return nil, errorsmod.Wrap(sdkerrors.ErrLogic, err.Error())
-		}
-		if msg.CommissionRate.GT(maxCommissionRate) {
-			return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "commission rate cannot be greater than the max commission rate %s", maxCommissionRate.String())
+		maxCommRate := types.MaxCommissionRate
+
+		if msg.CommissionRate.GT(maxCommRate) {
+			return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "commission rate cannot be greater than the max commission rate %s, proposed: %s", maxCommRate.String(), msg.CommissionRate.String())
 		}
 	}
 

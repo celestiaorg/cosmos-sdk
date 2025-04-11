@@ -1,7 +1,6 @@
 package v5
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 
@@ -11,7 +10,6 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
 func migrateDelegationsByValidatorIndex(ctx sdk.Context, store storetypes.KVStore, cdc codec.BinaryCodec) error {
@@ -65,48 +63,4 @@ func migrateHistoricalInfoKeys(store storetypes.KVStore, logger log.Logger) erro
 	}
 
 	return nil
-}
-
-// migrateParams will set the params to store from legacySubspace
-func migrateParams(ctx sdk.Context, store storetypes.KVStore, cdc codec.BinaryCodec) error {
-
-	// Get the params from the store
-	params, err := GetParams(ctx, store, cdc)
-	if err != nil {
-		return err
-	}
-
-	params.MaxCommissionRate = types.DefaultMaxCommissionRate
-
-	// Set the params in the store
-	if err := SetParams(ctx, params, store, cdc); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// SetParams sets the x/staking module parameters.
-// CONTRACT: This method performs no validation of the parameters.
-func SetParams(ctx context.Context, params types.Params, store storetypes.KVStore, cdc codec.BinaryCodec) error {
-	bz, err := cdc.Marshal(&params)
-	if err != nil {
-		return err
-	}
-	// Set the params in the store
-	store.Set(types.ParamsKey, bz)
-
-	return nil
-}
-
-// GetParams gets the x/staking module parameters.
-func GetParams(ctx context.Context, store storetypes.KVStore, cdc codec.BinaryCodec) (params types.Params, err error) {
-	bz := store.Get(types.ParamsKey)
-
-	if bz == nil {
-		return params, nil
-	}
-
-	err = cdc.Unmarshal(bz, &params)
-	return params, err
 }

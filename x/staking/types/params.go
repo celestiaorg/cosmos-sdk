@@ -33,14 +33,15 @@ const (
 
 // DefaultMinCommissionRate is set to 0%
 var DefaultMinCommissionRate = math.LegacyZeroDec()
-var DefaultMaxCommissionRate = math.LegacyNewDecWithPrec(25, 2)
+
+var MaxCommissionRate = math.LegacyNewDecWithPrec(25, 2)
 
 // NewParams creates a new Params instance
 func NewParams(
 	unbondingTime time.Duration,
 	maxValidators, maxEntries, historicalEntries uint32,
 	bondDenom string,
-	minCommissionRate, maxCommissionRate math.LegacyDec) Params {
+	minCommissionRate math.LegacyDec) Params {
 	return Params{
 		UnbondingTime:     unbondingTime,
 		MaxValidators:     maxValidators,
@@ -48,7 +49,6 @@ func NewParams(
 		HistoricalEntries: historicalEntries,
 		BondDenom:         bondDenom,
 		MinCommissionRate: minCommissionRate,
-		MaxCommissionRate: maxCommissionRate,
 	}
 }
 
@@ -61,7 +61,6 @@ func DefaultParams() Params {
 		DefaultHistoricalEntries,
 		sdk.DefaultBondDenom,
 		DefaultMinCommissionRate,
-		DefaultMaxCommissionRate,
 	)
 }
 

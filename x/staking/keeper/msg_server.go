@@ -55,7 +55,7 @@ func (k msgServer) CreateValidator(ctx context.Context, msg *types.MsgCreateVali
 	maxCommRate := types.MaxCommissionRate
 
 	if msg.Commission.Rate.GT(maxCommRate) {
-		return nil, errorsmod.Wrapf(types.ErrCommissionGTMaxRate, "cannot set validator commission max rate to greater than maximum rate of %s, proposed %s", maxCommRate, msg.Commission.MaxRate)
+		return nil, errorsmod.Wrapf(types.ErrCommissionGTMaxRate, "cannot set validator commission rate to greater than maximum rate of %s, proposed %s", maxCommRate, msg.Commission.MaxRate)
 	}
 
 	// check to see if the pubkey or sender has been registered before

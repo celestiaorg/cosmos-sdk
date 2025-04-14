@@ -20,7 +20,7 @@ import (
 )
 
 // StartGRPCServer starts a gRPC server on the given address.
-func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config.GRPCConfig, isStandalone bool) (*grpc.Server, error) {
+func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config.GRPCConfig, isStandalone bool, coreGRPCAddr string) (*grpc.Server, error) {
 	maxSendMsgSize := cfg.MaxSendMsgSize
 	if maxSendMsgSize == 0 {
 		maxSendMsgSize = config.DefaultGRPCMaxSendMsgSize
@@ -38,7 +38,7 @@ func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config
 	)
 
 	if isStandalone {
-		api, err := newBlockAPIProxy("TODO: plumb the port/addr")
+		api, err := newBlockAPIProxy(coreGRPCAddr)
 		if err != nil {
 			return nil, err
 		}

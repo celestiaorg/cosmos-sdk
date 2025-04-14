@@ -16,15 +16,16 @@ type blockAPIProxy struct {
 	client coregrpc.BlockAPIClient
 }
 
-func newBlockAPIProxy(target string) (*blockAPIProxy, error) {
-	target = "0.0.0.0:9099" // todo: hardcore for testing
-	clientConn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+// newBlockAPIProxy creates a new core block api proxy client using the provided protocol and address string
+// e.g. tcp://0.0.0.0:9099
+func newBlockAPIProxy(protoAddr string) (*blockAPIProxy, error) {
+	blockAPIClient, err := coregrpc.StartBlockAPIGRPCClient(protoAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
 	}
 
 	return &blockAPIProxy{
-		client: coregrpc.NewBlockAPIClient(clientConn),
+		client: blockAPIClient,
 	}, nil
 }
 

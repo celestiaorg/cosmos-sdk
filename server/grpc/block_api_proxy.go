@@ -16,7 +16,7 @@ type blockAPIProxy struct {
 	client coregrpc.BlockAPIClient
 }
 
-// newBlockAPIProxy creates a new core block api proxy client using the provided protocol and address string
+// newBlockAPIProxy creates a new core block api proxy server using the provided protocol and address string for the upstream client
 // e.g. tcp://0.0.0.0:9099
 func newBlockAPIProxy(protoAddr string) (*blockAPIProxy, error) {
 	blockAPIClient, err := coregrpc.StartBlockAPIGRPCClient(protoAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))

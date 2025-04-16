@@ -15,6 +15,7 @@ Smaller modifications include:
 1. The addition of a `SetTxDecoder` on tx config so that celestia-app can override the default tx decoder with one that supports decoding `BlobTx`s. Ref: https://github.com/celestiaorg/cosmos-sdk/pull/311
 1. The addition of a `start_time` to the vesting module's `MsgCreateVestingAccount` so that vesting accounts can be created with a delayed start time. Ref: https://github.com/celestiaorg/cosmos-sdk/pull/342
 1. Allow celestia-app to override the default consensus params via the `init` command. Ref: https://github.com/celestiaorg/cosmos-sdk/pull/317
+1. Support celestia-core `BlockAPI` when running in standalone mode via grpc proxy service. Ref: https://github.com/celestiaorg/cosmos-sdk/pull/453 
 
 Modifications that make it easier to maintain this fork:
 

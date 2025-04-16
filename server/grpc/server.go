@@ -20,7 +20,7 @@ import (
 )
 
 // StartGRPCServer starts a gRPC server on the given address.
-func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config.GRPCConfig, enableCoreGRPC bool) (*grpc.Server, error) {
+func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config.GRPCConfig, isStandalone bool, coreGRPCAddr string) (*grpc.Server, error) {
 	maxSendMsgSize := cfg.MaxSendMsgSize
 	if maxSendMsgSize == 0 {
 		maxSendMsgSize = config.DefaultGRPCMaxSendMsgSize
@@ -37,7 +37,14 @@ func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config
 		grpc.MaxRecvMsgSize(maxRecvMsgSize),
 	)
 
-	if enableCoreGRPC {
+	if isStandalone {
+		api, err := newBlockAPIProxy(coreGRPCAddr)
+		if err != nil {
+			return nil, err
+		}
+
+		coregrpc.RegisterBlockAPIServer(grpcSrv, api)
+	} else {
 		// start the gRPC block API only if running alongside an in-process tendermint node.
 		api := coregrpc.NewBlockAPI()
 		go api.StartNewBlockEventListener(context.Background())

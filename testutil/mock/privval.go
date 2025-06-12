@@ -2,6 +2,7 @@ package mock
 
 import (
 	"github.com/cometbft/cometbft/crypto"
+	cmtbytes "github.com/cometbft/cometbft/libs/bytes"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	cmttypes "github.com/cometbft/cometbft/types"
 
@@ -16,6 +17,11 @@ var _ cmttypes.PrivValidator = PV{}
 // Only use it for testing.
 type PV struct {
 	PrivKey cryptotypes.PrivKey
+}
+
+func (pv PV) SignP2PMessage(chainID, uID string, hash cmtbytes.HexBytes) ([]byte, error) {
+	signBytes := cmttypes.P2PMessageSignBytes(chainID, uID, hash)
+	return pv.PrivKey.Sign(signBytes)
 }
 
 func NewPV() PV {

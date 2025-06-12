@@ -162,6 +162,10 @@ clean:
 ###                          Tools & Dependencies                           ###
 ###############################################################################
 
+tidy:
+	@echo "Running go mod tidy in all modules"
+	@find . -type f -name 'go.mod' -execdir go mod tidy \;
+
 go.sum: go.mod
 	echo "Ensure dependencies have not been modified ..." >&2
 	go mod verify

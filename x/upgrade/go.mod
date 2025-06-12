@@ -217,7 +217,7 @@ require (
 
 replace (
 	// celestia-core
-	github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core v1.54.0-tm-v0.38.17.0.20250612073748-97e9cc351683
+	github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core v1.54.0-tm-v0.38.17.0.20250612124458-df1344970e09
 
 	github.com/cosmos/cosmos-sdk => ../../.
 )

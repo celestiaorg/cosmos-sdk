@@ -301,8 +301,8 @@ github.com/btcsuite/btcd/btcutil v1.1.6/go.mod h1:9dFymx8HpuLqBnsPELrImQeTQfKBQq
 github.com/bufbuild/protocompile v0.6.0 h1:Uu7WiSQ6Yj9DbkdnOe7U4mNKp58y9WDMKDn28/ZlunY=
 github.com/bufbuild/protocompile v0.6.0/go.mod h1:YNP35qEYoYGme7QMtz5SBCoN4kL4g12jTtjuzRNdjpE=
 github.com/casbin/casbin/v2 v2.1.2/go.mod h1:YcPU1XXisHhLzuxH9coDNf2FbKpjGlbCg3n9yuLkIJQ=
-github.com/celestiaorg/celestia-core v1.54.0-tm-v0.38.17.0.20250612073748-97e9cc351683 h1:sIfJOiJNG6KcNjNTetcMQ7GuBVt16pfCBuX816LTTgM=
-github.com/celestiaorg/celestia-core v1.54.0-tm-v0.38.17.0.20250612073748-97e9cc351683/go.mod h1:/wP0scz852evSczD1tYkJYbgUc//VAz/09bjnwKB7aU=
+github.com/celestiaorg/celestia-core v1.54.0-tm-v0.38.17.0.20250612124458-df1344970e09 h1:o6sTThJsosw30A+sxjOOVq1swzVpIOvQai4EWG92VQk=
+github.com/celestiaorg/celestia-core v1.54.0-tm-v0.38.17.0.20250612124458-df1344970e09/go.mod h1:rwNl8jZQYuD2Fw5ygwMGEayChoK8NyqvTtKYdundVJU=
 github.com/celestiaorg/go-square/v2 v2.1.0 h1:ECIvYEeHIWiIJGDCJxQNtzqm5DmnBly7XGhSpLsl+Lw=
 github.com/celestiaorg/go-square/v2 v2.1.0/go.mod h1:n3ztrh8CBjWOD6iWYMo3pPOlQIgzLK9yrnqMPcNo6g8=
 github.com/celestiaorg/nmt v0.23.0 h1:cfYy//hL1HeDSH0ub3CPlJuox5U5xzgg4JGZrw23I/I=

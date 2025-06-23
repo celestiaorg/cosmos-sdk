@@ -2,7 +2,6 @@ package query_test
 
 import (
 	"fmt"
-	"testing"
 
 	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -169,61 +168,6 @@ func (s *paginationTestSuite) TestReverseFilteredPaginations() {
 
 	s.T().Log("verify Reverse pagination returns valid result")
 	s.Require().Equal(balances[235:241].String(), balns.Sort().String())
-}
-
-func ExampleFilteredPaginate(t *testing.T) {
-	app, ctx, _ := setupTest(t)
-
-	var balances sdk.Coins
-	for i := 0; i < numBalances; i++ {
-		denom := fmt.Sprintf("foo%ddenom", i)
-		balances = append(balances, sdk.NewInt64Coin(denom, 100))
-	}
-
-	for i := 0; i < 5; i++ {
-		denom := fmt.Sprintf("test%ddenom", i)
-		balances = append(balances, sdk.NewInt64Coin(denom, 250))
-	}
-
-	balances = balances.Sort()
-	addr1 := sdk.AccAddress([]byte("addr1"))
-	acc1 := app.AccountKeeper.NewAccountWithAddress(ctx, addr1)
-	app.AccountKeeper.SetAccount(ctx, acc1)
-	err := testutil.FundAccount(app.BankKeeper, ctx, addr1, balances)
-	if err != nil { // should return no error
-		fmt.Println(err)
-	}
-
-	pageReq := &query.PageRequest{Key: nil, Limit: 1, CountTotal: true}
-	store := ctx.KVStore(app.GetKey(types.StoreKey))
-	balancesStore := prefix.NewStore(store, types.BalancesPrefix)
-	accountStore := prefix.NewStore(balancesStore, address.MustLengthPrefix(addr1))
-
-	var balResult sdk.Coins
-	pageRes, err := query.FilteredPaginate(accountStore, pageReq, func(key []byte, value []byte, accumulate bool) (bool, error) {
-		var amount math.Int
-		err := amount.Unmarshal(value)
-		if err != nil {
-			return false, err
-		}
-
-		// filter amount greater than 100
-		if amount.Int64() > int64(100) {
-			if accumulate {
-				balResult = append(balResult, sdk.NewCoin(string(key), amount))
-			}
-
-			return true, nil
-		}
-
-		return false, nil
-	})
-	if err != nil { // should return no error
-		fmt.Println(err)
-	}
-	fmt.Println(&types.QueryAllBalancesResponse{Balances: balResult, Pagination: pageRes})
-	// Output:
-	// balances:<denom:"test0denom" amount:"250" > pagination:<next_key:"test1denom" total:5 >
 }
 
 func execFilterPaginate(store sdk.KVStore, pageReq *query.PageRequest, appCodec codec.Codec) (balances sdk.Coins, res *query.PageResponse, err error) {

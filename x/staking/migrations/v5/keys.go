@@ -60,27 +60,18 @@ func ParseDelegationKey(bz []byte) (sdk.AccAddress, sdk.ValAddress, error) {
 func GetHistoricalInfoKey(height int64) []byte {
 	heightBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(heightBytes, uint64(height))
-	key := make([]byte, len(HistoricalInfoKey)+len(heightBytes))
-	copy(key, HistoricalInfoKey)
-	copy(key[len(HistoricalInfoKey):], heightBytes)
-	return key
+	return slices.Concat(HistoricalInfoKey, heightBytes)
 }
 
 // GetDelegationsByValPrefixKey builds a prefix key bytes with the given validator address bytes.
 func GetDelegationsByValPrefixKey(valAddr sdk.ValAddress) []byte {
 	addrBytes := address.MustLengthPrefix(valAddr)
-	key := make([]byte, len(DelegationByValIndexKey)+len(addrBytes))
-	copy(key, DelegationByValIndexKey)
-	copy(key[len(DelegationByValIndexKey):], addrBytes)
-	return key
+	return slices.Concat(DelegationByValIndexKey, addrBytes)
 }
 
 // GetDelegationsByValKey creates the key for delegations by validator address
 // VALUE: staking/Delegation
 func GetDelegationsByValKey(valAddr sdk.ValAddress, delAddr sdk.AccAddress) []byte {
 	prefix := GetDelegationsByValPrefixKey(valAddr)
-	key := make([]byte, len(prefix)+len(delAddr))
-	copy(key, prefix)
-	copy(key[len(prefix):], delAddr)
-	return key
+	return slices.Concat(prefix, delAddr)
 }

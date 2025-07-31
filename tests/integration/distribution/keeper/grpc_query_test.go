@@ -12,7 +12,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/cosmos/cosmos-sdk/x/distribution/types"
-	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	stakingtestutil "github.com/cosmos/cosmos-sdk/x/staking/testutil"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 )
@@ -487,10 +486,6 @@ func TestGRPCDelegationRewards(t *testing.T) {
 
 	// Set default staking params
 	assert.NilError(t, f.stakingKeeper.SetParams(f.sdkCtx, stakingtypes.DefaultParams()))
-
-	// register staking msg server
-	stakingMsgServer := stakingkeeper.NewMsgServerImpl(f.stakingKeeper)
-	stakingtypes.RegisterMsgServer(f.app.MsgServiceRouter(), stakingMsgServer)
 
 	qr := f.app.QueryHelper()
 	queryClient := types.NewQueryClient(qr)

@@ -2,7 +2,6 @@ package mock
 
 import (
 	"github.com/cometbft/cometbft/crypto"
-	cmtbytes "github.com/cometbft/cometbft/libs/bytes"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	cmttypes "github.com/cometbft/cometbft/types"
 
@@ -50,7 +49,10 @@ func (pv PV) SignProposal(chainID string, proposal *cmtproto.Proposal) error {
 	return nil
 }
 
-func (pv PV) SignDigest(chainID, uniqueID string, digest cmtbytes.HexBytes) ([]byte, error) {
-	signBytes := cmttypes.DigestSignBytes(chainID, uniqueID, digest)
+func (pv PV) SignRawBytes(chainID, uniqueID string, rawBytes []byte) ([]byte, error) {
+	signBytes, err := cmttypes.RawBytesMessageSignBytes(chainID, uniqueID, rawBytes)
+	if err != nil {
+		return nil, err
+	}
 	return pv.PrivKey.Sign(signBytes)
 }

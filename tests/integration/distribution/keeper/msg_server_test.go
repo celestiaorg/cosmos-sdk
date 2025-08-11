@@ -1057,6 +1057,9 @@ func TestCannotDepositIfRewardPoolFull(t *testing.T) {
 	)
 	assert.NilError(t, err)
 
+	// transfer tokens from distribution module back to the account for the second deposit
+	assert.NilError(t, f.bankKeeper.SendCoinsFromModuleToAccount(f.sdkCtx, distrtypes.ModuleName, sdk.AccAddress(operatorAddr), maxCoins))
+
 	// this should fail since this amount cannot be added to the previous amount without overflowing.
 	_, err = f.app.RunMsg(
 		fundValMsg,

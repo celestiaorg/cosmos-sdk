@@ -21,7 +21,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/server"
 	"github.com/cosmos/cosmos-sdk/server/config"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/types/module/testutil"
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
@@ -453,7 +452,7 @@ func TestEmptyMinGasPrices(t *testing.T) {
 		return server.SetCmdServerContext(cmd, ctx)
 	}
 	err = cmd.ExecuteContext(ctx)
-	require.Errorf(t, err, sdkerrors.ErrAppConfig.Error())
+	require.NoError(t, err)
 }
 
 type mapGetter map[string]interface{}

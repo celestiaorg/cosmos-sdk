@@ -26,6 +26,7 @@ COPY go.mod go.sum ./
 COPY collections/go.mod collections/go.sum ./collections/
 COPY store/go.mod store/go.sum ./store/
 COPY log/go.mod log/go.sum ./log/
+COPY api/go.mod api/go.sum ./api/
 
 RUN go mod download
 

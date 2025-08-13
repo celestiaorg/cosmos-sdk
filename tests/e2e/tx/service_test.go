@@ -86,6 +86,14 @@ func (s *E2ETestSuite) SetupSuite() {
 	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &s.txRes))
 	s.Require().Equal(uint32(0), s.txRes.Code, s.txRes)
 
+	// Wait for the transaction to be included in a block before proceeding
+	s.Require().NoError(s.network.WaitForNextBlock())
+
+	// Query the account to get the current sequence number
+	acc, err := val.ClientCtx.AccountRetriever.GetAccount(val.ClientCtx, val.Address)
+	s.Require().NoError(err)
+	currentSequence := acc.GetSequence()
+
 	out, err = cli.MsgSendExec(
 		val.ClientCtx,
 		val.Address,
@@ -97,7 +105,7 @@ func (s *E2ETestSuite) SetupSuite() {
 		fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 		fmt.Sprintf("--%s", flags.FlagOffline),
 		fmt.Sprintf("--%s=0", flags.FlagAccountNumber),
-		fmt.Sprintf("--%s=2", flags.FlagSequence),
+		fmt.Sprintf("--%s=%d", flags.FlagSequence, currentSequence),
 		fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastSync),
 		fmt.Sprintf("--%s=%s", flags.FlagFees, sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, math.NewInt(10))).String()),
 		fmt.Sprintf("--gas=%d", flags.DefaultGasLimit),
@@ -127,6 +135,10 @@ func (s *E2ETestSuite) TestQueryBySig() {
 	s.Require().NoError(err)
 	s.Require().NotEmpty(resp.TxResponse.TxHash)
 
+	// Wait for the transaction to be committed to a block
+	s.Require().NoError(s.network.WaitForNextBlock())
+	
+	// Additional wait to ensure transaction is fully indexed
 	s.Require().NoError(s.network.WaitForNextBlock())
 
 	// get the signature out of the builder
@@ -241,6 +253,9 @@ func (s *E2ETestSuite) TestSimulateTx_GRPCGateway() {
 }
 
 func (s *E2ETestSuite) TestGetTxEvents_GRPC() {
+	// Ensure all previous transactions are committed before running this test
+	s.Require().NoError(s.network.WaitForNextBlock())
+	
 	testCases := []struct {
 		name      string
 		req       *tx.GetTxsEventRequest
@@ -333,6 +348,9 @@ func (s *E2ETestSuite) TestGetTxEvents_GRPC() {
 }
 
 func (s *E2ETestSuite) TestGetTxEvents_GRPCGateway() {
+	// Ensure all previous transactions are committed before running this test
+	s.Require().NoError(s.network.WaitForNextBlock())
+	
 	val := s.network.Validators[0]
 	testCases := []struct {
 		name      string

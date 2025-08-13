@@ -797,9 +797,9 @@ func (n *Network) Cleanup() {
 		}
 
 		if v.tmNode != nil && v.tmNode.IsRunning() {
-			if err := v.tmNode.Stop(); err != nil {
-				n.Logger.Log("failed to stop validator CometBFT node", "err", err)
-			}
+			// if err := v.tmNode.Stop(); err != nil {
+			// 	n.Logger.Log("failed to stop validator CometBFT node", "err", err)
+			// }
 		}
 
 		if v.grpcWeb != nil {
@@ -813,7 +813,7 @@ func (n *Network) Cleanup() {
 		}
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	if n.Config.CleanupDir {
 		_ = os.RemoveAll(n.BaseDir)

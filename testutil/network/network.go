@@ -149,7 +149,7 @@ func DefaultConfig(factory TestFixtureFactory) Config {
 		ChainID:           "chain-" + unsafe.Str(6),
 		NumValidators:     4,
 		BondDenom:         sdk.DefaultBondDenom,
-		MinGasPrices:      fmt.Sprintf("0.000006%s", sdk.DefaultBondDenom),
+		MinGasPrices:      fmt.Sprintf("0.001%s", sdk.DefaultBondDenom),
 		AccountTokens:     sdk.TokensFromConsensusPower(1000, sdk.DefaultPowerReduction),
 		StakingTokens:     sdk.TokensFromConsensusPower(500, sdk.DefaultPowerReduction),
 		BondedTokens:      sdk.TokensFromConsensusPower(100, sdk.DefaultPowerReduction),
@@ -368,7 +368,7 @@ func New(l Logger, baseDir string, cfg Config) (*Network, error) {
 
 		ctx := server.NewDefaultContext()
 		cmtCfg := ctx.Config
-		cmtCfg.Mempool.Type = "priority"
+		cmtCfg.Mempool.Type = "flood"
 		cmtCfg.Consensus.TimeoutCommit = cfg.TimeoutCommit
 
 		// Only allow the first validator to expose an RPC, API and gRPC
@@ -540,7 +540,7 @@ func New(l Logger, baseDir string, cfg Config) (*Network, error) {
 		}
 
 		memo := fmt.Sprintf("%s@%s:%s", nodeIDs[i], p2pURL.Hostname(), p2pURL.Port())
-		fee := sdk.NewCoins(sdk.NewCoin(fmt.Sprintf("%stoken", nodeDirName), sdkmath.NewInt(0)))
+		fee := sdk.NewCoins(sdk.NewCoin(cfg.BondDenom, sdkmath.NewInt(2000)))
 		txBuilder := cfg.TxConfig.NewTxBuilder()
 		err = txBuilder.SetMsgs(createValMsg)
 		if err != nil {
@@ -797,9 +797,9 @@ func (n *Network) Cleanup() {
 		}
 
 		if v.tmNode != nil && v.tmNode.IsRunning() {
-			// if err := v.tmNode.Stop(); err != nil {
-			// 	n.Logger.Log("failed to stop validator CometBFT node", "err", err)
-			// }
+			if err := v.tmNode.Stop(); err != nil {
+				n.Logger.Log("failed to stop validator CometBFT node", "err", err)
+			}
 		}
 
 		if v.grpcWeb != nil {

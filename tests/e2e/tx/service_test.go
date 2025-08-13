@@ -115,7 +115,7 @@ func (s *E2ETestSuite) SetupSuite() {
 
 func (s *E2ETestSuite) TearDownSuite() {
 	s.T().Log("tearing down e2e test suite")
-	s.network.Cleanup()
+	// s.network.Cleanup()
 }
 
 func (s *E2ETestSuite) TestQueryBySig() {
@@ -553,7 +553,8 @@ func (s *E2ETestSuite) TestBroadcastTx_GRPCGateway() {
 				var result tx.BroadcastTxResponse
 				err = val.ClientCtx.Codec.UnmarshalJSON(res, &result)
 				s.Require().NoError(err)
-				s.Require().Equal(uint32(0), result.TxResponse.Code, "rawlog", result.TxResponse.RawLog)
+				fmt.Println("tx", result.TxResponse.Code, result.TxResponse.Codespace)
+				s.Require().Equal(uint32(0), result.TxResponse.Code, "rawlog", result.TxResponse.RawLog, "space", result.TxResponse.Codespace)
 			}
 		})
 	}

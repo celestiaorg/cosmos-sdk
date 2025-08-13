@@ -797,9 +797,9 @@ func (n *Network) Cleanup() {
 		}
 
 		if v.tmNode != nil && v.tmNode.IsRunning() {
-			if err := v.tmNode.Stop(); err != nil {
-				n.Logger.Log("failed to stop validator CometBFT node", "err", err)
-			}
+			// if err := v.tmNode.Stop(); err != nil {
+			// 	n.Logger.Log("failed to stop validator CometBFT node", "err", err)
+			// }
 		}
 
 		if v.grpcWeb != nil {

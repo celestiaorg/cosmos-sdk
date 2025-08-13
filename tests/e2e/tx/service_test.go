@@ -115,7 +115,7 @@ func (s *E2ETestSuite) SetupSuite() {
 
 func (s *E2ETestSuite) TearDownSuite() {
 	s.T().Log("tearing down e2e test suite")
-	// s.network.Cleanup()
+	s.network.Cleanup()
 }
 
 func (s *E2ETestSuite) TestQueryBySig() {

@@ -167,6 +167,20 @@ go.sum: go.mod
 	go mod verify
 	go mod tidy
 
+tidy-all:
+	@echo "Running go mod tidy in all sub-modules..."
+	@finalec=0; \
+	for module in $(SUB_MODULES); do \
+		echo "Running go mod tidy in $$module"; \
+		cd ${CURRENT_DIR}/$$module && go mod tidy; \
+		ec=$$?; \
+		if [ "$$ec" -ne '0' ]; then finalec=$$ec; fi; \
+		cd ${CURRENT_DIR}; \
+	done; \
+	exit $$finalec
+
+.PHONY: tidy-all
+
 ###############################################################################
 ###                              Documentation                              ###
 ###############################################################################

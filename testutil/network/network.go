@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cometbft/cometbft/node"
+
 	cmtclient "github.com/cometbft/cometbft/rpc/client"
 	dbm "github.com/cosmos/cosmos-db"
 	"github.com/spf13/cobra"

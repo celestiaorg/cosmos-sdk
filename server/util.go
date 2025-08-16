@@ -52,9 +52,12 @@ type Context struct {
 }
 
 func NewDefaultContext() *Context {
+	cmtCfg := cmtcfg.DefaultConfig()
+	// switch to priority as CAT breaks the e2e tests here
+	cmtCfg.Mempool.Type = cmtcfg.MempoolTypePriority
 	return NewContext(
 		viper.New(),
-		cmtcfg.DefaultConfig(),
+		cmtCfg,
 		log.NewLogger(os.Stdout),
 	)
 }

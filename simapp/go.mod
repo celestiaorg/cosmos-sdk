@@ -234,6 +234,8 @@ replace cosmossdk.io/x/upgrade => ../x/upgrade
 
 // Below are the long-lived replace of the SimApp
 replace (
+	// use cosmos fork of api
+	cosmossdk.io/api => ../api
 	// use cosmos fork of keyring
 	github.com/99designs/keyring => github.com/cosmos/keyring v1.2.0
 	// celestia-core

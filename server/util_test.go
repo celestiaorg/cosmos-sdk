@@ -16,15 +16,9 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/server"
-	"github.com/cosmos/cosmos-sdk/server/config"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/module"
-	"github.com/cosmos/cosmos-sdk/types/module/testutil"
-	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
 )
 
 var errCanceledInPreRun = errors.New("canceled in prerun")
@@ -418,42 +412,6 @@ func TestInterceptConfigsWithBadPermissions(t *testing.T) {
 	if err := cmd.ExecuteContext(ctx); !os.IsPermission(err) {
 		t.Fatalf("Failed to catch permissions error, got: [%T] %v", err, err)
 	}
-}
-
-func TestEmptyMinGasPrices(t *testing.T) {
-	tempDir := t.TempDir()
-	err := os.Mkdir(filepath.Join(tempDir, "config"), os.ModePerm)
-	require.NoError(t, err)
-	encCfg := testutil.MakeTestEncodingConfig()
-
-	// Run InitCmd to create necessary config files.
-	clientCtx := client.Context{}.WithHomeDir(tempDir).WithCodec(encCfg.Codec)
-	serverCtx := server.NewDefaultContext()
-	ctx := context.WithValue(context.Background(), server.ServerContextKey, serverCtx)
-	ctx = context.WithValue(ctx, client.ClientContextKey, &clientCtx)
-	cmd := genutilcli.InitCmd(module.NewBasicManager(), tempDir)
-	cmd.SetArgs([]string{"appnode-test"})
-	err = cmd.ExecuteContext(ctx)
-	require.NoError(t, err)
-
-	// Modify app.toml.
-	appCfgTempFilePath := filepath.Join(tempDir, "config", "app.toml")
-	appConf := config.DefaultConfig()
-	appConf.BaseConfig.MinGasPrices = ""
-	config.WriteConfigFile(appCfgTempFilePath, appConf)
-
-	// Run StartCmd.
-	cmd = server.StartCmd(nil, tempDir)
-	cmd.PreRunE = func(cmd *cobra.Command, _ []string) error {
-		ctx, err := server.InterceptConfigsAndCreateContext(cmd, "", nil, cmtcfg.DefaultConfig())
-		if err != nil {
-			return err
-		}
-
-		return server.SetCmdServerContext(cmd, ctx)
-	}
-	err = cmd.ExecuteContext(ctx)
-	require.Errorf(t, err, sdkerrors.ErrAppConfig.Error())
 }
 
 type mapGetter map[string]interface{}

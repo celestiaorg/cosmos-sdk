@@ -46,9 +46,8 @@ func NewMsgCreateVestingAccountCmd(ac address.Codec) *cobra.Command {
 		Short: "Create a new vesting account funded with an allocation of tokens.",
 		Long: `Create a new vesting account funded with an allocation of tokens. The
 account can either be a delayed or continuous vesting account, which is determined
-by the '--delayed' flag. All vesting accounts created will have their start time
-set by the committed block's time. The end_time must be provided as a UNIX epoch
-timestamp.`,
+by the '--delayed' flag. The start_time and end_time must be provided as a UNIX epoch
+timestamp. The start-time must be provided via the start-time flag.`,
 		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientTxContext(cmd)
@@ -86,8 +85,18 @@ timestamp.`,
 	}
 
 	cmd.Flags().Bool(FlagDelayed, false, "Create a delayed vesting account if true")
-	cmd.Flags().Int64(FlagStartTime, 0, "Optional start time (as a UNIX epoch timestamp) for continuous vesting accounts. If 0 (default), the block's time of the block this tx is committed to will be used.")
+	cmd.Flags().Int64(FlagStartTime, 0, "Start time (as a UNIX epoch timestamp) for continuous vesting accounts.")
 	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd
+}
+
+type VestingData struct {
+	StartTime int64         `json:"start_time"`
+	Periods   []InputPeriod `json:"periods"`
+}
+
+type InputPeriod struct {
+	Coins  string `json:"coins"`
+	Length int64  `json:"length_seconds"`
 }

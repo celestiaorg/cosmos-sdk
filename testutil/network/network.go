@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cometbft/cometbft/node"
+
 	cmtclient "github.com/cometbft/cometbft/rpc/client"
 	dbm "github.com/cosmos/cosmos-db"
 	"github.com/spf13/cobra"
@@ -516,7 +517,7 @@ func New(l Logger, baseDir string, cfg Config) (*Network, error) {
 		genBalances = append(genBalances, banktypes.Balance{Address: addr.String(), Coins: balances.Sort()})
 		genAccounts = append(genAccounts, authtypes.NewBaseAccount(addr, nil, 0, 0))
 
-		commission, err := sdkmath.LegacyNewDecFromStr("0.5")
+		commission, err := sdkmath.LegacyNewDecFromStr("0.25")
 		if err != nil {
 			return nil, err
 		}

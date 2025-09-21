@@ -17,9 +17,8 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:     "Create a new vesting account funded with an allocation of tokens.",
 					Long: `Create a new vesting account funded with an allocation of tokens. The
 account can either be a delayed or continuous vesting account, which is determined
-by the '--delayed' flag. All vesting accounts created will have their start time
-set by the committed block's time. The end_time must be provided as a UNIX epoch
-timestamp.`,
+by the '--delayed' flag. The start_time and end_time must be provided as a UNIX epoch
+timestamp. The start-time must be provided via the start-time flag.`,
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{
 						{ProtoField: "to_address"},
 						{ProtoField: "end_time"},

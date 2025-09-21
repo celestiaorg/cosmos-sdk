@@ -12,7 +12,6 @@ import (
 	"cosmossdk.io/collections"
 	"cosmossdk.io/errors"
 	"cosmossdk.io/store/prefix"
-
 	"github.com/cosmos/cosmos-sdk/runtime"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/query"
@@ -120,7 +119,7 @@ func (k Querier) ValidatorOutstandingRewards(ctx context.Context, req *types.Que
 	}
 
 	if validator == nil {
-		return nil, errors.Wrapf(types.ErrNoValidatorExists, req.ValidatorAddress)
+		return nil, errors.Wrapf(types.ErrNoValidatorExists, "%v", req.ValidatorAddress)
 	}
 
 	rewards, err := k.GetValidatorOutstandingRewards(ctx, valAdr)
@@ -152,7 +151,7 @@ func (k Querier) ValidatorCommission(ctx context.Context, req *types.QueryValida
 	}
 
 	if validator == nil {
-		return nil, errors.Wrapf(types.ErrNoValidatorExists, req.ValidatorAddress)
+		return nil, errors.Wrapf(types.ErrNoValidatorExists, "%v", req.ValidatorAddress)
 	}
 	commission, err := k.GetValidatorAccumulatedCommission(ctx, valAdr)
 	if err != nil {
@@ -205,7 +204,7 @@ func (k Querier) ValidatorSlashes(ctx context.Context, req *types.QueryValidator
 	return &types.QueryValidatorSlashesResponse{Slashes: slashes, Pagination: pageRes}, nil
 }
 
-// DelegationRewards the total rewards accrued by a delegation
+// DelegationRewards returns the total rewards accrued by a delegation.
 func (k Querier) DelegationRewards(ctx context.Context, req *types.QueryDelegationRewardsRequest) (*types.QueryDelegationRewardsResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
@@ -238,17 +237,13 @@ func (k Querier) DelegationRewards(ctx context.Context, req *types.QueryDelegati
 		return nil, err
 	}
 
-	del, err := k.stakingKeeper.Delegation(ctx, delAdr, valAdr)
-	if err != nil {
-		return nil, err
-	}
-
+	// Ignore the error returned by Delegation because we must check the
+	// outstanding rewards regardless of whether a delegation still exists.
+	del, _ := k.stakingKeeper.Delegation(ctx, delAdr, valAdr)
 	outstanding, err := k.UserOutstandingRewards.Get(
 		ctx,
 		collections.Join(sdk.AccAddress(delAdr), sdk.ValAddress(valAdr)),
 	)
-	// we do not need to check errors if del is not nil
-	// an empty struct is fine for the use case.
 
 	if del == nil {
 		if stderrors.Is(err, collections.ErrNotFound) {
@@ -261,7 +256,6 @@ func (k Querier) DelegationRewards(ctx context.Context, req *types.QueryDelegati
 			Rewards: sdk.NewDecCoinsFromCoins(outstanding.Rewards...),
 		}, nil
 	}
-
 	endingPeriod, err := k.IncrementValidatorPeriod(ctx, val)
 	if err != nil {
 		return nil, err

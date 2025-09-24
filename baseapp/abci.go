@@ -34,6 +34,12 @@ const (
 	QueryPathStore  = "store"
 
 	QueryPathBroadcastTx = "/cosmos.tx.v1beta1.Service/BroadcastTx"
+
+	// DefaultBlockRetentionHeight is the default number of blocks to retain
+	// for block pruning when no other constraints are specified. This value
+	// is set larger than typical snapshot intervals to ensure nodes can
+	// successfully block sync after state sync.
+	DefaultBlockRetentionHeight = 5000
 )
 
 func (app *BaseApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
@@ -1356,10 +1362,9 @@ func (app *BaseApp) GetBlockRetentionHeight(commitHeight int64) int64 {
 	// Define retentionHeight as the minimum value that satisfies all non-zero
 	// constraints. All blocks below (commitHeight-retentionHeight) are pruned
 	// from CometBFT.
-	// Default is 0
 	var retentionHeight int64
 
-	retentionHeight = commitHeight - 1500
+	retentionHeight = commitHeight - DefaultBlockRetentionHeight
 
 	if app.snapshotManager != nil {
 		snapshotRetentionHeights := app.snapshotManager.GetSnapshotBlockRetentionHeights()

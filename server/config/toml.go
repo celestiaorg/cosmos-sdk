@@ -61,7 +61,7 @@ halt-time = {{ .BaseConfig.HaltTime }}
 # Note: CometBFT block pruning is dependant on this parameter
 # snapshot parameters to determine the correct minimum value of
 # ResponseCommit.RetainHeight.
-# NOTE: in Celestia v4, block pruning will prune 1500 + minRetainBlocks blocks behind the tip,
+# NOTE: in celestia-app v6, block pruning will prune 1500 + minRetainBlocks blocks behind the tip,
 # if this value is greater than 1. 
 min-retain-blocks = {{ .BaseConfig.MinRetainBlocks }}
 

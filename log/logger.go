@@ -28,10 +28,6 @@ type Logger interface {
 	// The key of the tuple must be a string.
 	Debug(msg string, keyVals ...any)
 
-	// Trace takes a message and a set of key/value pairs and logs with level TRACE.
-	// The key of the tuple must be a string.
-	Trace(msg string, keyVals ...any)
-
 	// With returns a new wrapped logger with additional context provided by a set.
 	With(keyVals ...any) Logger
 
@@ -107,12 +103,6 @@ func (l zeroLogWrapper) Debug(msg string, keyVals ...interface{}) {
 	l.Logger.Debug().Fields(keyVals).Msg(msg)
 }
 
-// Trace takes a message and a set of key/value pairs and logs with level TRACE.
-// The key of the tuple must be a string.
-func (l zeroLogWrapper) Trace(msg string, keyVals ...interface{}) {
-	l.Logger.Trace().Fields(keyVals).Msg(msg)
-}
-
 // With returns a new wrapped logger with additional context provided by a set.
 func (l zeroLogWrapper) With(keyVals ...interface{}) Logger {
 	logger := l.Logger.With().Fields(keyVals).Logger()
@@ -139,6 +129,5 @@ type nopLogger struct{}
 func (nopLogger) Info(string, ...any)  {}
 func (nopLogger) Error(string, ...any) {}
 func (nopLogger) Debug(string, ...any) {}
-func (nopLogger) Trace(string, ...any) {}
 func (nopLogger) With(...any) Logger   { return nopLogger{} }
 func (nopLogger) Impl() any            { return nopLogger{} }

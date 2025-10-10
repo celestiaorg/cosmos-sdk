@@ -22,8 +22,7 @@ func (cmt CometLoggerWrapper) With(keyVals ...interface{}) cmtlog.Logger {
 	return CometLoggerWrapper{logger}
 }
 
-// Trace takes a message and a set of key/value pairs and logs with level TRACE.
-// The key of the tuple must be a string.
+// Trace re-routes traces logs to debug.
 func (cmt CometLoggerWrapper) Trace(msg string, keyVals ...interface{}) {
-	cmt.Logger.Trace(msg, keyVals...)
+	cmt.Logger.Debug(msg, keyVals...)
 }

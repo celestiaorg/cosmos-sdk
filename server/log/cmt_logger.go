@@ -24,5 +24,5 @@ func (cmt CometLoggerWrapper) With(keyVals ...interface{}) cmtlog.Logger {
 
 // Trace re-routes traces logs to debug.
 func (cmt CometLoggerWrapper) Trace(msg string, keyVals ...interface{}) {
-	//cmt.Logger.Debug(msg, keyVals...)
+	cmt.Logger.Debug(msg, keyVals...)
 }

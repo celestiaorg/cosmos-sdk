@@ -84,7 +84,7 @@ func TimeFormatOption(format string) Option {
 func TraceOption(enabled bool) Option {
 	return func(cfg *Config) {
 		if enabled {
-			cfg.Level = zerolog.TraceLevel
+			//cfg.Level = zerolog.TraceLevel
 		}
 	}
 }

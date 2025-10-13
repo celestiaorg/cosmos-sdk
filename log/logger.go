@@ -1,7 +1,9 @@
 package log
 
 import (
+	"fmt"
 	"io"
+	"strings"
 
 	"github.com/rs/zerolog"
 )
@@ -108,6 +110,11 @@ func (l zeroLogWrapper) Error(msg string, keyVals ...interface{}) {
 // Debug takes a message and a set of key/value pairs and logs with level ERR.
 // The key of the tuple must be a string.
 func (l zeroLogWrapper) Debug(msg string, keyVals ...interface{}) {
+	if strings.Contains(msg, "recursiveRemove") || strings.Contains(msg, "SAVE TREE") || strings.Contains(msg, "BATCH SAVE") {
+		l.Trace(msg, keyVals...)
+		fmt.Println("redirected")
+		return
+	}
 	l.Logger.Debug().Fields(keyVals).Msg(msg)
 }
 

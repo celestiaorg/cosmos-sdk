@@ -1,11 +1,8 @@
 package server
 
 import (
-	"fmt"
-	cmtlog "github.com/cometbft/cometbft/libs/log"
-	"strings"
-
 	"cosmossdk.io/log"
+	cmtlog "github.com/cometbft/cometbft/libs/log"
 )
 
 var _ cmtlog.Logger = (*CometLoggerWrapper)(nil)
@@ -22,20 +19,4 @@ type CometLoggerWrapper struct {
 func (cmt CometLoggerWrapper) With(keyVals ...interface{}) cmtlog.Logger {
 	logger := cmt.Logger.With(keyVals...)
 	return CometLoggerWrapper{logger}
-}
-
-// Trace takes a message and a set of key/value pairs and logs with level TRACE.
-// The key of the tuple must be a string.
-func (cmt CometLoggerWrapper) Trace(msg string, keyVals ...interface{}) {
-	cmt.Logger.Trace(msg, keyVals...)
-}
-
-// Debug logs a message with DEBUG level, but some noisy IAVL logs are redirected to TRACE level instead.
-func (cmt CometLoggerWrapper) Debug(msg string, keyVals ...interface{}) {
-	if strings.Contains(msg, "recursiveRemove") || strings.Contains(msg, "SAVE TREE") || strings.Contains(msg, "BATCH SAVE") {
-		cmt.Logger.Trace(msg, keyVals...)
-		fmt.Println("redirected")
-		return
-	}
-	cmt.Logger.Debug(msg, keyVals...)
 }

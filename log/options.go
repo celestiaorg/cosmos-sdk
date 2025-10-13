@@ -78,3 +78,13 @@ func TimeFormatOption(format string) Option {
 		cfg.TimeFormat = format
 	}
 }
+
+// TraceOption sets the trace level for the Logger.
+// If enabled, the logger will log at TRACE level.
+func TraceOption(enabled bool) Option {
+	return func(cfg *Config) {
+		if enabled {
+			cfg.Level = zerolog.TraceLevel
+		}
+	}
+}

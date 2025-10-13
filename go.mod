@@ -208,7 +208,7 @@ replace (
 	cosmossdk.io/log => ./log
 	// use cosmos fork of keyring
 	github.com/99designs/keyring => github.com/cosmos/keyring v1.2.0
-	github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core v1.54.0-tm-v0.38.17.0.20251010073006-ef4995db60cd
+	github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core v1.54.0-tm-v0.38.17.0.20251010042915-e477743b85c2
 	// dgrijalva/jwt-go is deprecated and doesn't receive security updates.
 	// TODO: remove it: https://github.com/cosmos/cosmos-sdk/issues/13134
 	github.com/dgrijalva/jwt-go => github.com/golang-jwt/jwt/v4 v4.4.2

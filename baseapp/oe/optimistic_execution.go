@@ -98,7 +98,7 @@ func (oe *OptimisticExecution) Execute(req *abci.RequestProcessProposal) {
 		ProposerAddress:    req.ProposerAddress,
 	}
 
-	oe.logger.Debug("OE started", "height", req.Height, "hash", hex.EncodeToString(req.Hash), "time", req.Time.String())
+	oe.logger.Trace("OE started", "height", req.Height, "hash", hex.EncodeToString(req.Hash), "time", req.Time.String())
 	ctx, cancel := context.WithCancel(context.Background())
 	oe.cancelFunc = cancel
 	oe.initialized = true
@@ -110,7 +110,7 @@ func (oe *OptimisticExecution) Execute(req *abci.RequestProcessProposal) {
 		oe.mtx.Lock()
 
 		executionTime := time.Since(start)
-		oe.logger.Debug("OE finished", "duration", executionTime.String(), "height", oe.request.Height, "hash", hex.EncodeToString(oe.request.Hash))
+		oe.logger.Trace("OE finished", "duration", executionTime.String(), "height", oe.request.Height, "hash", hex.EncodeToString(oe.request.Hash))
 		oe.response, oe.err = resp, err
 
 		close(oe.stopCh)

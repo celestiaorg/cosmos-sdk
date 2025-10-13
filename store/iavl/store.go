@@ -60,7 +60,7 @@ func LoadStoreWithInitialVersion(db dbm.DB, logger log.Logger, key types.StoreKe
 	}
 
 	if isUpgradeable && logger != nil {
-		logger.Info(
+		logger.Debug(
 			"Upgrading IAVL storage for faster queries + execution on live state. This may take a while",
 			"store_key", key.String(),
 			"version", initialVersion,
@@ -74,7 +74,7 @@ func LoadStoreWithInitialVersion(db dbm.DB, logger log.Logger, key types.StoreKe
 	}
 
 	if logger != nil {
-		logger.Debug("Finished loading IAVL tree")
+		logger.Trace("Finished loading IAVL tree")
 	}
 
 	return &Store{

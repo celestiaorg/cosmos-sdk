@@ -203,7 +203,7 @@ func (rs *Store) LoadVersion(ver int64) error {
 func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 	infos := make(map[string]types.StoreInfo)
 
-	rs.logger.Debug("loadVersion", "ver", ver)
+	rs.logger.Trace("loadVersion", "ver", ver)
 	cInfo := &types.CommitInfo{}
 
 	// load old data if we are not version 0
@@ -241,7 +241,7 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 	for _, key := range storesKeys {
 		storeParams := rs.storesParams[key]
 		commitID := rs.getCommitID(infos, key.Name())
-		rs.logger.Debug("loadVersion commitID", "key", key, "ver", ver, "hash", fmt.Sprintf("%x", commitID.Hash))
+		rs.logger.Trace("loadVersion commitID", "key", key, "ver", ver, "hash", fmt.Sprintf("%x", commitID.Hash))
 
 		// If it has been added, set the initial version
 		if upgrades.IsAdded(key.Name()) || upgrades.RenamedFrom(key.Name()) != "" {
@@ -665,22 +665,22 @@ func (rs *Store) GetKVStore(key types.StoreKey) types.KVStore {
 
 func (rs *Store) handlePruning(version int64) error {
 	pruneHeight := rs.pruningManager.GetPruningHeight(version)
-	rs.logger.Debug("prune start", "height", version)
-	defer rs.logger.Debug("prune end", "height", version)
+	rs.logger.Trace("prune start", "height", version)
+	defer rs.logger.Trace("prune end", "height", version)
 	return rs.PruneStores(pruneHeight)
 }
 
 // PruneStores prunes all history upto the specific height of the multi store.
 func (rs *Store) PruneStores(pruningHeight int64) (err error) {
 	if pruningHeight <= 0 {
-		rs.logger.Debug("pruning skipped, height is less than or equal to 0")
+		rs.logger.Trace("pruning skipped, height is less than or equal to 0")
 		return nil
 	}
 
-	rs.logger.Debug("pruning store", "heights", pruningHeight)
+	rs.logger.Trace("pruning store", "heights", pruningHeight)
 
 	for key, store := range rs.stores {
-		rs.logger.Debug("pruning store", "key", key) // Also log store.name (a private variable)?
+		rs.logger.Trace("pruning store", "key", key) // Also log store.name (a private variable)?
 
 		// If the store is wrapped with an inter-block cache, we must first unwrap
 		// it to get the underlying IAVL store.
@@ -849,7 +849,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 	// and the following messages contain a SnapshotNode (i.e. an ExportNode). Store changes
 	// are demarcated by new SnapshotStore items.
 	for _, store := range stores {
-		rs.logger.Debug("starting snapshot", "store", store.name, "height", height)
+		rs.logger.Trace("starting snapshot", "store", store.name, "height", height)
 		exporter, err := store.Export(int64(height))
 		if err != nil {
 			rs.logger.Error("snapshot failed; exporter error", "store", store.name, "err", err)
@@ -875,7 +875,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 			for {
 				node, err := exporter.Next()
 				if err == iavltree.ErrorExportDone {
-					rs.logger.Debug("snapshot Done", "store", store.name, "nodeCount", nodeCount)
+					rs.logger.Trace("snapshot Done", "store", store.name, "nodeCount", nodeCount)
 					break
 				} else if err != nil {
 					return err
@@ -946,7 +946,7 @@ loop:
 			}
 			defer importer.Close()
 			// Importer height must reflect the node height (which usually matches the block height, but not always)
-			rs.logger.Debug("restoring snapshot", "store", item.Store.Name)
+			rs.logger.Trace("restoring snapshot", "store", item.Store.Name)
 
 		case *snapshottypes.SnapshotItem_IAVL:
 			if importer == nil {
@@ -1123,7 +1123,7 @@ func (rs *Store) GetCommitInfo(ver int64) (*types.CommitInfo, error) {
 }
 
 func (rs *Store) flushMetadata(db dbm.DB, version int64, cInfo *types.CommitInfo) {
-	rs.logger.Debug("flushing metadata", "height", version)
+	rs.logger.Trace("flushing metadata", "height", version)
 	batch := db.NewBatch()
 	defer func() {
 		_ = batch.Close()
@@ -1140,7 +1140,7 @@ func (rs *Store) flushMetadata(db dbm.DB, version int64, cInfo *types.CommitInfo
 	if err := batch.WriteSync(); err != nil {
 		panic(fmt.Errorf("error on batch write %w", err))
 	}
-	rs.logger.Debug("flushing metadata finished", "height", version)
+	rs.logger.Trace("flushing metadata finished", "height", version)
 }
 
 type storeParams struct {

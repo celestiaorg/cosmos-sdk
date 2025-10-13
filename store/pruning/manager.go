@@ -77,7 +77,7 @@ func (m *Manager) HandleSnapshotHeight(height int64) {
 	m.pruneSnapshotHeightsMx.Lock()
 	defer m.pruneSnapshotHeightsMx.Unlock()
 
-	m.logger.Debug("HandleSnapshotHeight", "height", height)
+	m.logger.Trace("HandleSnapshotHeight", "height", height)
 	m.pruneSnapshotHeights = append(m.pruneSnapshotHeights, height)
 	sort.Slice(m.pruneSnapshotHeights, func(i, j int) bool { return m.pruneSnapshotHeights[i] < m.pruneSnapshotHeights[j] })
 	k := 1

@@ -303,10 +303,11 @@ func testLoadVersionHelper(t *testing.T, app *baseapp.BaseApp, expectedHeight in
 }
 
 func getCheckStateCtx(app *baseapp.BaseApp) sdk.Context {
-	v := reflect.ValueOf(app).Elem()
-	f := v.FieldByName("checkState")
-	rf := reflect.NewAt(f.Type(), unsafe.Pointer(f.UnsafeAddr())).Elem()
-	return rf.MethodByName("Context").Call(nil)[0].Interface().(sdk.Context)
+	ctx, ok := app.CheckState()
+	if !ok {
+		panic("checkState is not initialized")
+	}
+	return ctx
 }
 
 func getFinalizeBlockStateCtx(app *baseapp.BaseApp) sdk.Context {

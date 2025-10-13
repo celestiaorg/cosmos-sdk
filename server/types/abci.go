@@ -12,6 +12,8 @@ type ABCI interface {
 	// Info/Query Connection
 	Info(*abci.RequestInfo) (*abci.ResponseInfo, error)                     // Return application info
 	Query(context.Context, *abci.RequestQuery) (*abci.ResponseQuery, error) // Query for state
+	// Request the next sequence number for a given signer (no-op by default)
+	QuerySequence(context.Context, *abci.RequestQuerySequence) (*abci.ResponseQuerySequence, error)
 
 	// Mempool Connection
 	CheckTx(*abci.RequestCheckTx) (*abci.ResponseCheckTx, error) // Validate a tx for the mempool

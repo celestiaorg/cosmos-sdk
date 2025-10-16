@@ -407,8 +407,8 @@ lint-fix:
 ###                                Protobuf                                 ###
 ###############################################################################
 
-protoVer=1.24.6
-protoImageName=cosmossdk-proto:$(protoVer)
+protoVer=0.15.2
+protoImageName=ghcr.io/cosmos/proto-builder:$(protoVer)
 protoImage=$(DOCKER) run --rm -v $(CURDIR):/workspace --workdir /workspace $(protoImageName)
 
 proto-all: proto-format proto-lint proto-gen

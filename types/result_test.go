@@ -115,6 +115,7 @@ height: "10"
 info: info
 logs: []
 raw_log: '[]'
+signers: []
 timestamp: timestamp
 tx: null
 txhash: "74657374"

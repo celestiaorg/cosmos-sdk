@@ -418,8 +418,6 @@ message TxResult {
   uint32       index  = 2;
   bytes        tx     = 3;
   ExecTxResult result = 4 [(gogoproto.nullable) = false];
-  // signers is the list of addresses that signed this transaction
-  repeated bytes signers = 5;
 }
 
 //----------------------------------------

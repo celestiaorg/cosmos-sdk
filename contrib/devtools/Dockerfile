@@ -2,8 +2,8 @@
 # docker build --pull --rm -f "contrib/devtools/Dockerfile" -t cosmossdk-proto:latest "contrib/devtools"
 # docker run --rm -v $(pwd):/workspace --workdir /workspace cosmossdk-proto sh ./scripts/protocgen.sh
 
-FROM bufbuild/buf:1.24.0 as BUILDER
-FROM golang:1.24.6-alpine
+FROM bufbuild/buf:1.54.0 AS builder
+FROM golang:1.24-alpine
 
 RUN apk add --no-cache \
   nodejs \

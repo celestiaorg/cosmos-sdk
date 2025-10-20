@@ -33,6 +33,44 @@ linters:
     - unconvert
     - unused
   settings:
+    depguard:
+      rules:
+        main:
+          files:
+            - $all
+          allow:
+            - $gostd
+            - cosmossdk.io
+            - github.com/cosmos
+            - github.com/cometbft
+            - github.com/celestiaorg
+            - github.com/cockroachdb
+            - github.com/golang
+            - github.com/stretchr
+            - github.com/spf13
+            - github.com/hashicorp
+            - github.com/gorilla
+            - github.com/grpc-ecosystem
+            - github.com/prometheus
+            - github.com/rs
+            - github.com/99designs
+            - github.com/bgentry
+            - github.com/bits-and-blooms
+            - github.com/chzyer
+            - github.com/decred
+            - github.com/google
+            - github.com/hdevalence
+            - github.com/huandu
+            - github.com/improbable-eng
+            - github.com/jhump
+            - github.com/manifoldco
+            - github.com/mattn
+            - github.com/tendermint
+            - google.golang.org
+            - golang.org
+            - gotest.tools
+            - pgregory.net
+            - sigs.k8s.io
     gosec:
       includes:
         - G102

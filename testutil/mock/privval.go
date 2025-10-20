@@ -48,3 +48,9 @@ func (pv PV) SignProposal(chainID string, proposal *cmtproto.Proposal) error {
 	proposal.Signature = sig
 	return nil
 }
+
+// SignRawBytes implements PrivValidator interface
+func (pv PV) SignRawBytes(chainID, uniqueID string, rawBytes []byte) ([]byte, error) {
+	// For testing purposes, we just sign the raw bytes directly
+	return pv.PrivKey.Sign(rawBytes)
+}

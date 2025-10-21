@@ -11,7 +11,6 @@ The fork include the following changes compared to upstream:
 * Backport improvements for DOS protection for x/authz
 * Support historical account number queries
 * Support [CIP-30](https://github.com/celestiaorg/CIPs/blob/main/cips/cip-030.md)
-* Extended `TxResponse` to include `signers` field with the list of transaction signers
 * The `prove` flag for is set to `false` for tx queries, similarly to celestia/cosmos-sdk v0.46
 * The x/staking migration for delegation keys has been made a lazy migration
 * The x/staking migration for historical info keys has been made a lazy migration
@@ -21,6 +20,7 @@ The fork include the following changes compared to upstream:
 * The default listen address for remote ABCI connections over grpc has been updated from `tcp://127.0.0.1:26658` to `tcp://127.0.0.1:36658`.
 * The default keyring backend has been changed from `os` to `test`.
 * Rewards from the x/distribution module are not auto-claimed. Instead, they can be claimed at arbitrary points in time.
+* Extended `TxResponse` to include `signers` field with the list of transaction signers
 
 Read the [CHANGELOG.md](CHANGELOG.md) for more details.
 

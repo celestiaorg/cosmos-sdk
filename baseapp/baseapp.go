@@ -285,6 +285,16 @@ func (app *BaseApp) CustomQueryRouter() sdk.QueryRouter { return app.customQuery
 // MsgServiceRouter returns the MsgServiceRouter of a BaseApp.
 func (app *BaseApp) MsgServiceRouter() *MsgServiceRouter { return app.msgServiceRouter }
 
+// CheckState returns the current checkState context along with a boolean that
+// reports whether the checkState is initialized.
+func (app *BaseApp) CheckState() (sdk.Context, bool) {
+	if app.checkState == nil {
+		return sdk.Context{}, false
+	}
+
+	return app.checkState.Context(), true
+}
+
 // GRPCQueryRouter returns the GRPCQueryRouter of a BaseApp.
 func (app *BaseApp) GRPCQueryRouter() *GRPCQueryRouter { return app.grpcQueryRouter }
 

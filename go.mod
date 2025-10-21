@@ -91,7 +91,7 @@ require (
 	github.com/aws/smithy-go v1.23.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bufbuild/protocompile v0.6.0 // indirect
-	github.com/celestiaorg/go-square/v2 v2.1.0 // indirect
+	github.com/celestiaorg/go-square/v3 v3.0.2 // indirect
 	github.com/celestiaorg/nmt v0.24.2 // indirect
 	github.com/cenkalti/backoff/v4 v4.1.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

@@ -312,8 +312,8 @@ github.com/bytedance/sonic v1.5.0/go.mod h1:ED5hyg4y6t3/9Ku1R6dU/4KyJ48DZ4jPhfY1
 github.com/bytedance/sonic v1.9.1 h1:6iJ6NqdoxCDr6mbY8h18oSO+cShGSMRGCEo7F2h0x8s=
 github.com/bytedance/sonic v1.9.1/go.mod h1:i736AoUSYt75HyZLoJW9ERYxcy6eaN6h4BZXU064P/U=
 github.com/casbin/casbin/v2 v2.1.2/go.mod h1:YcPU1XXisHhLzuxH9coDNf2FbKpjGlbCg3n9yuLkIJQ=
-github.com/celestiaorg/celestia-core v0.39.10 h1:49adyR+oL9BRbaV9iDPWGSsIlU2OgS6R7mRJ9p16hI8=
-github.com/celestiaorg/celestia-core v0.39.10/go.mod h1:QFllLrTDEE112fdKWH9+367OWDNskZpUtyiUsj4oezo=
+github.com/celestiaorg/celestia-core v1.54.0-tm-v0.38.17.0.20251009202332-1ccad2c315cc h1:WFqqN1drHSTl6+gkY6d/4FPLEC32PUaVg4ep2Vk61Lc=
+github.com/celestiaorg/celestia-core v1.54.0-tm-v0.38.17.0.20251009202332-1ccad2c315cc/go.mod h1:VKtY/eal34fhAX01PbPFdCBr1Po5Y4MP20TwF19p3CI=
 github.com/celestiaorg/go-square/v3 v3.0.2 h1:eSQOgNII8inK9IhiBZ+6GADQeWbRq4HYY72BOgcduA4=
 github.com/celestiaorg/go-square/v3 v3.0.2/go.mod h1:oFReMLsSDMRs82ICFEeFQFCqNvwdsbIM1BzCcb0f7dM=
 github.com/celestiaorg/nmt v0.24.2 h1:LlpJSPOd6/Lw1Ig6HUhZuqiINHLka/ZSRTBzlNJpchg=

@@ -769,6 +769,32 @@ func (app *BaseApp) beginBlock(_ *abci.RequestFinalizeBlock) (sdk.BeginBlock, er
 	return resp, nil
 }
 
+// extractSigners extracts all unique signers from a transaction
+func (app *BaseApp) extractSigners(txBytes []byte) ([]string, error) {
+	tx, err := app.txDecoder(txBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get all signers from the transaction using the codec
+	msgs, err := tx.GetMsgsV2()
+	if err != nil {
+		return nil, err
+	}
+	var signerStrings []string
+	for _, msg := range msgs {
+		signers, err := app.cdc.GetMsgV2Signers(msg)
+		if err != nil {
+			return nil, err
+		}
+		for _, signer := range signers {
+			signerStrings = append(signerStrings, sdk.AccAddress(signer).String())
+		}
+	}
+
+	return signerStrings, nil
+}
+
 func (app *BaseApp) deliverTx(tx []byte) *abci.ExecTxResult {
 	gInfo := sdk.GasInfo{}
 	resultStr := "successful"
@@ -782,6 +808,14 @@ func (app *BaseApp) deliverTx(tx []byte) *abci.ExecTxResult {
 		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted")
 	}()
 
+	// Extract signers from the tx bytes
+	signers, signerErr := app.extractSigners(tx)
+	if signerErr != nil {
+		// Log the error but don't fail the tx
+		// For the sake of backwards compatibility??
+		app.logger.Error("failed to extract signers", "error", signerErr)
+	}
+
 	gInfo, result, anteEvents, _, err := app.runTx(execModeFinalize, tx)
 	if err != nil {
 		resultStr = "failed"
@@ -792,6 +826,7 @@ func (app *BaseApp) deliverTx(tx []byte) *abci.ExecTxResult {
 			sdk.MarkEventsToIndex(anteEvents, app.indexEvents),
 			app.trace,
 		)
+		resp.Signers = signers
 		return resp
 	}
 
@@ -801,6 +836,7 @@ func (app *BaseApp) deliverTx(tx []byte) *abci.ExecTxResult {
 		Log:       result.Log,
 		Data:      result.Data,
 		Events:    sdk.MarkEventsToIndex(result.Events, app.indexEvents),
+		Signers:   signers,
 	}
 
 	return resp

@@ -310,6 +310,14 @@ func getCheckStateCtx(app *baseapp.BaseApp) sdk.Context {
 	return ctx
 }
 
+func getPromiseStateCtx(app *baseapp.BaseApp) sdk.Context {
+	ctx, ok := app.PromiseState()
+	if !ok {
+		panic("promiseState is not initialized")
+	}
+	return ctx
+}
+
 func getFinalizeBlockStateCtx(app *baseapp.BaseApp) sdk.Context {
 	v := reflect.ValueOf(app).Elem()
 	f := v.FieldByName("finalizeBlockState")

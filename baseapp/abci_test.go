@@ -164,6 +164,9 @@ func TestABCI_InitChain(t *testing.T) {
 	chainID = getCheckStateCtx(app).ChainID()
 	require.Equal(t, "test-chain-id", chainID, "ChainID in checkState not set correctly in InitChain")
 
+	promiseChainID := getPromiseStateCtx(app).ChainID()
+	require.Equal(t, "test-chain-id", promiseChainID, "ChainID in promiseState not set correctly in InitChain")
+
 	_, err = app.FinalizeBlock(&abci.RequestFinalizeBlock{
 		Hash:   initChainRes.AppHash,
 		Height: 1,
@@ -613,6 +616,11 @@ func TestABCI_CheckTx(t *testing.T) {
 	checkStateStore := getCheckStateCtx(suite.baseApp).KVStore(capKey1)
 	storedCounter := getIntFromStore(t, checkStateStore, counterKey)
 
+	promiseCtx := getPromiseStateCtx(suite.baseApp)
+	require.Equal(t, int64(0), promiseCtx.BlockHeight(), "promiseState block height should reflect genesis before first commit")
+	promiseStateStore := promiseCtx.KVStore(capKey1)
+	require.Nil(t, promiseStateStore.Get(counterKey))
+
 	// ensure AnteHandler ran
 	require.Equal(t, nTxs, storedCounter)
 
@@ -625,6 +633,8 @@ func TestABCI_CheckTx(t *testing.T) {
 
 	require.NotNil(t, getCheckStateCtx(suite.baseApp).BlockGasMeter(), "block gas meter should have been set to checkState")
 	require.NotEmpty(t, getCheckStateCtx(suite.baseApp).HeaderHash())
+	require.NotNil(t, getPromiseStateCtx(suite.baseApp).BlockGasMeter(), "block gas meter should have been set to promiseState")
+	require.NotEmpty(t, getPromiseStateCtx(suite.baseApp).HeaderHash())
 
 	_, err = suite.baseApp.Commit()
 	require.NoError(t, err)
@@ -632,6 +642,10 @@ func TestABCI_CheckTx(t *testing.T) {
 	checkStateStore = getCheckStateCtx(suite.baseApp).KVStore(capKey1)
 	storedBytes := checkStateStore.Get(counterKey)
 	require.Nil(t, storedBytes)
+
+	updatedPromiseCtx := getPromiseStateCtx(suite.baseApp)
+	require.Equal(t, int64(1), updatedPromiseCtx.BlockHeight(), "promiseState block height should follow latest committed height")
+	require.Nil(t, updatedPromiseCtx.KVStore(capKey1).Get(counterKey))
 }
 
 func TestABCI_FinalizeBlock_DeliverTx(t *testing.T) {

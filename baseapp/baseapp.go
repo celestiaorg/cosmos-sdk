@@ -47,6 +47,7 @@ type (
 
 const (
 	execModeCheck               execMode = iota // Check a transaction
+	execModePromise                             // Promise state tracking for per-block updates
 	execModeReCheck                             // Recheck a (pending) transaction after a commit
 	execModeSimulate                            // Simulate a transaction
 	execModePrepareProposal                     // Prepare a block proposal
@@ -117,7 +118,10 @@ type BaseApp struct {
 	//
 	// - finalizeBlockState: Used for FinalizeBlock, which is set based on the
 	// previous block's state. This state is committed.
+	// - promiseState: Used for exposing a per-block cached state fork similar to checkState.
+	// This state is refreshed alongside checkState and is never committed.
 	checkState           *state
+	promiseState         *state
 	prepareProposalState *state
 	processProposalState *state
 	finalizeBlockState   *state
@@ -295,6 +299,16 @@ func (app *BaseApp) CheckState() (sdk.Context, bool) {
 	return app.checkState.Context(), true
 }
 
+// PromiseState returns the current promiseState context along with a boolean that
+// reports whether the promiseState is initialized.
+func (app *BaseApp) PromiseState() (sdk.Context, bool) {
+	if app.promiseState == nil {
+		return sdk.Context{}, false
+	}
+
+	return app.promiseState.Context(), true
+}
+
 // GRPCQueryRouter returns the GRPCQueryRouter of a BaseApp.
 func (app *BaseApp) GRPCQueryRouter() *GRPCQueryRouter { return app.grpcQueryRouter }
 
@@ -442,6 +456,7 @@ func (app *BaseApp) Init() error {
 
 	// needed for the export command which inits from store but never calls initchain
 	app.setState(execModeCheck, emptyHeader)
+	app.setState(execModePromise, emptyHeader)
 	app.Seal()
 
 	if app.cms == nil {
@@ -515,6 +530,10 @@ func (app *BaseApp) setState(mode execMode, h cmtproto.Header) {
 	case execModeCheck:
 		baseState.SetContext(baseState.Context().WithIsCheckTx(true).WithMinGasPrices(app.minGasPrices))
 		app.checkState = baseState
+
+	case execModePromise:
+		baseState.SetContext(baseState.Context().WithMinGasPrices(app.minGasPrices))
+		app.promiseState = baseState
 
 	case execModePrepareProposal:
 		app.prepareProposalState = baseState
@@ -657,6 +676,9 @@ func (app *BaseApp) getState(mode execMode) *state {
 
 	case execModeProcessProposal:
 		return app.processProposalState
+
+	case execModePromise:
+		return app.promiseState
 
 	default:
 		return app.checkState

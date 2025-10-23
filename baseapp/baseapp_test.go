@@ -741,6 +741,9 @@ func TestSetMinGasPrices(t *testing.T) {
 
 	ctx := getCheckStateCtx(suite.baseApp)
 	require.Equal(t, minGasPrices, ctx.MinGasPrices())
+
+	promiseCtx := getPromiseStateCtx(suite.baseApp)
+	require.Equal(t, minGasPrices, promiseCtx.MinGasPrices())
 }
 
 type ctxType string

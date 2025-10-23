@@ -64,6 +64,7 @@ func (app *BaseApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitCha
 	// initialize states with a correct header
 	app.setState(execModeFinalize, initHeader)
 	app.setState(execModeCheck, initHeader)
+	app.setState(execModePromise, initHeader)
 
 	// Store the consensus params in the BaseApp's param store. Note, this must be
 	// done after the finalizeBlockState and context have been set as it's persisted
@@ -88,6 +89,12 @@ func (app *BaseApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitCha
 		// the height needs to reflect the true block height.
 		initHeader.Height = req.InitialHeight
 		app.checkState.SetContext(app.checkState.Context().WithBlockHeader(initHeader).
+			WithHeaderInfo(coreheader.Info{
+				ChainID: req.ChainId,
+				Height:  req.InitialHeight,
+				Time:    req.Time,
+			}))
+		app.promiseState.SetContext(app.promiseState.Context().WithBlockHeader(initHeader).
 			WithHeaderInfo(coreheader.Info{
 				ChainID: req.ChainId,
 				Height:  req.InitialHeight,
@@ -772,6 +779,11 @@ func (app *BaseApp) internalFinalizeBlock(ctx context.Context, req *abci.Request
 			WithBlockGasMeter(gasMeter).
 			WithHeaderHash(req.Hash))
 	}
+	if app.promiseState != nil {
+		app.promiseState.SetContext(app.promiseState.Context().
+			WithBlockGasMeter(gasMeter).
+			WithHeaderHash(req.Hash))
+	}
 
 	preblockEvents, err := app.preBlock(req)
 	if err != nil {
@@ -985,6 +997,7 @@ func (app *BaseApp) Commit() (*abci.ResponseCommit, error) {
 	// NOTE: This is safe because CometBFT holds a lock on the mempool for
 	// Commit. Use the header from this latest block.
 	app.setState(execModeCheck, header)
+	app.setState(execModePromise, header)
 
 	app.finalizeBlockState = nil
 

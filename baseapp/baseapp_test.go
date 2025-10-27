@@ -513,6 +513,61 @@ func TestTxDecoder(t *testing.T) {
 	require.Equal(t, counter, dTxCounter)
 }
 
+func TestExecTxResultSigners(t *testing.T) {
+	suite := NewBaseAppSuite(t)
+	baseapptestutil.RegisterCounterServer(suite.baseApp.MsgServiceRouter(), NoopCounterServerImpl{})
+	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{
+		ConsensusParams: &cmtproto.ConsensusParams{},
+	})
+	require.NoError(t, err)
+
+	// create a test tx with signer
+	tx := newTxCounter(t, suite.txConfig, 0, 1)
+	txBytes, err := suite.txConfig.TxEncoder()(tx)
+	require.NoError(t, err)
+
+	// extract signer from msg
+	expectedSigner := tx.GetMsgs()[0].(*baseapptestutil.MsgCounter).Signer
+
+	resp, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{
+		Height: 1,
+		Txs:    [][]byte{txBytes},
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.TxResults, 1)
+
+	txResult := resp.TxResults[0]
+	require.NotNil(t, txResult.Signers)
+	require.Len(t, txResult.Signers, 1)
+
+	require.Equal(t, expectedSigner, txResult.Signers[0])
+	require.Equal(t, uint32(0), txResult.Code) // should be a successful tx
+	require.Equal(t, len(txResult.Signers), 1)
+
+	_, err = suite.baseApp.Commit()
+	require.NoError(t, err)
+
+	// test failed tx (signers should still be included)
+	failTx := newTxCounter(t, suite.txConfig, 0, -1) // will fail in handler
+	failTxBytes, err := suite.txConfig.TxEncoder()(failTx)
+	require.NoError(t, err)
+
+	// extract signer from msg
+	failExpectedSigner := failTx.GetMsgs()[0].(*baseapptestutil.MsgCounter).Signer
+
+	respFail, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{
+		Height: 2,
+		Txs:    [][]byte{failTxBytes},
+	})
+	require.NoError(t, err)
+	require.Len(t, respFail.TxResults, 1)
+
+	failTxResult := respFail.TxResults[0]
+	require.NotEqual(t, uint32(0), failTxResult.Code) // should be a failed tx
+	require.Len(t, failTxResult.Signers, 1)
+	require.Equal(t, failExpectedSigner, failTxResult.Signers[0])
+}
+
 func TestCustomRunTxPanicHandler(t *testing.T) {
 	customPanicMsg := "test panic"
 	anteErr := errorsmod.Register("fakeModule", 100500, "fakeError")

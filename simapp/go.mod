@@ -44,24 +44,24 @@ require (
 	github.com/DataDog/datadog-go v3.2.0+incompatible // indirect
 	github.com/DataDog/zstd v1.5.5 // indirect
 	github.com/aws/aws-sdk-go v1.44.224 // indirect
-	github.com/aws/aws-sdk-go-v2 v1.39.2 // indirect
-	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.1 // indirect
-	github.com/aws/aws-sdk-go-v2/config v1.31.12 // indirect
-	github.com/aws/aws-sdk-go-v2/credentials v1.18.16 // indirect
-	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.9 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.9 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.9 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.3 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.9 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.1 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.9 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.9 // indirect
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.88.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.29.6 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.1 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sts v1.38.6 // indirect
-	github.com/aws/smithy-go v1.23.0 // indirect
+	github.com/aws/aws-sdk-go-v2 v1.39.4 // indirect
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.2 // indirect
+	github.com/aws/aws-sdk-go-v2/config v1.31.13 // indirect
+	github.com/aws/aws-sdk-go-v2/credentials v1.18.19 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.11 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.11 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.11 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.4 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.11 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.11 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.11 // indirect
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.88.7 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.29.8 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.3 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.38.9 // indirect
+	github.com/aws/smithy-go v1.23.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bgentry/go-netrc v0.0.0-20140422174119-9fd32a8b3d3d // indirect
 	github.com/bgentry/speakeasy v0.1.1-0.20220910012023-760eaf8b6816 // indirect
@@ -236,7 +236,7 @@ replace (
 	cosmossdk.io/log => ../log
 	// use cosmos fork of keyring
 	github.com/99designs/keyring => github.com/cosmos/keyring v1.2.0
-	github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core v0.39.10
+	github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core v0.39.11
 	// Simapp always use the latest version of the cosmos-sdk
 	github.com/cosmos/cosmos-sdk => ../.
 	// Fix upstream GHSA-h395-qcrw-5vmq and GHSA-3vp4-m3rf-835h vulnerabilities.

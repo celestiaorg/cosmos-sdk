@@ -121,7 +121,7 @@ func (x *_TxResponse_13_list) IsValid() bool {
 var _ protoreflect.List = (*_TxResponse_14_list)(nil)
 
 type _TxResponse_14_list struct {
-	list *[][]byte
+	list *[]string
 }
 
 func (x *_TxResponse_14_list) Len() int {
@@ -132,17 +132,17 @@ func (x *_TxResponse_14_list) Len() int {
 }
 
 func (x *_TxResponse_14_list) Get(i int) protoreflect.Value {
-	return protoreflect.ValueOfBytes((*x.list)[i])
+	return protoreflect.ValueOfString((*x.list)[i])
 }
 
 func (x *_TxResponse_14_list) Set(i int, value protoreflect.Value) {
-	valueUnwrapped := value.Bytes()
+	valueUnwrapped := value.String()
 	concreteValue := valueUnwrapped
 	(*x.list)[i] = concreteValue
 }
 
 func (x *_TxResponse_14_list) Append(value protoreflect.Value) {
-	valueUnwrapped := value.Bytes()
+	valueUnwrapped := value.String()
 	concreteValue := valueUnwrapped
 	*x.list = append(*x.list, concreteValue)
 }
@@ -156,8 +156,8 @@ func (x *_TxResponse_14_list) Truncate(n int) {
 }
 
 func (x *_TxResponse_14_list) NewElement() protoreflect.Value {
-	var v []byte
-	return protoreflect.ValueOfBytes(v)
+	v := ""
+	return protoreflect.ValueOfString(v)
 }
 
 func (x *_TxResponse_14_list) IsValid() bool {
@@ -597,7 +597,7 @@ func (x *fastReflection_TxResponse) Mutable(fd protoreflect.FieldDescriptor) pro
 		return protoreflect.ValueOfList(value)
 	case "cosmos.base.abci.v1beta1.TxResponse.signers":
 		if x.Signers == nil {
-			x.Signers = [][]byte{}
+			x.Signers = []string{}
 		}
 		value := &_TxResponse_14_list{list: &x.Signers}
 		return protoreflect.ValueOfList(value)
@@ -664,7 +664,7 @@ func (x *fastReflection_TxResponse) NewField(fd protoreflect.FieldDescriptor) pr
 		list := []*abci.Event{}
 		return protoreflect.ValueOfList(&_TxResponse_13_list{list: &list})
 	case "cosmos.base.abci.v1beta1.TxResponse.signers":
-		list := [][]byte{}
+		list := []string{}
 		return protoreflect.ValueOfList(&_TxResponse_14_list{list: &list})
 	default:
 		if fd.IsExtension() {
@@ -788,8 +788,8 @@ func (x *fastReflection_TxResponse) ProtoMethods() *protoiface.Methods {
 			}
 		}
 		if len(x.Signers) > 0 {
-			for _, b := range x.Signers {
-				l = len(b)
+			for _, s := range x.Signers {
+				l = len(s)
 				n += 1 + l + runtime.Sov(uint64(l))
 			}
 		}
@@ -1364,7 +1364,7 @@ func (x *fastReflection_TxResponse) ProtoMethods() *protoiface.Methods {
 				if wireType != 2 {
 					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, fmt.Errorf("proto: wrong wireType = %d for field Signers", wireType)
 				}
-				var byteLen int
+				var stringLen uint64
 				for shift := uint(0); ; shift += 7 {
 					if shift >= 64 {
 						return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, runtime.ErrIntOverflow
@@ -1374,23 +1374,23 @@ func (x *fastReflection_TxResponse) ProtoMethods() *protoiface.Methods {
 					}
 					b := dAtA[iNdEx]
 					iNdEx++
-					byteLen |= int(b&0x7F) << shift
+					stringLen |= uint64(b&0x7F) << shift
 					if b < 0x80 {
 						break
 					}
 				}
-				if byteLen < 0 {
+				intStringLen := int(stringLen)
+				if intStringLen < 0 {
 					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, runtime.ErrInvalidLength
 				}
-				postIndex := iNdEx + byteLen
+				postIndex := iNdEx + intStringLen
 				if postIndex < 0 {
 					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, runtime.ErrInvalidLength
 				}
 				if postIndex > l {
 					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, io.ErrUnexpectedEOF
 				}
-				x.Signers = append(x.Signers, make([]byte, postIndex-iNdEx))
-				copy(x.Signers[len(x.Signers)-1], dAtA[iNdEx:postIndex])
+				x.Signers = append(x.Signers, string(dAtA[iNdEx:postIndex]))
 				iNdEx = postIndex
 			default:
 				iNdEx = preIndex
@@ -7444,7 +7444,7 @@ type TxResponse struct {
 	// Since: cosmos-sdk 0.42.11, 0.44.5, 0.45
 	Events []*abci.Event `protobuf:"bytes,13,rep,name=events,proto3" json:"events,omitempty"`
 	// The signers of the transaction.
-	Signers [][]byte `protobuf:"bytes,14,rep,name=signers,proto3" json:"signers,omitempty"`
+	Signers []string `protobuf:"bytes,14,rep,name=signers,proto3" json:"signers,omitempty"`
 }
 
 func (x *TxResponse) Reset() {
@@ -7558,7 +7558,7 @@ func (x *TxResponse) GetEvents() []*abci.Event {
 	return nil
 }
 
-func (x *TxResponse) GetSigners() [][]byte {
+func (x *TxResponse) GetSigners() []string {
 	if x != nil {
 		return x.Signers
 	}
@@ -8179,7 +8179,7 @@ var file_cosmos_base_abci_v1beta1_abci_proto_rawDesc = []byte{
 	0x2e, 0x74, 0x65, 0x6e, 0x64, 0x65, 0x72, 0x6d, 0x69, 0x6e, 0x74, 0x2e, 0x61, 0x62, 0x63, 0x69,
 	0x2e, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x42, 0x04, 0xc8, 0xde, 0x1f, 0x00, 0x52, 0x06, 0x65, 0x76,
 	0x65, 0x6e, 0x74, 0x73, 0x12, 0x18, 0x0a, 0x07, 0x73, 0x69, 0x67, 0x6e, 0x65, 0x72, 0x73, 0x18,
-	0x0e, 0x20, 0x03, 0x28, 0x0c, 0x52, 0x07, 0x73, 0x69, 0x67, 0x6e, 0x65, 0x72, 0x73, 0x3a, 0x04,
+	0x0e, 0x20, 0x03, 0x28, 0x09, 0x52, 0x07, 0x73, 0x69, 0x67, 0x6e, 0x65, 0x72, 0x73, 0x3a, 0x04,
 	0x88, 0xa0, 0x1f, 0x00, 0x22, 0xa9, 0x01, 0x0a, 0x0e, 0x41, 0x42, 0x43, 0x49, 0x4d, 0x65, 0x73,
 	0x73, 0x61, 0x67, 0x65, 0x4c, 0x6f, 0x67, 0x12, 0x2a, 0x0a, 0x09, 0x6d, 0x73, 0x67, 0x5f, 0x69,
 	0x6e, 0x64, 0x65, 0x78, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0d, 0x42, 0x0d, 0xea, 0xde, 0x1f, 0x09,

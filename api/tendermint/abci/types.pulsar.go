@@ -33658,8 +33658,6 @@ func (x *EventAttribute) GetIndex() bool {
 }
 
 // ExecTxResult contains results of executing one individual transaction.
-//
-// * Its structure is equivalent to #ResponseDeliverTx which will be deprecated/deleted
 type ExecTxResult struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache

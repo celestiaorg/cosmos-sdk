@@ -29,6 +29,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectestutil "github.com/cosmos/cosmos-sdk/codec/testutil"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	"github.com/cosmos/cosmos-sdk/testutil"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -521,13 +522,15 @@ func TestExecTxResultSigners(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// expected signer is hardcoded based on the secret used in setTxSignature
+	// which uses secp256k1.GenPrivKeyFromSecret([]byte("test"))
+	privKey := secp256k1.GenPrivKeyFromSecret([]byte("test"))
+	expectedSigner := sdk.AccAddress(privKey.PubKey().Address()).String()
+
 	// create a test tx with signer
 	tx := newTxCounter(t, suite.txConfig, 0, 1)
 	txBytes, err := suite.txConfig.TxEncoder()(tx)
 	require.NoError(t, err)
-
-	// extract signer from msg
-	expectedSigner := tx.GetMsgs()[0].(*baseapptestutil.MsgCounter).Signer
 
 	resp, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{
 		Height: 1,
@@ -552,9 +555,6 @@ func TestExecTxResultSigners(t *testing.T) {
 	failTxBytes, err := suite.txConfig.TxEncoder()(failTx)
 	require.NoError(t, err)
 
-	// extract signer from msg
-	failExpectedSigner := failTx.GetMsgs()[0].(*baseapptestutil.MsgCounter).Signer
-
 	respFail, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{
 		Height: 2,
 		Txs:    [][]byte{failTxBytes},
@@ -565,7 +565,7 @@ func TestExecTxResultSigners(t *testing.T) {
 	failTxResult := respFail.TxResults[0]
 	require.NotEqual(t, uint32(0), failTxResult.Code) // should be a failed tx
 	require.Len(t, failTxResult.Signers, 1)
-	require.Equal(t, failExpectedSigner, failTxResult.Signers[0])
+	require.Equal(t, expectedSigner, failTxResult.Signers[0])
 }
 
 func TestCustomRunTxPanicHandler(t *testing.T) {

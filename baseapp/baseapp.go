@@ -32,6 +32,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/mempool"
+	"github.com/cosmos/cosmos-sdk/x/auth/signing"
 )
 
 type (
@@ -769,27 +770,32 @@ func (app *BaseApp) beginBlock(_ *abci.RequestFinalizeBlock) (sdk.BeginBlock, er
 	return resp, nil
 }
 
-// extractSigners extracts all unique signers from a transaction
+// extractSigners extracts the actual transaction signers.
 func (app *BaseApp) extractSigners(txBytes []byte) ([]string, error) {
 	tx, err := app.txDecoder(txBytes)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get all signers from the transaction using the codec
-	msgs, err := tx.GetMsgsV2()
+	sigTx, ok := tx.(signing.SigVerifiableTx)
+	if !ok {
+		// If transaction doesn't implement SigVerifiableTx, return empty slice
+		// This shouldn't happen for valid Cosmos SDK transactions
+		return []string{}, errorsmod.Wrap(sdkerrors.ErrTxDecode, "invalid tx type")
+	}
+
+	sigs, err := sigTx.GetSignaturesV2()
 	if err != nil {
 		return nil, err
 	}
-	var signerStrings []string
-	for _, msg := range msgs {
-		signers, err := app.cdc.GetMsgV2Signers(msg)
-		if err != nil {
-			return nil, err
+
+	signerStrings := make([]string, 0, len(sigs))
+	for _, sig := range sigs {
+		if sig.PubKey == nil {
+			return nil, errorsmod.Wrap(sdkerrors.ErrTxDecode, "public key is nil")
 		}
-		for _, signer := range signers {
-			signerStrings = append(signerStrings, sdk.AccAddress(signer).String())
-		}
+		addr := sdk.AccAddress(sig.PubKey.Address()).String()
+		signerStrings = append(signerStrings, addr)
 	}
 
 	return signerStrings, nil

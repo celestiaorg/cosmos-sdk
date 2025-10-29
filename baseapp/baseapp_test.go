@@ -527,45 +527,76 @@ func TestExecTxResultSigners(t *testing.T) {
 	privKey := secp256k1.GenPrivKeyFromSecret([]byte("test"))
 	expectedSigner := sdk.AccAddress(privKey.PubKey().Address()).String()
 
-	// create a test tx with signer
-	tx := newTxCounter(t, suite.txConfig, 0, 1)
-	txBytes, err := suite.txConfig.TxEncoder()(tx)
-	require.NoError(t, err)
+	testCases := []struct {
+		name             string
+		msgCounters      []int64
+		expectTxSuccess  bool
+		expectedSigners  int
+		expectedMsgCount int
+	}{
+		{
+			name:             "test single message with signer",
+			msgCounters:      []int64{1},
+			expectTxSuccess:  true,
+			expectedSigners:  1,
+			expectedMsgCount: 1,
+		},
+		{
+			name:             "test failed tx (signers should still be included)",
+			msgCounters:      []int64{-1},
+			expectTxSuccess:  false,
+			expectedSigners:  1,
+			expectedMsgCount: 1,
+		},
+		{
+			name:             "test multiple messages with different tx signer",
+			msgCounters:      []int64{0, 1, 2, 3},
+			expectTxSuccess:  true,
+			expectedSigners:  1,
+			expectedMsgCount: 4,
+		},
+	}
 
-	resp, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{
-		Height: 1,
-		Txs:    [][]byte{txBytes},
-	})
-	require.NoError(t, err)
-	require.Len(t, resp.TxResults, 1)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := newTxCounter(t, suite.txConfig, 0, tc.msgCounters...)
+			msgs, err := tx.GetMsgsV2()
+			require.NoError(t, err)
+			require.Len(t, msgs, tc.expectedMsgCount)
 
-	txResult := resp.TxResults[0]
-	require.NotNil(t, txResult.Signers)
-	require.Len(t, txResult.Signers, 1)
+			// Verify first message signer differs from tx signer
+			firstMsgSigners, err := suite.cdc.GetMsgV2Signers(msgs[0])
+			require.NoError(t, err)
+			require.Len(t, firstMsgSigners, 1)
+			firstMsgSigner := sdk.AccAddress(firstMsgSigners[0]).String()
+			require.NotEqual(t, expectedSigner, firstMsgSigner, "message signer should differ from tx signature signer")
 
-	require.Equal(t, expectedSigner, txResult.Signers[0])
-	require.Equal(t, uint32(0), txResult.Code) // should be a successful tx
-	require.Equal(t, len(txResult.Signers), 1)
+			if tc.expectedMsgCount > 1 {
+				// Verify all messages have the same signer
+				for _, msg := range msgs[1:] {
+					signers, err := suite.cdc.GetMsgV2Signers(msg)
+					require.NoError(t, err)
+					require.Equal(t, firstMsgSigner, sdk.AccAddress(signers[0]).String(), "all messages should have the same signer")
+				}
+			}
 
-	_, err = suite.baseApp.Commit()
-	require.NoError(t, err)
+			txBytes, err := suite.txConfig.TxEncoder()(tx)
+			require.NoError(t, err)
+			resp, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1, Txs: [][]byte{txBytes}})
+			require.NoError(t, err)
 
-	// test failed tx (signers should still be included)
-	failTx := newTxCounter(t, suite.txConfig, 0, -1) // will fail in handler
-	failTxBytes, err := suite.txConfig.TxEncoder()(failTx)
-	require.NoError(t, err)
+			// Verify that the tx result has the expected number of signers and they match the expected signer
+			txResult := resp.TxResults[0]
+			require.Len(t, txResult.Signers, tc.expectedSigners)
+			require.Equal(t, expectedSigner, txResult.Signers[0])
 
-	respFail, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{
-		Height: 2,
-		Txs:    [][]byte{failTxBytes},
-	})
-	require.NoError(t, err)
-	require.Len(t, respFail.TxResults, 1)
-
-	failTxResult := respFail.TxResults[0]
-	require.NotEqual(t, uint32(0), failTxResult.Code) // should be a failed tx
-	require.Len(t, failTxResult.Signers, 1)
-	require.Equal(t, expectedSigner, failTxResult.Signers[0])
+			if tc.expectTxSuccess {
+				require.Equal(t, uint32(0), txResult.Code, "should be a successful tx")
+			} else {
+				require.NotEqual(t, uint32(0), txResult.Code, "should be a failed tx")
+			}
+		})
+	}
 }
 
 func TestCustomRunTxPanicHandler(t *testing.T) {

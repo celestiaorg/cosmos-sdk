@@ -396,8 +396,6 @@ message EventAttribute {
 }
 
 // ExecTxResult contains results of executing one individual transaction.
-//
-// * Its structure is equivalent to #ResponseDeliverTx which will be deprecated/deleted
 message ExecTxResult {
   uint32         code       = 1;
   bytes          data       = 2;

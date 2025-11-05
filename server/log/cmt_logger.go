@@ -1,3 +1,4 @@
+// Package server provides utilities for running a Cosmos SDK application server.
 package server
 
 import (

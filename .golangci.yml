@@ -33,15 +33,6 @@ linters:
     - unconvert
     - unused
   settings:
-    depguard:
-      rules:
-        main:
-          files:
-            - $all
-          allow:
-            - $gostd
-            - github.com/cometbft/cometbft/libs/log
-            - cosmossdk.io/log
     gosec:
       includes:
         - G102

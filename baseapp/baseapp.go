@@ -32,6 +32,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/mempool"
+	"github.com/cosmos/cosmos-sdk/x/auth/signing"
 )
 
 type (
@@ -769,6 +770,37 @@ func (app *BaseApp) beginBlock(_ *abci.RequestFinalizeBlock) (sdk.BeginBlock, er
 	return resp, nil
 }
 
+// extractSigners extracts the actual transaction signers.
+func (app *BaseApp) extractSigners(txBytes []byte) ([]string, error) {
+	tx, err := app.txDecoder(txBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	sigTx, ok := tx.(signing.SigVerifiableTx)
+	if !ok {
+		// If transaction doesn't implement SigVerifiableTx, return empty slice
+		// This shouldn't happen for valid Cosmos SDK transactions
+		return []string{}, errorsmod.Wrap(sdkerrors.ErrTxDecode, "invalid tx type")
+	}
+
+	sigs, err := sigTx.GetSignaturesV2()
+	if err != nil {
+		return nil, err
+	}
+
+	signerStrings := make([]string, 0, len(sigs))
+	for _, sig := range sigs {
+		if sig.PubKey == nil {
+			return nil, errorsmod.Wrap(sdkerrors.ErrTxDecode, "public key is nil")
+		}
+		addr := sdk.AccAddress(sig.PubKey.Address()).String()
+		signerStrings = append(signerStrings, addr)
+	}
+
+	return signerStrings, nil
+}
+
 func (app *BaseApp) deliverTx(tx []byte) *abci.ExecTxResult {
 	gInfo := sdk.GasInfo{}
 	resultStr := "successful"
@@ -782,6 +814,14 @@ func (app *BaseApp) deliverTx(tx []byte) *abci.ExecTxResult {
 		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted")
 	}()
 
+	// Extract signers from the tx bytes
+	signers, signerErr := app.extractSigners(tx)
+	if signerErr != nil {
+		// Log the error but don't fail the tx
+		// For the sake of backwards compatibility??
+		app.logger.Error("failed to extract signers", "error", signerErr)
+	}
+
 	gInfo, result, anteEvents, _, err := app.runTx(execModeFinalize, tx)
 	if err != nil {
 		resultStr = "failed"
@@ -792,6 +832,7 @@ func (app *BaseApp) deliverTx(tx []byte) *abci.ExecTxResult {
 			sdk.MarkEventsToIndex(anteEvents, app.indexEvents),
 			app.trace,
 		)
+		resp.Signers = signers
 		return resp
 	}
 
@@ -801,6 +842,7 @@ func (app *BaseApp) deliverTx(tx []byte) *abci.ExecTxResult {
 		Log:       result.Log,
 		Data:      result.Data,
 		Events:    sdk.MarkEventsToIndex(result.Events, app.indexEvents),
+		Signers:   signers,
 	}
 
 	return resp

@@ -396,8 +396,6 @@ message EventAttribute {
 }
 
 // ExecTxResult contains results of executing one individual transaction.
-//
-// * Its structure is equivalent to #ResponseDeliverTx which will be deprecated/deleted
 message ExecTxResult {
   uint32         code       = 1;
   bytes          data       = 2;
@@ -407,7 +405,8 @@ message ExecTxResult {
   int64          gas_used   = 6 [json_name = "gas_used"];
   repeated Event events     = 7
       [(gogoproto.nullable) = false, (gogoproto.jsontag) = "events,omitempty"]; // nondeterministic
-  string codespace = 8;
+  string          codespace = 8;
+  repeated string signers   = 9; // transaction signers
 }
 
 // TxResult contains results of executing the transaction.

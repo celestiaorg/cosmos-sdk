@@ -39,6 +39,9 @@ func (k Keeper) HistoricalEntries(ctx context.Context) (uint32, error) {
 // BondDenom - Bondable coin denomination
 func (k Keeper) BondDenom(ctx context.Context) (string, error) {
 	params, err := k.GetParams(ctx)
+	if params.BondDenom == "" {
+		return sdk.DefaultBondDenom, nil
+	}
 	return params.BondDenom, err
 }
 

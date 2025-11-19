@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"fmt"
 	"math/rand"
 	"sync"
 	"time"
@@ -83,6 +84,7 @@ func (oe *OptimisticExecution) Initialized() bool {
 
 // Execute initializes the OE and starts it in a goroutine.
 func (oe *OptimisticExecution) Execute(req *abci.RequestProcessProposal) {
+	fmt.Println("-----------------OE execute------------------")
 	oe.mtx.Lock()
 	defer oe.mtx.Unlock()
 

@@ -514,6 +514,17 @@ func (app *BaseApp) setState(mode execMode, h cmtproto.Header) {
 
 	switch mode {
 	case execModeCheck:
+		// HARD REQUIREMENT: For concurrent CheckTx we require a CommitMultiStore that
+		// exposes LockingCacheMultiStore(). If it doesn't, we panic immediately so
+		// misconfiguration is caught at startup instead of silently running without
+		// the intended read lock semantics.
+		l, ok := app.cms.(interface {
+			LockingCacheMultiStore() storetypes.CacheMultiStore
+		})
+		if !ok {
+			panic(fmt.Sprintf("CommitMultiStore (%T) does not implement LockingCacheMultiStore() required in execModeCheck", app.cms))
+		}
+		ms = l.LockingCacheMultiStore()
 		baseState.SetContext(baseState.Context().WithIsCheckTx(true).WithMinGasPrices(app.minGasPrices))
 		app.checkState = baseState
 

@@ -25,12 +25,11 @@ import (
 )
 
 var (
-	fromAddr   = sdk.AccAddress([]byte("from1________________"))
-	to1Addr    = sdk.AccAddress([]byte("to1__________________"))
-	to2Addr    = sdk.AccAddress([]byte("to2__________________"))
-	to3Addr    = sdk.AccAddress([]byte("to3__________________"))
-	fooCoin    = sdk.NewInt64Coin("foo", 100)
-	periodCoin = sdk.NewInt64Coin("foo", 20)
+	fromAddr = sdk.AccAddress([]byte("from1________________"))
+	to1Addr  = sdk.AccAddress([]byte("to1__________________"))
+	to2Addr  = sdk.AccAddress([]byte("to2__________________"))
+	to3Addr  = sdk.AccAddress([]byte("to3__________________"))
+	fooCoin  = sdk.NewInt64Coin("foo", 100)
 )
 
 type VestingTestSuite struct {

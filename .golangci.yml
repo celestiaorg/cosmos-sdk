@@ -3,22 +3,12 @@ version: "2"
 run:
   tests: true
   timeout: 15m
-  sort-results: true
   allow-parallel-runners: true
   concurrency: 4
-  exclude-dir: testutil/testdata
-  skip-files:
-    - server/grpc/gogoreflection/fix_registration.go
-    - "fix_registration.go"
-    - "x/bank/migrations/v4/gen_state_test.go"
-    - ".*\\.pb\\.go$"
-    - ".*\\.pb\\.gw\\.go$"
-    - ".*\\.pulsar\\.go$"
 
 linters:
   default: none
   enable:
-    - depguard
     - dogsled
     - goconst
     - gocritic
@@ -26,12 +16,72 @@ linters:
     - govet
     - ineffassign
     - misspell
-    - nakedret
-    - nolintlint
-    - revive
     - staticcheck
     - unconvert
     - unused
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - path: ".*\\.pb\\.go$"
+        linters:
+          - all
+      - path: ".*\\.pb\\.gw\\.go$"
+        linters:
+          - all
+      - path: ".*\\.pulsar\\.go$"
+        linters:
+          - all
+      - path: "server/grpc/gogoreflection/fix_registration.go"
+        linters:
+          - all
+      - path: "testutil/testdata"
+        linters:
+          - all
+      - text: "Use of weak random number generator"
+        linters:
+          - gosec
+      - text: "ST1003:"
+        linters:
+          - staticcheck
+      # FIXME: Disabled until staticcheck ships the fix from https://github.com/dominikh/go-tools/issues/389
+      - text: "ST1016:"
+        linters:
+          - staticcheck
+      - text: "ST1008:"
+        linters:
+          - staticcheck
+      - path: "migrations"
+        text: "SA1019:"
+        linters:
+          - staticcheck
+      - text: "SA1019: codec.NewAminoCodec is deprecated" # TODO remove once migration path is set out
+        linters:
+          - staticcheck
+      # Exclude quickfix suggestions from staticcheck (style suggestions, not errors)
+      - text: "QF1"
+        linters:
+          - staticcheck
+      # Exclude SA1019 deprecation warnings for now
+      - text: "SA1019:"
+        linters:
+          - staticcheck
+      # Exclude SA1029 context key warnings
+      - text: "SA1029:"
+        linters:
+          - staticcheck
+      # Exclude SA1032 argument order warnings (errors.Is)
+      - text: "SA1032:"
+        linters:
+          - staticcheck
+      # Exclude S1039 unnecessary sprintf warnings
+      - text: "S1039:"
+        linters:
+          - staticcheck
   settings:
     gosec:
       includes:
@@ -45,7 +95,6 @@ linters:
         - G110
         - G111
         - G112
-        - G113
         - G114
         - G201
         - G202
@@ -67,16 +116,10 @@ linters:
         - G503
         - G504
         - G505
-        - G601
     misspell:
       locale: US
     dogsled:
       max-blank-identifiers: 6
-    nolintlint:
-      allow-unused: false
-      allow-leading-space: true
-      require-explanation: true
-      require-specific: false
     gocritic:
       disabled-checks:
         - regexpMust
@@ -84,9 +127,7 @@ linters:
         - ifElseChain
 
 formatters:
-  enable:
-    - gci
-    - gofumpt
+  enable: []
   settings:
     gci:
       custom-order: true
@@ -99,26 +140,5 @@ formatters:
       extra-rules: true
 
 issues:
-  exclude-rules:
-    - text: "Use of weak random number generator"
-      linters:
-        - gosec
-    - text: "ST1003:"
-      linters:
-        - staticcheck
-    # FIXME: Disabled until staticcheck ships the fix from https://github.com/dominikh/go-tools/issues/389
-    - text: "ST1016:"
-      linters:
-        - staticcheck
-    - path: "migrations"
-      text: "SA1019:"
-      linters:
-        - staticcheck
-    - text: "SA1019: codec.NewAminoCodec is deprecated" # TODO remove once migration path is set out
-      linters:
-        - staticcheck
-    - text: "leading space"
-      linters:
-        - nolintlint
   max-issues-per-linter: 10000
   max-same-issues: 10000

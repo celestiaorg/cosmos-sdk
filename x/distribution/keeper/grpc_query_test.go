@@ -153,7 +153,7 @@ func TestDelegationRewards(t *testing.T) {
 		stakingKeeper.EXPECT().Delegation(gomock.Any(), delegatorAddr, valAddr).Return(del, nil).AnyTimes()
 
 		// Set up validator hooks to create historical records
-		err = distrtestutil.CallCreateValidatorHooks(ctx, distrKeeper, sdk.AccAddress(delegatorAddr), valAddr)
+		err = distrtestutil.CallCreateValidatorHooks(ctx, distrKeeper, delegatorAddr, valAddr)
 		require.NoError(t, err)
 
 		resp, err := querier.DelegationRewards(ctx, req)
@@ -177,7 +177,7 @@ func TestDelegationRewards(t *testing.T) {
 		stakingKeeper.EXPECT().Validator(gomock.Any(), valAddr).Return(val, nil).AnyTimes()
 		stakingKeeper.EXPECT().Delegation(gomock.Any(), delegatorAddr, valAddr).Return(del, nil).AnyTimes()
 
-		err = distrtestutil.CallCreateValidatorHooks(ctx, distrKeeper, sdk.AccAddress(delegatorAddr), valAddr)
+		err = distrtestutil.CallCreateValidatorHooks(ctx, distrKeeper, delegatorAddr, valAddr)
 		require.NoError(t, err)
 
 		// Delegate and set up delegation hooks
@@ -268,7 +268,7 @@ func TestDelegationRewards(t *testing.T) {
 		stakingKeeper.EXPECT().Validator(gomock.Any(), valAddr).Return(val, nil).AnyTimes()
 		stakingKeeper.EXPECT().Delegation(gomock.Any(), delegatorAddr, valAddr).Return(del, nil).AnyTimes()
 
-		err = distrtestutil.CallCreateValidatorHooks(ctx, distrKeeper, sdk.AccAddress(delegatorAddr), valAddr)
+		err = distrtestutil.CallCreateValidatorHooks(ctx, distrKeeper, delegatorAddr, valAddr)
 		require.NoError(t, err)
 
 		// Delegate and set up delegation hooks

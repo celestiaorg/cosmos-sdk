@@ -212,6 +212,7 @@ require (
 
 replace (
 	cosmossdk.io/api => ../../api
+	cosmossdk.io/log => ../../log
 	github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core v0.39.11
 
 	github.com/cosmos/cosmos-sdk => ../../.

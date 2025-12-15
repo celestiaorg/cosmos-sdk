@@ -30,7 +30,6 @@ var (
 	to2Addr    = sdk.AccAddress([]byte("to2__________________"))
 	to3Addr    = sdk.AccAddress([]byte("to3__________________"))
 	fooCoin    = sdk.NewInt64Coin("foo", 100)
-	periodCoin = sdk.NewInt64Coin("foo", 20)
 )
 
 type VestingTestSuite struct {

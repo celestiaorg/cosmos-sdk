@@ -114,7 +114,9 @@ var customTypeExtension = &protoimpl.ExtensionInfo{
 }
 
 func init() {
-	protoregistry.GlobalTypes.RegisterExtension(customTypeExtension)
+	if err := protoregistry.GlobalTypes.RegisterExtension(customTypeExtension); err != nil {
+		panic(err)
+	}
 }
 
 func (enc Encoder) getFieldEncoder(field protoreflect.FieldDescriptor) FieldEncoder {

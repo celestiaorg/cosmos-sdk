@@ -34,7 +34,8 @@ const (
 // DefaultMinCommissionRate is set to 0%
 var DefaultMinCommissionRate = math.LegacyZeroDec()
 
-var MaxCommissionRate = math.LegacyNewDecWithPrec(25, 2)
+// MaxCommissionRate is set to 60%
+var MaxCommissionRate = math.LegacyNewDecWithPrec(60, 2)
 
 // NewParams creates a new Params instance
 func NewParams(

@@ -284,6 +284,7 @@ func (s *KeeperTestSuite) TestMsgEditValidator() {
 
 	newRate := math.LegacyZeroDec()
 	invalidRate := math.LegacyNewDec(2)
+	greaterThanMaxRate := math.LegacyMustNewDecFromStr("0.61")
 
 	lowSelfDel := math.OneInt()
 	highSelfDel := math.NewInt(100)
@@ -423,6 +424,24 @@ func (s *KeeperTestSuite) TestMsgEditValidator() {
 				MinSelfDelegation: &newSelfDel,
 			},
 			expErr: false,
+		},
+		{
+			name: "commission rate greater than max",
+			ctx:  newCtx,
+			input: &stakingtypes.MsgEditValidator{
+				Description: stakingtypes.Description{
+					Moniker:         "TestValidator",
+					Identity:        "abc",
+					Website:         "abc.com",
+					SecurityContact: "abc@gmail.com",
+					Details:         "newDetails",
+				},
+				ValidatorAddress:  ValAddr.String(),
+				CommissionRate:    &greaterThanMaxRate,
+				MinSelfDelegation: &newSelfDel,
+			},
+			expErr:    true,
+			expErrMsg: "commission rate cannot be greater than the max commission rate",
 		},
 	}
 	for _, tc := range testCases {

@@ -59,6 +59,7 @@ type Store struct {
 	db                  dbm.DB
 	logger              log.Logger
 	lastCommitInfo      *types.CommitInfo
+	lastCommitInfoMu    sync.RWMutex
 	pruningManager      *pruning.Manager
 	iavlCacheSize       int
 	iavlDisableFastNode bool
@@ -438,6 +439,9 @@ func (rs *Store) LatestVersion() int64 {
 
 // LastCommitID implements Committer/CommitStore.
 func (rs *Store) LastCommitID() types.CommitID {
+	rs.lastCommitInfoMu.RLock()
+	defer rs.lastCommitInfoMu.RUnlock()
+
 	if rs.lastCommitInfo == nil {
 		emptyHash := sha256.Sum256([]byte{})
 		appHash := emptyHash[:]
@@ -479,9 +483,14 @@ func (rs *Store) Commit() types.CommitID {
 		rs.logger.Debug("commit header and version mismatch", "header_height", rs.commitHeader.Height, "version", version)
 	}
 
-	rs.lastCommitInfo = commitStores(version, rs.stores, rs.removalMap)
-	rs.lastCommitInfo.Timestamp = rs.commitHeader.Time
-	defer rs.flushMetadata(rs.db, version, rs.lastCommitInfo)
+	newCommitInfo := commitStores(version, rs.stores, rs.removalMap)
+	newCommitInfo.Timestamp = rs.commitHeader.Time
+
+	rs.lastCommitInfoMu.Lock()
+	rs.lastCommitInfo = newCommitInfo
+	rs.lastCommitInfoMu.Unlock()
+
+	defer rs.flushMetadata(rs.db, version, newCommitInfo)
 
 	// remove remnants of removed stores
 	for sk := range rs.removalMap {
@@ -755,8 +764,12 @@ func (rs *Store) Query(req *types.RequestQuery) (*types.ResponseQuery, error) {
 	// Otherwise, we query for the commit info from disk.
 	var commitInfo *types.CommitInfo
 
-	if res.Height == rs.lastCommitInfo.Version {
-		commitInfo = rs.lastCommitInfo
+	rs.lastCommitInfoMu.RLock()
+	lastInfo := rs.lastCommitInfo
+	rs.lastCommitInfoMu.RUnlock()
+
+	if res.Height == lastInfo.Version {
+		commitInfo = lastInfo
 	} else {
 		commitInfo, err = rs.GetCommitInfo(res.Height)
 		if err != nil {

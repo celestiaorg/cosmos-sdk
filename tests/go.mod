@@ -232,6 +232,7 @@ replace cosmossdk.io/x/upgrade => ../x/upgrade
 replace (
 	cosmossdk.io/api => ../api
 	cosmossdk.io/log => ../log
+	cosmossdk.io/store => ../store
 	// We always want to test against the latest version of the simapp.
 	cosmossdk.io/simapp => ../simapp
 	github.com/99designs/keyring => github.com/cosmos/keyring v1.2.0

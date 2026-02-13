@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"sync"
 	"strconv"
 
 	"github.com/cockroachdb/errors"
@@ -118,6 +119,7 @@ type BaseApp struct {
 	//
 	// - finalizeBlockState: Used for FinalizeBlock, which is set based on the
 	// previous block's state. This state is committed.
+	checkStateMu         sync.RWMutex
 	checkState           *state
 	prepareProposalState *state
 	processProposalState *state

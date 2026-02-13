@@ -58,7 +58,8 @@ func keysFromStoreKeyMap[V any](m map[types.StoreKey]V) []types.StoreKey {
 type Store struct {
 	db                  dbm.DB
 	logger              log.Logger
-	lastCommitInfo      *types.CommitInfo
+	lastCommitInfo   *types.CommitInfo
+	lastCommitInfoMu sync.RWMutex
 	pruningManager      *pruning.Manager
 	iavlCacheSize       int
 	iavlDisableFastNode bool
@@ -287,7 +288,7 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 		}
 	}
 
-	rs.lastCommitInfo = cInfo
+	rs.setLastCommitInfo(cInfo)
 	rs.stores = newStores
 
 	// load any snapshot heights we missed from disk to be pruned on the next run
@@ -431,6 +432,20 @@ func (rs *Store) PopStateCache() []*types.StoreKVPair {
 	return cache
 }
 
+// getLastCommitInfo returns the last commit info, protected by a read lock.
+func (rs *Store) getLastCommitInfo() *types.CommitInfo {
+	rs.lastCommitInfoMu.RLock()
+	defer rs.lastCommitInfoMu.RUnlock()
+	return rs.lastCommitInfo
+}
+
+// setLastCommitInfo sets the last commit info, protected by a write lock.
+func (rs *Store) setLastCommitInfo(ci *types.CommitInfo) {
+	rs.lastCommitInfoMu.Lock()
+	defer rs.lastCommitInfoMu.Unlock()
+	rs.lastCommitInfo = ci
+}
+
 // LatestVersion returns the latest version in the store
 func (rs *Store) LatestVersion() int64 {
 	return rs.LastCommitID().Version
@@ -438,7 +453,9 @@ func (rs *Store) LatestVersion() int64 {
 
 // LastCommitID implements Committer/CommitStore.
 func (rs *Store) LastCommitID() types.CommitID {
-	if rs.lastCommitInfo == nil {
+	lastCommitInfo := rs.getLastCommitInfo()
+
+	if lastCommitInfo == nil {
 		emptyHash := sha256.Sum256([]byte{})
 		appHash := emptyHash[:]
 		return types.CommitID{
@@ -446,22 +463,23 @@ func (rs *Store) LastCommitID() types.CommitID {
 			Hash:    appHash, // set empty apphash to sha256([]byte{}) if info is nil
 		}
 	}
-	if len(rs.lastCommitInfo.CommitID().Hash) == 0 {
+	if len(lastCommitInfo.CommitID().Hash) == 0 {
 		emptyHash := sha256.Sum256([]byte{})
 		appHash := emptyHash[:]
 		return types.CommitID{
-			Version: rs.lastCommitInfo.Version,
+			Version: lastCommitInfo.Version,
 			Hash:    appHash, // set empty apphash to sha256([]byte{}) if hash is nil
 		}
 	}
 
-	return rs.lastCommitInfo.CommitID()
+	return lastCommitInfo.CommitID()
 }
 
 // Commit implements Committer/CommitStore.
 func (rs *Store) Commit() types.CommitID {
 	var previousHeight, version int64
-	if rs.lastCommitInfo.GetVersion() == 0 && rs.initialVersion > 1 {
+	lastCommitInfo := rs.getLastCommitInfo()
+	if lastCommitInfo.GetVersion() == 0 && rs.initialVersion > 1 {
 		// This case means that no commit has been made in the store, we
 		// start from initialVersion.
 		version = rs.initialVersion
@@ -471,7 +489,7 @@ func (rs *Store) Commit() types.CommitID {
 		// case we increment the version from there,
 		// - or there was no previous commit, and initial version was not set,
 		// in which case we start at version 1.
-		previousHeight = rs.lastCommitInfo.GetVersion()
+		previousHeight = lastCommitInfo.GetVersion()
 		version = previousHeight + 1
 	}
 
@@ -479,9 +497,12 @@ func (rs *Store) Commit() types.CommitID {
 		rs.logger.Debug("commit header and version mismatch", "header_height", rs.commitHeader.Height, "version", version)
 	}
 
-	rs.lastCommitInfo = commitStores(version, rs.stores, rs.removalMap)
-	rs.lastCommitInfo.Timestamp = rs.commitHeader.Time
-	defer rs.flushMetadata(rs.db, version, rs.lastCommitInfo)
+	newCommitInfo := commitStores(version, rs.stores, rs.removalMap)
+	newCommitInfo.Timestamp = rs.commitHeader.Time
+
+	rs.setLastCommitInfo(newCommitInfo)
+
+	defer rs.flushMetadata(rs.db, version, newCommitInfo)
 
 	// remove remnants of removed stores
 	for sk := range rs.removalMap {
@@ -504,7 +525,7 @@ func (rs *Store) Commit() types.CommitID {
 
 	return types.CommitID{
 		Version: version,
-		Hash:    rs.lastCommitInfo.Hash(),
+		Hash:    newCommitInfo.Hash(),
 	}
 }
 
@@ -755,8 +776,10 @@ func (rs *Store) Query(req *types.RequestQuery) (*types.ResponseQuery, error) {
 	// Otherwise, we query for the commit info from disk.
 	var commitInfo *types.CommitInfo
 
-	if res.Height == rs.lastCommitInfo.Version {
-		commitInfo = rs.lastCommitInfo
+	lastInfo := rs.getLastCommitInfo()
+
+	if res.Height == lastInfo.Version {
+		commitInfo = lastInfo
 	} else {
 		commitInfo, err = rs.GetCommitInfo(res.Height)
 		if err != nil {

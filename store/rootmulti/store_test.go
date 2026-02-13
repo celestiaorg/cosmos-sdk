@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -779,6 +780,53 @@ func TestCommitOrdered(t *testing.T) {
 	for i, s := range ci.StoreInfos {
 		require.Equal(t, s.Name, fmt.Sprintf("store%d", i+1))
 	}
+}
+
+func TestCommitLastCommitIDRace(t *testing.T) {
+	var db dbm.DB = dbm.NewMemDB()
+	multi := newMultiStoreWithMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+	err := multi.LoadLatestVersion()
+	require.NoError(t, err)
+
+	// Commit an initial block so lastCommitInfo is non-nil.
+	multi.Commit()
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+
+	// Writer: repeatedly commits new blocks.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				multi.Commit()
+			}
+		}
+	}()
+
+	// Readers: repeatedly read LastCommitID.
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_ = multi.LastCommitID()
+				}
+			}
+		}()
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	close(stop)
+	wg.Wait()
 }
 
 //-----------------------------------------------------------------------

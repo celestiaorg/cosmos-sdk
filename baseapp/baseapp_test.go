@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
@@ -819,6 +820,57 @@ func TestABCI_CreateQueryContext(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCommitCreateQueryContextRace reproduces a data race between Commit()
+// writing rootmulti.Store.lastCommitInfo and CreateQueryContext() reading it
+// via LatestVersion(). See https://github.com/celestiaorg/celestia-app/issues/6548
+func TestCommitCreateQueryContextRace(t *testing.T) {
+	db := dbm.NewMemDB()
+	app := baseapp.NewBaseApp(t.Name(), log.NewTestLogger(t), db, nil)
+
+	_, err := app.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1})
+	require.NoError(t, err)
+	_, err = app.Commit()
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+
+	// Writer goroutine: repeatedly finalize + commit blocks.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for height := int64(2); ; height++ {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			_, _ = app.FinalizeBlock(&abci.RequestFinalizeBlock{Height: height})
+			_, _ = app.Commit()
+		}
+	}()
+
+	// Reader goroutines: repeatedly call CreateQueryContext which reads LatestVersion.
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-done:
+					return
+				default:
+				}
+				_, _ = app.CreateQueryContext(0, false)
+			}
+		}()
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	close(done)
+	wg.Wait()
 }
 
 func TestSetMinGasPrices(t *testing.T) {

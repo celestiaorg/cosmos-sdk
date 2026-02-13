@@ -1,6 +1,6 @@
 module cosmossdk.io/simapp
 
-go 1.24.6
+go 1.24.11
 
 require (
 	cosmossdk.io/api v0.7.6
@@ -95,7 +95,7 @@ require (
 	github.com/dgraph-io/badger/v4 v4.2.0 // indirect
 	github.com/dgraph-io/ristretto v0.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/dvsekhvalnov/jose2go v1.6.0 // indirect
+	github.com/dvsekhvalnov/jose2go v1.7.0 // indirect
 	github.com/emicklei/dot v1.6.2 // indirect
 	github.com/fatih/color v1.15.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
@@ -234,6 +234,7 @@ replace (
 	// use cosmos fork of api
 	cosmossdk.io/api => ../api
 	cosmossdk.io/log => ../log
+	cosmossdk.io/store => ../store
 	// use cosmos fork of keyring
 	github.com/99designs/keyring => github.com/cosmos/keyring v1.2.0
 	github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core v0.39.11

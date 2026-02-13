@@ -984,7 +984,9 @@ func (app *BaseApp) Commit() (*abci.ResponseCommit, error) {
 	//
 	// NOTE: This is safe because CometBFT holds a lock on the mempool for
 	// Commit. Use the header from this latest block.
+	app.checkStateMu.Lock()
 	app.setState(execModeCheck, header)
+	app.checkStateMu.Unlock()
 
 	app.finalizeBlockState = nil
 
@@ -1298,7 +1300,9 @@ func (app *BaseApp) CreateQueryContext(height int64, prove bool) (sdk.Context, e
 	}
 
 	// branch the commit multi-store for safety
+	app.checkStateMu.RLock()
 	header := app.checkState.Context().BlockHeader()
+	app.checkStateMu.RUnlock()
 	ctx := sdk.NewContext(cacheMS, header, true, app.logger).
 		WithMinGasPrices(app.minGasPrices).
 		WithGasMeter(storetypes.NewGasMeter(app.queryGasLimit)).

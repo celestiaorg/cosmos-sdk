@@ -961,7 +961,17 @@ func (app *BaseApp) Commit() (*abci.ResponseCommit, error) {
 		rms.SetCommitHeader(header)
 	}
 
+	// Hold the write lock across both the store commit and the check state
+	// reset. This prevents data races with concurrent gRPC queries that read
+	// LatestVersion() and checkState in CreateQueryContext(). The store's
+	// cms.Commit() writes lastCommitInfo which is read by LatestVersion().
+	//
+	// NOTE: This is safe because CometBFT holds a lock on the mempool for
+	// Commit. Use the header from this latest block.
+	app.checkStateMu.Lock()
 	app.cms.Commit()
+	app.setState(execModeCheck, header)
+	app.checkStateMu.Unlock()
 
 	resp := &abci.ResponseCommit{
 		RetainHeight: retainHeight,
@@ -979,14 +989,6 @@ func (app *BaseApp) Commit() (*abci.ResponseCommit, error) {
 			}
 		}
 	}
-
-	// Reset the CheckTx state to the latest committed.
-	//
-	// NOTE: This is safe because CometBFT holds a lock on the mempool for
-	// Commit. Use the header from this latest block.
-	app.checkStateMu.Lock()
-	app.setState(execModeCheck, header)
-	app.checkStateMu.Unlock()
 
 	app.finalizeBlockState = nil
 
@@ -1264,7 +1266,15 @@ func (app *BaseApp) CreateQueryContext(height int64, prove bool) (sdk.Context, e
 		qms = app.cms.(storetypes.MultiStore)
 	}
 
+	// Hold checkStateMu.RLock across both the LatestVersion() read and the
+	// checkState header read. Commit() updates both the store's lastCommitInfo
+	// (read by LatestVersion) and checkState under the corresponding write lock,
+	// so this prevents data races with concurrent block commits.
+	app.checkStateMu.RLock()
 	lastBlockHeight := qms.LatestVersion()
+	header := app.checkState.Context().BlockHeader()
+	app.checkStateMu.RUnlock()
+
 	if lastBlockHeight == 0 {
 		return sdk.Context{}, errorsmod.Wrapf(sdkerrors.ErrInvalidHeight, "%s is not ready; please wait for first block", app.Name())
 	}
@@ -1298,11 +1308,6 @@ func (app *BaseApp) CreateQueryContext(height int64, prove bool) (sdk.Context, e
 				"failed to load state at height %d; %s (latest height: %d)", height, err, lastBlockHeight,
 			)
 	}
-
-	// branch the commit multi-store for safety
-	app.checkStateMu.RLock()
-	header := app.checkState.Context().BlockHeader()
-	app.checkStateMu.RUnlock()
 	ctx := sdk.NewContext(cacheMS, header, true, app.logger).
 		WithMinGasPrices(app.minGasPrices).
 		WithGasMeter(storetypes.NewGasMeter(app.queryGasLimit)).

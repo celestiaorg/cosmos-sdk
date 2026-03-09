@@ -309,6 +309,7 @@ func (c *Context) makeGetSignersFunc(descriptor protoreflect.MessageDescriptor) 
 	return func(message proto.Message) ([][]byte, error) {
 		var signers [][]byte
 		for _, getter := range fieldGetters {
+			var err error
 			signers, err = getter(message, signers)
 			if err != nil {
 				return nil, err

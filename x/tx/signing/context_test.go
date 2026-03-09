@@ -66,6 +66,37 @@ func TestGetGetSignersFnConcurrent(t *testing.T) {
 	}
 }
 
+// TestGetSignersConcurrent verifies that calling GetSigners concurrently on the
+// same message type does not trigger a data race. This is a regression test for
+// a bug where the closure returned by makeGetSignersFunc captured a shared err
+// variable from the outer function scope, causing concurrent writes.
+// See https://github.com/celestiaorg/celestia-app/issues/6757
+func TestGetSignersConcurrent(t *testing.T) {
+	ctx, err := NewContext(Options{
+		AddressCodec:          dummyAddressCodec{},
+		ValidatorAddressCodec: dummyValidatorAddressCodec{},
+	})
+	require.NoError(t, err)
+
+	msg := &bankv1beta1.MsgSend{
+		FromAddress: hex.EncodeToString([]byte("foo")),
+	}
+	// Prime the cache so all goroutines share the same closure.
+	_, err = ctx.GetSigners(msg)
+	require.NoError(t, err)
+
+	errs := make(chan error, 100)
+	for i := 0; i < 100; i++ {
+		go func() {
+			_, err := ctx.GetSigners(msg)
+			errs <- err
+		}()
+	}
+	for i := 0; i < 100; i++ {
+		require.NoError(t, <-errs)
+	}
+}
+
 func TestGetSigners(t *testing.T) {
 	ctx, err := NewContext(Options{
 		AddressCodec:          dummyAddressCodec{},

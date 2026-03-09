@@ -1,4 +1,4 @@
-name: "Dependency Review"
+name: Check for Go vulnerabilities
 on:
   pull_request:
   merge_group:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 jobs:
-  dependency-review:
+  govulncheck:
     runs-on: ubuntu-latest
     steps:
       - name: "Checkout Repository"

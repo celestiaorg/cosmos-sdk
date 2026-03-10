@@ -873,6 +873,61 @@ func TestCommitCreateQueryContextRace(t *testing.T) {
 	wg.Wait()
 }
 
+// TestCommitSimulateRace reproduces a data race between Commit() writing to
+// the IAVL tree via SaveVersion() and Simulate() reading the IAVL tree via
+// getContextForTx/GetConsensusParams and subsequent message execution.
+// See https://github.com/celestiaorg/cosmos-sdk/issues/725
+func TestCommitSimulateRace(t *testing.T) {
+	db := dbm.NewMemDB()
+	app := baseapp.NewBaseApp(t.Name(), log.NewTestLogger(t), db, nil)
+
+	_, err := app.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1})
+	require.NoError(t, err)
+	_, err = app.Commit()
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+
+	// Writer goroutine: repeatedly finalize + commit blocks.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for height := int64(2); ; height++ {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			_, _ = app.FinalizeBlock(&abci.RequestFinalizeBlock{Height: height})
+			_, _ = app.Commit()
+		}
+	}()
+
+	// Reader goroutines: repeatedly call Simulate which reads checkState and
+	// the IAVL tree.
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-done:
+					return
+				default:
+				}
+				// txBytes can be nil; Simulate will fail to decode but the
+				// race occurs before decoding, in getContextForTx.
+				_, _, _ = app.Simulate(nil)
+			}
+		}()
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	close(done)
+	wg.Wait()
+}
+
 func TestSetMinGasPrices(t *testing.T) {
 	minGasPrices := sdk.DecCoins{sdk.NewInt64DecCoin("stake", 5000)}
 	suite := NewBaseAppSuite(t, baseapp.SetMinGasPrices(minGasPrices.String()))

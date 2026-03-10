@@ -25,7 +25,16 @@ func (app *BaseApp) SimCheck(txEncoder sdk.TxEncoder, tx sdk.Tx) (sdk.GasInfo, *
 
 // Simulate executes a tx in simulate mode to get result and gas info.
 func (app *BaseApp) Simulate(txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
+	// Hold the read lock for the entire simulation. Commit() acquires the
+	// write lock while it calls cms.Commit() (which mutates the IAVL tree via
+	// SaveVersion) and resets checkState. Simulate reads checkState in
+	// getContextForTx and then reads the IAVL tree throughout runTx, so the
+	// read lock prevents a data race with concurrent block commits. Multiple
+	// concurrent Simulate calls can still proceed since they only take a
+	// read lock.
+	app.checkStateMu.RLock()
 	gasInfo, result, _, _, err := app.runTx(execModeSimulate, txBytes)
+	app.checkStateMu.RUnlock()
 	return gasInfo, result, err
 }
 

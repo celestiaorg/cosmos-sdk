@@ -928,6 +928,60 @@ func TestCommitSimulateRace(t *testing.T) {
 	wg.Wait()
 }
 
+// TestCommitLastBlockHeightRace reproduces a data race between Commit()
+// writing rootmulti.Store.lastCommitInfo and BaseApp.LastBlockHeight() /
+// BaseApp.LastCommitID() reading it without holding checkStateMu.
+// See https://github.com/celestiaorg/cosmos-sdk/issues/732
+func TestCommitLastBlockHeightRace(t *testing.T) {
+	db := dbm.NewMemDB()
+	app := baseapp.NewBaseApp(t.Name(), log.NewTestLogger(t), db, nil)
+
+	_, err := app.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1})
+	require.NoError(t, err)
+	_, err = app.Commit()
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+
+	// Writer goroutine: repeatedly finalize + commit blocks.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for height := int64(2); ; height++ {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			_, _ = app.FinalizeBlock(&abci.RequestFinalizeBlock{Height: height})
+			_, _ = app.Commit()
+		}
+	}()
+
+	// Reader goroutines: repeatedly call LastBlockHeight and LastCommitID,
+	// which read rootmulti.Store.lastCommitInfo.
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-done:
+					return
+				default:
+				}
+				_ = app.LastBlockHeight()
+				_ = app.LastCommitID()
+			}
+		}()
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	close(done)
+	wg.Wait()
+}
+
 func TestSetMinGasPrices(t *testing.T) {
 	minGasPrices := sdk.DecCoins{sdk.NewInt64DecCoin("stake", 5000)}
 	suite := NewBaseAppSuite(t, baseapp.SetMinGasPrices(minGasPrices.String()))

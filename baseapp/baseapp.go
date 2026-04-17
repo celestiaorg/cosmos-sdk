@@ -408,12 +408,22 @@ func (app *BaseApp) LoadVersion(version int64) error {
 }
 
 // LastCommitID returns the last CommitID of the multistore.
+// Holds checkStateMu.RLock so the read of rootmulti.Store.lastCommitInfo is
+// synchronized with Commit, which writes that field under the corresponding
+// write lock.
 func (app *BaseApp) LastCommitID() storetypes.CommitID {
+	app.checkStateMu.RLock()
+	defer app.checkStateMu.RUnlock()
 	return app.cms.LastCommitID()
 }
 
 // LastBlockHeight returns the last committed block height.
+// Holds checkStateMu.RLock so the read of rootmulti.Store.lastCommitInfo is
+// synchronized with Commit, which writes that field under the corresponding
+// write lock.
 func (app *BaseApp) LastBlockHeight() int64 {
+	app.checkStateMu.RLock()
+	defer app.checkStateMu.RUnlock()
 	return app.cms.LastCommitID().Version
 }
 

@@ -19,6 +19,12 @@ import (
 	_ "github.com/cosmos/cosmos-sdk/types/tx/amino" // Import amino.proto file for reflection
 )
 
+// ExtraServerOptions is appended to the options passed to grpc.NewServer in
+// NewGRPCServer. Applications can populate this slice (for example from an
+// init function) to register additional interceptors or stats handlers
+// without forking this package.
+var ExtraServerOptions []grpc.ServerOption
+
 // NewGRPCServer returns a correctly configured and initialized gRPC server.
 // Note, the caller is responsible for starting the server. See StartGRPCServer.
 func NewGRPCServer(clientCtx client.Context, app types.Application, cfg config.GRPCConfig) (*grpc.Server, error) {
@@ -32,11 +38,13 @@ func NewGRPCServer(clientCtx client.Context, app types.Application, cfg config.G
 		maxRecvMsgSize = config.DefaultGRPCMaxRecvMsgSize
 	}
 
-	grpcSrv := grpc.NewServer(
+	serverOpts := []grpc.ServerOption{
 		grpc.ForceServerCodec(codec.NewProtoCodec(clientCtx.InterfaceRegistry).GRPCCodec()),
 		grpc.MaxSendMsgSize(maxSendMsgSize),
 		grpc.MaxRecvMsgSize(maxRecvMsgSize),
-	)
+	}
+	serverOpts = append(serverOpts, ExtraServerOptions...)
+	grpcSrv := grpc.NewServer(serverOpts...)
 
 	app.RegisterGRPCServer(grpcSrv)
 

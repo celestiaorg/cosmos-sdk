@@ -6,6 +6,7 @@ package grpc_test
 import (
 	"context"
 	"fmt"
+	"net"
 	"testing"
 	"time"
 
@@ -23,6 +24,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	reflectionv1 "github.com/cosmos/cosmos-sdk/client/grpc/reflection"
 	clienttx "github.com/cosmos/cosmos-sdk/client/tx"
+	"github.com/cosmos/cosmos-sdk/server/config"
+	servergrpc "github.com/cosmos/cosmos-sdk/server/grpc"
 	reflectionv2 "github.com/cosmos/cosmos-sdk/server/grpc/reflection/v2alpha1"
 	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/testutil/network"
@@ -243,6 +246,35 @@ func (s *IntegrationTestSuite) TestGRPCUnpacker() {
 	addr, err := validator.Validator.GetConsAddr()
 	require.NotNil(s.T(), addr)
 	require.NoError(s.T(), err)
+}
+
+func (s *IntegrationTestSuite) TestStartGRPCServer_AppliesOptions() {
+	val0 := s.network.Validators[0]
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	s.Require().NoError(err)
+	addr := l.Addr().String()
+	l.Close()
+
+	// Override the default max-receive size with a 1-byte cap. Any real
+	// request will be larger than 1 byte, so if the option flowed through
+	// the call must fail with ResourceExhausted.
+	srv, err := servergrpc.StartGRPCServer(
+		val0.ClientCtx, s.app,
+		config.GRPCConfig{Address: addr, Enable: true},
+		servergrpc.WithGRPCServerOptions(grpc.MaxRecvMsgSize(1)),
+	)
+	s.Require().NoError(err)
+	defer srv.Stop()
+
+	conn, err := grpc.Dial(addr, grpc.WithInsecure(),
+		grpc.WithDefaultCallOptions(grpc.ForceCodec(codec.NewProtoCodec(s.app.InterfaceRegistry()).GRPCCodec())))
+	s.Require().NoError(err)
+	defer conn.Close()
+
+	_, err = testdata.NewQueryClient(conn).Echo(context.Background(), &testdata.EchoRequest{Message: "hello"})
+	s.Require().Error(err)
+	s.Require().Contains(err.Error(), "larger than max")
 }
 
 // mkTxBuilder creates a TxBuilder containing a signed tx from validator 0.

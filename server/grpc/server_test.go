@@ -13,9 +13,12 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
+	"cosmossdk.io/log"
+
 	"github.com/cosmos/cosmos-sdk/client"
 	reflectionv1 "github.com/cosmos/cosmos-sdk/client/grpc/reflection"
 	clienttx "github.com/cosmos/cosmos-sdk/client/tx"
+	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/server/config"
 	servergrpc "github.com/cosmos/cosmos-sdk/server/grpc"
 	reflectionv2 "github.com/cosmos/cosmos-sdk/server/grpc/reflection/v2alpha1"
@@ -245,19 +248,29 @@ func (s *IntegrationTestSuite) TestStartGRPCServer_AppliesOptions() {
 	addr := l.Addr().String()
 	l.Close()
 
+	cfg := config.GRPCConfig{Address: addr, Enable: true}
+
 	// Override the default max-receive size with a 1-byte cap. Any real
 	// request will be larger than 1 byte, so if the option flowed through
 	// the call must fail with ResourceExhausted.
-	srv, err := servergrpc.StartGRPCServer(
-		val0.ClientCtx, s.app,
-		config.GRPCConfig{Address: addr, Enable: true},
+	srv, err := servergrpc.NewGRPCServer(
+		val0.ClientCtx, val0.GetApp(), cfg,
 		servergrpc.WithGRPCServerOptions(grpc.MaxRecvMsgSize(1)),
 	)
 	s.Require().NoError(err)
-	defer srv.Stop()
 
-	conn, err := grpc.Dial(addr, grpc.WithInsecure(),
-		grpc.WithDefaultCallOptions(grpc.ForceCodec(codec.NewProtoCodec(s.app.InterfaceRegistry()).GRPCCodec())))
+	ctx, cancel := context.WithCancel(context.Background())
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- servergrpc.StartGRPCServer(ctx, log.NewNopLogger(), cfg, srv)
+	}()
+	defer func() {
+		cancel()
+		<-serveErr
+	}()
+
+	conn, err := grpc.Dial(addr, grpc.WithInsecure(), //nolint:staticcheck // ignore SA1019, deprecated test helper
+		grpc.WithDefaultCallOptions(grpc.ForceCodec(codec.NewProtoCodec(s.cfg.InterfaceRegistry).GRPCCodec())))
 	s.Require().NoError(err)
 	defer conn.Close()
 

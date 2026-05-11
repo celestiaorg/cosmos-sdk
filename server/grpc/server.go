@@ -19,15 +19,26 @@ import (
 	_ "github.com/cosmos/cosmos-sdk/types/tx/amino" // Import amino.proto file for reflection
 )
 
-// ExtraServerOptions is appended to the options passed to grpc.NewServer in
-// NewGRPCServer. Applications can populate this slice (for example from an
-// init function) to register additional interceptors or stats handlers
-// without forking this package.
-var ExtraServerOptions []grpc.ServerOption
+// GRPCServerOption configures the gRPC server constructed by NewGRPCServer.
+type GRPCServerOption func(*grpcServerConfig)
+
+type grpcServerConfig struct {
+	grpcOpts []grpc.ServerOption
+}
+
+// WithGRPCServerOptions appends extra grpc.ServerOptions (e.g. interceptors,
+// keepalive policies, custom credentials) to the ones the SDK applies by
+// default. The user-provided options are appended after the defaults, so they
+// can override defaults where grpc-go's last-write-wins semantics allow.
+func WithGRPCServerOptions(opts ...grpc.ServerOption) GRPCServerOption {
+	return func(c *grpcServerConfig) {
+		c.grpcOpts = append(c.grpcOpts, opts...)
+	}
+}
 
 // NewGRPCServer returns a correctly configured and initialized gRPC server.
 // Note, the caller is responsible for starting the server. See StartGRPCServer.
-func NewGRPCServer(clientCtx client.Context, app types.Application, cfg config.GRPCConfig) (*grpc.Server, error) {
+func NewGRPCServer(clientCtx client.Context, app types.Application, cfg config.GRPCConfig, opts ...GRPCServerOption) (*grpc.Server, error) {
 	maxSendMsgSize := cfg.MaxSendMsgSize
 	if maxSendMsgSize == 0 {
 		maxSendMsgSize = config.DefaultGRPCMaxSendMsgSize
@@ -38,12 +49,18 @@ func NewGRPCServer(clientCtx client.Context, app types.Application, cfg config.G
 		maxRecvMsgSize = config.DefaultGRPCMaxRecvMsgSize
 	}
 
+	serverConfig := &grpcServerConfig{}
+	for _, opt := range opts {
+		opt(serverConfig)
+	}
+
 	serverOpts := []grpc.ServerOption{
 		grpc.ForceServerCodec(codec.NewProtoCodec(clientCtx.InterfaceRegistry).GRPCCodec()),
 		grpc.MaxSendMsgSize(maxSendMsgSize),
 		grpc.MaxRecvMsgSize(maxRecvMsgSize),
 	}
-	serverOpts = append(serverOpts, ExtraServerOptions...)
+	serverOpts = append(serverOpts, serverConfig.grpcOpts...)
+
 	grpcSrv := grpc.NewServer(serverOpts...)
 
 	app.RegisterGRPCServer(grpcSrv)

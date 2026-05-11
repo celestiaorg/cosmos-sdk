@@ -311,6 +311,11 @@ func (v Validator) GetAppConfig() *srvconfig.Config {
 	return v.AppConfig
 }
 
+// GetApp returns the underlying ABCI application instance for the validator.
+func (v Validator) GetApp() servertypes.Application {
+	return v.app
+}
+
 // CLILogger wraps a cobra.Command and provides command logging methods.
 type CLILogger struct {
 	cmd *cobra.Command

@@ -124,6 +124,10 @@ type StartCmdOptions struct {
 	AddFlags func(cmd *cobra.Command)
 	// StartCommandHanlder can be used to customize the start command handler
 	StartCommandHandler func(svrCtx *Context, clientCtx client.Context, appCreator types.AppCreator, inProcessConsensus bool, opts StartCmdOptions) error
+	// GRPCServerOptions are appended to the default gRPC server options so
+	// applications can register custom interceptors, stats handlers, or other
+	// grpc.ServerOptions.
+	GRPCServerOptions []grpc.ServerOption
 }
 
 // StartCmd runs the service passed in, either stand-alone or in-process with
@@ -278,7 +282,7 @@ func startStandAlone(svrCtx *Context, svrCfg serverconfig.Config, clientCtx clie
 	}
 
 	// NOTE: when running in standalone mode, the core environment is passed as nil as cometbft is running out-of-process
-	grpcSrv, clientCtx, err := startGrpcServer(ctx, g, svrCfg.GRPC, clientCtx, svrCtx, app, nil)
+	grpcSrv, clientCtx, err := startGrpcServer(ctx, g, svrCfg.GRPC, clientCtx, svrCtx, app, nil, opts.GRPCServerOptions...)
 	if err != nil {
 		return err
 	}
@@ -350,7 +354,7 @@ func startInProcess(svrCtx *Context, svrCfg serverconfig.Config, clientCtx clien
 		}
 	}
 
-	grpcSrv, clientCtx, err := startGrpcServer(ctx, g, svrCfg.GRPC, clientCtx, svrCtx, app, coreEnv)
+	grpcSrv, clientCtx, err := startGrpcServer(ctx, g, svrCfg.GRPC, clientCtx, svrCtx, app, coreEnv, opts.GRPCServerOptions...)
 	if err != nil {
 		return err
 	}
@@ -466,6 +470,7 @@ func startGrpcServer(
 	svrCtx *Context,
 	app types.Application,
 	coreEnv *core.Environment,
+	extraOpts ...grpc.ServerOption,
 ) (*grpc.Server, client.Context, error) {
 	if !config.Enable {
 		// return grpcServer as nil if gRPC is disabled
@@ -503,7 +508,10 @@ func startGrpcServer(
 	clientCtx = clientCtx.WithGRPCClient(grpcClient)
 	svrCtx.Logger.Debug("gRPC client assigned to client context", "target", config.Address)
 
-	grpcSrv, err := servergrpc.NewGRPCServer(clientCtx, app, config)
+	grpcSrv, err := servergrpc.NewGRPCServer(
+		clientCtx, app, config,
+		servergrpc.WithGRPCServerOptions(extraOpts...),
+	)
 	if err != nil {
 		return nil, clientCtx, err
 	}

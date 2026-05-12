@@ -67,6 +67,12 @@ const (
 	//
 	// Since: cosmos-sdk 0.45.2
 	SignMode_SIGN_MODE_EIP_191 SignMode = 191
+	// SIGN_MODE_EIP_712 specifies the sign mode for EIP-712 typed-data signing.
+	//
+	// EIP-712 signatures are over a Keccak typed-data digest and may recover the
+	// secp256k1 public key from the signature. Apps must register a sign mode
+	// handler that implements the app-specific typed-data schema.
+	SignMode_SIGN_MODE_EIP_712 SignMode = 712
 )
 
 var SignMode_name = map[int32]string{
@@ -76,6 +82,7 @@ var SignMode_name = map[int32]string{
 	3:   "SIGN_MODE_DIRECT_AUX",
 	127: "SIGN_MODE_LEGACY_AMINO_JSON",
 	191: "SIGN_MODE_EIP_191",
+	712: "SIGN_MODE_EIP_712",
 }
 
 var SignMode_value = map[string]int32{
@@ -85,6 +92,7 @@ var SignMode_value = map[string]int32{
 	"SIGN_MODE_DIRECT_AUX":        3,
 	"SIGN_MODE_LEGACY_AMINO_JSON": 127,
 	"SIGN_MODE_EIP_191":           191,
+	"SIGN_MODE_EIP_712":           712,
 }
 
 func (x SignMode) String() string {

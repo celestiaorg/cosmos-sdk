@@ -58,3 +58,9 @@ func (h *HandlerMap) GetSignBytes(ctx context.Context, signMode signingv1beta1.S
 
 	return handler.GetSignBytes(ctx, signerData, txData)
 }
+
+// GetHandler returns the handler registered for the requested sign mode.
+func (h *HandlerMap) GetHandler(signMode signingv1beta1.SignMode) (SignModeHandler, bool) {
+	handler, ok := h.signModeHandlers[signMode]
+	return handler, ok
+}

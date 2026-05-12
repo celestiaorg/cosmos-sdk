@@ -12,6 +12,12 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 )
 
+// SignModeVerifier can be implemented by sign mode handlers that need custom
+// verification semantics instead of the default PubKey.VerifySignature path.
+type SignModeVerifier interface {
+	VerifySignature(context.Context, cryptotypes.PubKey, txsigning.SignerData, []byte, txsigning.TxData) error
+}
+
 // APISignModesToInternal converts a protobuf SignMode array to a signing.SignMode array.
 func APISignModesToInternal(modes []signingv1beta1.SignMode) ([]signing.SignMode, error) {
 	internalModes := make([]signing.SignMode, len(modes))
@@ -36,6 +42,8 @@ func APISignModeToInternal(mode signingv1beta1.SignMode) (signing.SignMode, erro
 		return signing.SignMode_SIGN_MODE_TEXTUAL, nil
 	case signingv1beta1.SignMode_SIGN_MODE_DIRECT_AUX:
 		return signing.SignMode_SIGN_MODE_DIRECT_AUX, nil
+	case signingv1beta1.SignMode_SIGN_MODE_EIP_712:
+		return signing.SignMode_SIGN_MODE_EIP_712, nil
 	default:
 		return signing.SignMode_SIGN_MODE_UNSPECIFIED, fmt.Errorf("unsupported sign mode %s", mode)
 	}
@@ -52,6 +60,8 @@ func internalSignModeToAPI(mode signing.SignMode) (signingv1beta1.SignMode, erro
 		return signingv1beta1.SignMode_SIGN_MODE_TEXTUAL, nil
 	case signing.SignMode_SIGN_MODE_DIRECT_AUX:
 		return signingv1beta1.SignMode_SIGN_MODE_DIRECT_AUX, nil
+	case signing.SignMode_SIGN_MODE_EIP_712:
+		return signingv1beta1.SignMode_SIGN_MODE_EIP_712, nil
 	default:
 		return signingv1beta1.SignMode_SIGN_MODE_UNSPECIFIED, fmt.Errorf("unsupported sign mode %s", mode)
 	}
@@ -72,6 +82,11 @@ func VerifySignature(
 		signMode, err := internalSignModeToAPI(data.SignMode)
 		if err != nil {
 			return err
+		}
+		if modeHandler, ok := handler.GetHandler(signMode); ok {
+			if verifier, ok := modeHandler.(SignModeVerifier); ok {
+				return verifier.VerifySignature(ctx, pubKey, signerData, data.Signature, txData)
+			}
 		}
 		signBytes, err := handler.GetSignBytes(ctx, signMode, signerData, txData)
 		if err != nil {

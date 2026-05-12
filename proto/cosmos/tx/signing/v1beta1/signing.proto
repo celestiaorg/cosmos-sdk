@@ -52,6 +52,13 @@ enum SignMode {
   //
   // Since: cosmos-sdk 0.45.2
   SIGN_MODE_EIP_191 = 191;
+
+  // SIGN_MODE_EIP_712 specifies the sign mode for EIP-712 typed-data signing.
+  //
+  // EIP-712 signatures are over a Keccak typed-data digest and may recover the
+  // secp256k1 public key from the signature. Apps must register a sign mode
+  // handler that implements the app-specific typed-data schema.
+  SIGN_MODE_EIP_712 = 712;
 }
 
 // SignatureDescriptors wraps multiple SignatureDescriptor's.

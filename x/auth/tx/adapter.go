@@ -10,6 +10,7 @@ import (
 	txsigning "cosmossdk.io/x/tx/signing"
 
 	"github.com/cosmos/cosmos-sdk/types/tx"
+	signingtypes "github.com/cosmos/cosmos-sdk/types/tx/signing"
 )
 
 // GetSigningTxData returns an x/tx/signing.TxData representation of a transaction for use in the signing
@@ -60,21 +61,17 @@ func (w *wrapper) GetSigningTxData() txsigning.TxData {
 		modeInfo := &txv1beta1.ModeInfo{}
 		adaptModeInfo(signerInfo.ModeInfo, modeInfo)
 
-		// Copied from upstream Cosmos SDK to provide the reader with a more
-		// specific error message.
-		//
-		// https://github.com/celestiaorg/celestia-app/issues/4847
-		if signerInfo.PublicKey == nil {
-			panic("signerInfo.PublicKey cannot be nil")
-		}
-
 		txSignerInfo := &txv1beta1.SignerInfo{
-			PublicKey: &anypb.Any{
-				TypeUrl: signerInfo.PublicKey.TypeUrl,
-				Value:   signerInfo.PublicKey.Value,
-			},
 			Sequence: signerInfo.Sequence,
 			ModeInfo: modeInfo,
+		}
+		if signerInfo.PublicKey != nil {
+			txSignerInfo.PublicKey = &anypb.Any{
+				TypeUrl: signerInfo.PublicKey.TypeUrl,
+				Value:   signerInfo.PublicKey.Value,
+			}
+		} else if !isEIP712SignerInfo(signerInfo) {
+			panic("signerInfo.PublicKey cannot be nil")
 		}
 		txSignerInfos[i] = txSignerInfo
 	}
@@ -103,6 +100,13 @@ func (w *wrapper) GetSigningTxData() txsigning.TxData {
 		BodyBytes:     w.getBodyBytes(),
 	}
 	return txData
+}
+
+func isEIP712SignerInfo(signerInfo *tx.SignerInfo) bool {
+	if signerInfo == nil || signerInfo.ModeInfo == nil || signerInfo.ModeInfo.GetSingle() == nil {
+		return false
+	}
+	return signerInfo.ModeInfo.GetSingle().Mode == signingtypes.SignMode_SIGN_MODE_EIP_712
 }
 
 func adaptModeInfo(legacy *tx.ModeInfo, res *txv1beta1.ModeInfo) {

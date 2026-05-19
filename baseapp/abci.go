@@ -1346,6 +1346,7 @@ func (app *BaseApp) CreateQueryContext(height int64, prove bool) (sdk.Context, e
 // need historical blocks.
 func (app *BaseApp) GetBlockRetentionHeight(commitHeight int64) int64 {
 	// pruning is disabled if minRetainBlocks is zero
+	fmt.Println("app.minRetainBlocks: ", app.minRetainBlocks)
 	if app.minRetainBlocks == 0 {
 		return 0
 	}
@@ -1374,13 +1375,18 @@ func (app *BaseApp) GetBlockRetentionHeight(commitHeight int64) int64 {
 	if app.snapshotManager != nil {
 		snapshotRetentionHeights := app.snapshotManager.GetSnapshotBlockRetentionHeights()
 		if snapshotRetentionHeights > 0 {
+			fmt.Println("snapshotRetentionHeights: ", snapshotRetentionHeights)
+			fmt.Println("commitHeight: ", commitHeight)
 			retentionHeight = minNonZero(retentionHeight, commitHeight-snapshotRetentionHeights)
 		}
 	}
 
+	fmt.Println("retentionHeight: ", retentionHeight)
+
 	v := commitHeight - int64(app.minRetainBlocks)
 	retentionHeight = minNonZero(retentionHeight, v)
 
+	fmt.Println("retentionHeight after min: ", retentionHeight)
 	if retentionHeight <= 0 {
 		// prune nothing in the case of a non-positive height
 		return 0

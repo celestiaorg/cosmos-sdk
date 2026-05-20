@@ -236,6 +236,7 @@ replace (
 	cosmossdk.io/api => ../api
 	cosmossdk.io/log => ../log
 	cosmossdk.io/store => ../store
+	cosmossdk.io/x/tx => github.com/celestiaorg/cosmos-sdk/x/tx v0.13.10-0.20260520081233-a400504a2d08
 	// use cosmos fork of keyring
 	github.com/99designs/keyring => github.com/cosmos/keyring v1.2.0
 	github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core v0.39.25

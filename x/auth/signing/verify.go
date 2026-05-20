@@ -44,6 +44,8 @@ func APISignModeToInternal(mode signingv1beta1.SignMode) (signing.SignMode, erro
 		return signing.SignMode_SIGN_MODE_DIRECT_AUX, nil
 	case signingv1beta1.SignMode_SIGN_MODE_EIP_712:
 		return signing.SignMode_SIGN_MODE_EIP_712, nil
+	case signingv1beta1.SignMode_SIGN_MODE_ETHEREUM_TX:
+		return signing.SignMode_SIGN_MODE_ETHEREUM_TX, nil
 	default:
 		return signing.SignMode_SIGN_MODE_UNSPECIFIED, fmt.Errorf("unsupported sign mode %s", mode)
 	}
@@ -62,6 +64,8 @@ func internalSignModeToAPI(mode signing.SignMode) (signingv1beta1.SignMode, erro
 		return signingv1beta1.SignMode_SIGN_MODE_DIRECT_AUX, nil
 	case signing.SignMode_SIGN_MODE_EIP_712:
 		return signingv1beta1.SignMode_SIGN_MODE_EIP_712, nil
+	case signing.SignMode_SIGN_MODE_ETHEREUM_TX:
+		return signingv1beta1.SignMode_SIGN_MODE_ETHEREUM_TX, nil
 	default:
 		return signingv1beta1.SignMode_SIGN_MODE_UNSPECIFIED, fmt.Errorf("unsupported sign mode %s", mode)
 	}

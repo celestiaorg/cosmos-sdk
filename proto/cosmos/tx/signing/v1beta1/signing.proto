@@ -59,6 +59,15 @@ enum SignMode {
   // secp256k1 public key from the signature. Apps must register a sign mode
   // handler that implements the app-specific typed-data schema.
   SIGN_MODE_EIP_712 = 712;
+
+  // SIGN_MODE_ETHEREUM_TX specifies the sign mode for Ethereum transaction
+  // envelope signing.
+  //
+  // Ethereum transaction signatures are over the Ethereum transaction signing
+  // hash and may recover the secp256k1 public key from the signature. Apps must
+  // register a sign mode handler that implements app-specific envelope
+  // translation and authorization checks.
+  SIGN_MODE_ETHEREUM_TX = 1559;
 }
 
 // SignatureDescriptors wraps multiple SignatureDescriptor's.

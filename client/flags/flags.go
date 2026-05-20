@@ -40,6 +40,8 @@ const (
 	SignModeEIP191 = "eip-191"
 	// SignModeEIP712 is the value of the --sign-mode flag for SIGN_MODE_EIP_712
 	SignModeEIP712 = "eip-712"
+	// SignModeEthereumTx is the value of the --sign-mode flag for SIGN_MODE_ETHEREUM_TX
+	SignModeEthereumTx = "ethereum-tx"
 )
 
 // List of CLI flags
@@ -136,7 +138,7 @@ func AddTxFlagsToCmd(cmd *cobra.Command) {
 	f.Bool(FlagGenerateOnly, false, "Build an unsigned transaction and write it to STDOUT (when enabled, the local Keybase only accessed when providing a key name)")
 	f.Bool(FlagOffline, false, "Offline mode (does not allow any online functionality)")
 	f.BoolP(FlagSkipConfirmation, "y", false, "Skip tx broadcasting prompt confirmation")
-	f.String(FlagSignMode, "", "Choose sign mode (direct|amino-json|direct-aux|textual), this is an advanced feature")
+	f.String(FlagSignMode, "", "Choose sign mode (direct|amino-json|direct-aux|textual|eip-712|ethereum-tx), this is an advanced feature")
 	f.Uint64(FlagTimeoutHeight, 0, "Set a block timeout height to prevent the tx from being committed past a certain height")
 	f.String(FlagFeePayer, "", "Fee payer pays fees for the transaction instead of deducting from the signer")
 	f.String(FlagFeeGranter, "", "Fee granter grants fees for the transaction")

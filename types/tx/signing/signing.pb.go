@@ -73,16 +73,25 @@ const (
 	// secp256k1 public key from the signature. Apps must register a sign mode
 	// handler that implements the app-specific typed-data schema.
 	SignMode_SIGN_MODE_EIP_712 SignMode = 712
+	// SIGN_MODE_ETHEREUM_TX specifies the sign mode for Ethereum transaction
+	// envelope signing.
+	//
+	// Ethereum transaction signatures are over the Ethereum transaction signing
+	// hash and may recover the secp256k1 public key from the signature. Apps must
+	// register a sign mode handler that implements app-specific envelope
+	// translation and authorization checks.
+	SignMode_SIGN_MODE_ETHEREUM_TX SignMode = 1559
 )
 
 var SignMode_name = map[int32]string{
-	0:   "SIGN_MODE_UNSPECIFIED",
-	1:   "SIGN_MODE_DIRECT",
-	2:   "SIGN_MODE_TEXTUAL",
-	3:   "SIGN_MODE_DIRECT_AUX",
-	127: "SIGN_MODE_LEGACY_AMINO_JSON",
-	191: "SIGN_MODE_EIP_191",
-	712: "SIGN_MODE_EIP_712",
+	0:    "SIGN_MODE_UNSPECIFIED",
+	1:    "SIGN_MODE_DIRECT",
+	2:    "SIGN_MODE_TEXTUAL",
+	3:    "SIGN_MODE_DIRECT_AUX",
+	127:  "SIGN_MODE_LEGACY_AMINO_JSON",
+	191:  "SIGN_MODE_EIP_191",
+	712:  "SIGN_MODE_EIP_712",
+	1559: "SIGN_MODE_ETHEREUM_TX",
 }
 
 var SignMode_value = map[string]int32{
@@ -93,6 +102,7 @@ var SignMode_value = map[string]int32{
 	"SIGN_MODE_LEGACY_AMINO_JSON": 127,
 	"SIGN_MODE_EIP_191":           191,
 	"SIGN_MODE_EIP_712":           712,
+	"SIGN_MODE_ETHEREUM_TX":       1559,
 }
 
 func (x SignMode) String() string {

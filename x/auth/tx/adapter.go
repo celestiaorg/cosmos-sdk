@@ -70,7 +70,7 @@ func (w *wrapper) GetSigningTxData() txsigning.TxData {
 				TypeUrl: signerInfo.PublicKey.TypeUrl,
 				Value:   signerInfo.PublicKey.Value,
 			}
-		} else if !isEIP712SignerInfo(signerInfo) {
+		} else if !isEIP712SignerInfo(signerInfo) && !isEthereumTxSignerInfo(signerInfo) {
 			panic("signerInfo.PublicKey cannot be nil")
 		}
 		txSignerInfos[i] = txSignerInfo
@@ -107,6 +107,13 @@ func isEIP712SignerInfo(signerInfo *tx.SignerInfo) bool {
 		return false
 	}
 	return signerInfo.ModeInfo.GetSingle().Mode == signingtypes.SignMode_SIGN_MODE_EIP_712
+}
+
+func isEthereumTxSignerInfo(signerInfo *tx.SignerInfo) bool {
+	if signerInfo == nil || signerInfo.ModeInfo == nil || signerInfo.ModeInfo.GetSingle() == nil {
+		return false
+	}
+	return signerInfo.ModeInfo.GetSingle().Mode == signingtypes.SignMode_SIGN_MODE_ETHEREUM_TX
 }
 
 func adaptModeInfo(legacy *tx.ModeInfo, res *txv1beta1.ModeInfo) {

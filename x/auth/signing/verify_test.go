@@ -17,3 +17,13 @@ func TestEIP712SignModeConversion(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, signingv1beta1.SignMode_SIGN_MODE_EIP_712, api)
 }
+
+func TestEthereumTxSignModeConversion(t *testing.T) {
+	internal, err := APISignModeToInternal(signingv1beta1.SignMode_SIGN_MODE_ETHEREUM_TX)
+	require.NoError(t, err)
+	require.Equal(t, signing.SignMode_SIGN_MODE_ETHEREUM_TX, internal)
+
+	api, err := internalSignModeToAPI(signing.SignMode_SIGN_MODE_ETHEREUM_TX)
+	require.NoError(t, err)
+	require.Equal(t, signingv1beta1.SignMode_SIGN_MODE_ETHEREUM_TX, api)
+}

@@ -64,6 +64,8 @@ func NewFactoryCLI(clientCtx client.Context, flagSet *pflag.FlagSet) (Factory, e
 		signMode = signing.SignMode_SIGN_MODE_EIP_191
 	case flags.SignModeEIP712:
 		signMode = signing.SignMode_SIGN_MODE_EIP_712
+	case flags.SignModeEthereumTx:
+		signMode = signing.SignMode_SIGN_MODE_ETHEREUM_TX
 	}
 
 	var accNum, accSeq uint64

@@ -928,6 +928,99 @@ func TestCommitSimulateRace(t *testing.T) {
 	wg.Wait()
 }
 
+// TestFinalizeBlockSimulateRace reproduces a data race between FinalizeBlock and
+// Simulate. FinalizeBlock calls workingHash() which writes the block's state
+// transitions into the root IAVL tree via finalizeBlockState.ms.Write()
+// (MutableTree.Set). Simulate concurrently reads the same IAVL tree during
+// message execution (MutableTree.Get). Unlike TestCommitSimulateRace, the
+// simulated tx routes to a message handler that actually reads store state, so
+// the read falls through to the parent IAVL tree on a cache miss. This mirrors
+// the production race observed in celestia-app where the gas estimation gRPC
+// service calls Simulate concurrently with block finalization.
+// See https://github.com/celestiaorg/cosmos-sdk/issues/739
+func TestFinalizeBlockSimulateRace(t *testing.T) {
+	// The writer mutates store state via a PreBlocker rather than via a tx so
+	// that FinalizeBlock does not decode txs / call GetSigners. Combined with a
+	// single reader goroutine (whose GetSigners calls are therefore serial),
+	// this isolates the Simulate-vs-FinalizeBlock IAVL race from unrelated
+	// concurrency in the shared tx decoder / signing context.
+	preBlocker := func(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
+		store := ctx.KVStore(capKey2)
+		store.Set([]byte(fmt.Sprintf("key-%d", req.Height)), bytes.Repeat([]byte("a"), 64))
+		return &sdk.ResponsePreBlock{}, nil
+	}
+	suite := NewBaseAppSuite(t, func(app *baseapp.BaseApp) { app.SetPreBlocker(preBlocker) })
+	baseapptestutil.RegisterKeyValueServer(suite.baseApp.MsgServiceRouter(), ReadWriteKeyValueImpl{})
+
+	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{
+		ConsensusParams: &cmtproto.ConsensusParams{},
+	})
+	require.NoError(t, err)
+
+	// Commit an initial block so the IAVL tree has committed nodes to traverse.
+	_, err = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1})
+	require.NoError(t, err)
+	_, err = suite.baseApp.Commit()
+	require.NoError(t, err)
+
+	// Build a tx whose handler reads store state during simulation.
+	_, _, addr := testdata.KeyTestPubAddr()
+	builder := suite.txConfig.NewTxBuilder()
+	require.NoError(t, builder.SetMsgs(&baseapptestutil.MsgKeyValue{
+		Key:    []byte("key-1"),
+		Value:  bytes.Repeat([]byte("b"), 64),
+		Signer: addr.String(),
+	}))
+	setTxSignature(t, builder, 0)
+	simTx, err := suite.txConfig.TxEncoder()(builder.GetTx())
+	require.NoError(t, err)
+
+	// Warm up the simulate path once, single-threaded, so the lazy
+	// signing-context and proto-reflection caches are populated before the
+	// reader goroutine starts. This keeps the test focused on the IAVL data
+	// race rather than unrelated cold-start races in tx decoding.
+	_, _, _ = suite.baseApp.Simulate(simTx)
+
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+
+	// Writer goroutine: repeatedly finalize + commit blocks. The PreBlocker
+	// writes store state, so FinalizeBlock's workingHash() flushes those writes
+	// into the root IAVL tree (MutableTree.Set).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for height := int64(2); ; height++ {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			_, _ = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: height})
+			_, _ = suite.baseApp.Commit()
+		}
+	}()
+
+	// Reader goroutine: repeatedly Simulate a tx whose handler reads store
+	// state, reaching the parent IAVL tree (MutableTree.Get) on a cache miss.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			_, _, _ = suite.baseApp.Simulate(simTx)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	close(done)
+	wg.Wait()
+}
+
 func TestSetMinGasPrices(t *testing.T) {
 	minGasPrices := sdk.DecCoins{sdk.NewInt64DecCoin("stake", 5000)}
 	suite := NewBaseAppSuite(t, baseapp.SetMinGasPrices(minGasPrices.String()))

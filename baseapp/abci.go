@@ -1008,6 +1008,16 @@ func (app *BaseApp) Commit() (*abci.ResponseCommit, error) {
 // state transitions will be flushed to disk and as a result, but we already have
 // an application Merkle root.
 func (app *BaseApp) workingHash() []byte {
+	// Hold the write lock across the writes into the root MultiStore. The write
+	// of the FinalizeBlock state mutates the underlying IAVL tree
+	// (MutableTree.Set), and cms.WorkingHash() reads/computes over that same
+	// tree. Concurrent Simulate() calls (e.g. from the gas estimation gRPC
+	// service) hold checkStateMu.RLock while reading the IAVL tree throughout
+	// runTx, so this write lock prevents a data race with block finalization.
+	// This mirrors the lock Commit() holds around cms.Commit().
+	app.checkStateMu.Lock()
+	defer app.checkStateMu.Unlock()
+
 	// Write the FinalizeBlock state into branched storage and commit the MultiStore.
 	// The write to the FinalizeBlock state writes all state transitions to the root
 	// MultiStore (app.cms) so when Commit() is called it persists those values.

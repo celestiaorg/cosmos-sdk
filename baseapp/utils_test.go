@@ -116,6 +116,22 @@ func (m MsgKeyValueImpl) Set(ctx context.Context, msg *baseapptestutil.MsgKeyVal
 	return &baseapptestutil.MsgCreateKeyValueResponse{}, nil
 }
 
+// ReadWriteKeyValueImpl is a KeyValue message handler that both reads and then
+// writes store state. The read forces a lookup that falls through to the parent
+// IAVL tree on a cache miss, which is required to reproduce the data race
+// between Simulate (read) and FinalizeBlock's workingHash (write). See
+// TestFinalizeBlockSimulateRace.
+type ReadWriteKeyValueImpl struct{}
+
+func (m ReadWriteKeyValueImpl) Set(ctx context.Context, msg *baseapptestutil.MsgKeyValue) (*baseapptestutil.MsgCreateKeyValueResponse, error) {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	store := sdkCtx.KVStore(capKey2)
+	// Read first so simulated txs traverse the parent IAVL tree on a cache miss.
+	_ = store.Get(msg.Key)
+	store.Set(msg.Key, msg.Value)
+	return &baseapptestutil.MsgCreateKeyValueResponse{}, nil
+}
+
 type CounterServerImplGasMeterOnly struct {
 	gas uint64
 }

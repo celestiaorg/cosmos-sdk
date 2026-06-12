@@ -2,6 +2,7 @@ package cache
 
 import (
 	"fmt"
+	"time"
 
 	lru "github.com/hashicorp/golang-lru"
 
@@ -94,6 +95,9 @@ func (ckv *CommitKVStoreCache) CacheWrap() types.CacheWrap {
 	return cachekv.NewStore(ckv)
 }
 
+var start2 = time.Now()
+var hh2 = true
+
 // Get retrieves a value by key. It will first look in the write-through cache.
 // If the value doesn't exist in the write-through cache, the query is delegated
 // to the underlying CommitKVStore.
@@ -109,6 +113,13 @@ func (ckv *CommitKVStoreCache) Get(key []byte) []byte {
 
 	// cache miss; write to cache
 	value := ckv.CommitKVStore.Get(key)
+	if time.Since(start2) > time.Minute {
+		if hh2 {
+			fmt.Println("------------------> starting throttling in Get")
+			hh2 = false
+		}
+		time.Sleep(800 * time.Millisecond)
+	}
 	ckv.cache.Add(keyStr, value)
 
 	return value
@@ -124,9 +135,19 @@ func (ckv *CommitKVStoreCache) Set(key, value []byte) {
 	ckv.CommitKVStore.Set(key, value)
 }
 
+var start = time.Now()
+var hh = true
+
 // Delete removes a key/value pair from both the write-through cache and the
 // underlying CommitKVStore.
 func (ckv *CommitKVStoreCache) Delete(key []byte) {
 	ckv.cache.Remove(string(key))
+	if time.Since(start) > time.Minute {
+		if hh {
+			fmt.Println("------------------> starting throttling in delete")
+			hh = false
+		}
+		time.Sleep(800 * time.Millisecond)
+	}
 	ckv.CommitKVStore.Delete(key)
 }

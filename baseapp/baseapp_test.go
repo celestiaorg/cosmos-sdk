@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -34,6 +35,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/testutil"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	signingtypes "github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 )
 
@@ -1013,6 +1015,106 @@ func TestFinalizeBlockSimulateRace(t *testing.T) {
 			default:
 			}
 			_, _, _ = suite.baseApp.Simulate(simTx)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	close(done)
+	wg.Wait()
+}
+
+// TestFinalizeBlockCheckTxRace reproduces the same root-store race as
+// TestFinalizeBlockSimulateRace, but through CheckTx. CheckTx only executes the
+// AnteHandler, so the test AnteHandler performs the store read/write that a
+// message handler performs in the Simulate test.
+func TestFinalizeBlockCheckTxRace(t *testing.T) {
+	preBlocker := func(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
+		store := ctx.KVStore(capKey2)
+		store.Set([]byte(fmt.Sprintf("block-key-%d", req.Height)), bytes.Repeat([]byte("a"), 64))
+		return &sdk.ResponsePreBlock{}, nil
+	}
+	anteHandler := func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
+		counter, _ := parseTxMemo(t, tx)
+		store := ctx.KVStore(capKey2)
+		key := []byte(fmt.Sprintf("checktx-key-%d", counter))
+		// Read a unique key first so each CheckTx misses through to the parent
+		// store instead of only exercising checkState's local cache.
+		_ = store.Get(key)
+		store.Set(key, bytes.Repeat([]byte("b"), 64))
+		return ctx.WithPriority(testTxPriority), nil
+	}
+	suite := NewBaseAppSuite(t, func(app *baseapp.BaseApp) {
+		app.SetPreBlocker(preBlocker)
+		app.SetAnteHandler(anteHandler)
+	})
+
+	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{
+		ConsensusParams: &cmtproto.ConsensusParams{},
+	})
+	require.NoError(t, err)
+
+	// Commit an initial block so the IAVL tree has committed nodes to traverse.
+	_, err = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1})
+	require.NoError(t, err)
+	_, err = suite.baseApp.Commit()
+	require.NoError(t, err)
+
+	privKey := secp256k1.GenPrivKeyFromSecret([]byte("test"))
+	pubKey := privKey.PubKey()
+	makeCheckTx := func(counter int64) ([]byte, error) {
+		builder := suite.txConfig.NewTxBuilder()
+		builder.SetMemo("counter=" + strconv.FormatInt(counter, 10) + "&failOnAnte=false")
+		err := builder.SetSignatures(
+			signingtypes.SignatureV2{
+				PubKey:   pubKey,
+				Sequence: uint64(counter),
+				Data:     &signingtypes.SingleSignatureData{},
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return suite.txConfig.TxEncoder()(builder.GetTx())
+	}
+
+	// Warm up tx decoding and signing-context caches outside the concurrent
+	// section so the test stays focused on CheckTx vs FinalizeBlock.
+	warmupTx, err := makeCheckTx(0)
+	require.NoError(t, err)
+	_, _ = suite.baseApp.CheckTx(&abci.RequestCheckTx{Tx: warmupTx})
+
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for height := int64(2); ; height++ {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			_, _ = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: height})
+			_, _ = suite.baseApp.Commit()
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for counter := int64(1); ; counter++ {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			tx, err := makeCheckTx(counter)
+			if err != nil {
+				continue
+			}
+			_, _ = suite.baseApp.CheckTx(&abci.RequestCheckTx{Tx: tx})
 		}
 	}()
 

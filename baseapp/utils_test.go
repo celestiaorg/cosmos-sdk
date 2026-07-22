@@ -401,6 +401,7 @@ func setFailOnHandler(cfg client.TxConfig, tx signing.Tx, fail bool) signing.Tx 
 		msgs[i] = &baseapptestutil.MsgCounter{
 			Counter:       msg.(*baseapptestutil.MsgCounter).Counter,
 			FailOnHandler: fail,
+			Signer:        msg.(*baseapptestutil.MsgCounter).Signer,
 		}
 	}
 

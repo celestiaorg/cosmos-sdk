@@ -2563,3 +2563,290 @@ func TestFinalizeBlockDeferResponseHandle(t *testing.T) {
 	require.Empty(t, res)
 	require.NotEmpty(t, err)
 }
+
+// feeDeductAnteHandler deducts a flat fee from the balance under balanceKey.
+func feeDeductAnteHandler(t *testing.T, balanceKey []byte, fee int64) sdk.AnteHandler {
+	t.Helper()
+	return func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		store := ctx.KVStore(capKey1)
+		balance := getIntFromStore(t, store, balanceKey)
+		if balance < fee {
+			return ctx, errorsmod.Wrapf(sdkerrors.ErrInsufficientFee, "balance %d cannot pay fee %d", balance, fee)
+		}
+		setIntOnStore(store, balanceKey, balance-fee)
+		return ctx, nil
+	}
+}
+
+// SpendCounterServerImpl spends MsgCounter.Counter from the balance under
+// balanceKey, failing on insufficient funds.
+type SpendCounterServerImpl struct {
+	t          *testing.T
+	balanceKey []byte
+}
+
+func (m SpendCounterServerImpl) IncrementCounter(ctx context.Context, msg *baseapptestutil.MsgCounter) (*baseapptestutil.MsgCreateCounterResponse, error) {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	store := sdkCtx.KVStore(capKey1)
+
+	balance := getIntFromStore(m.t, store, m.balanceKey)
+	if msg.Counter > balance {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrInsufficientFunds, "spend %d exceeds balance %d", msg.Counter, balance)
+	}
+
+	setIntOnStore(store, m.balanceKey, balance-msg.Counter)
+	return &baseapptestutil.MsgCreateCounterResponse{}, nil
+}
+
+// TestABCI_PhasedExecution_FeeDrain verifies the motivating scenario: all
+// fees are deducted before any message runs, so a tx that drains the balance
+// fails instead of leaving the next tx's fee unpaid.
+func TestABCI_PhasedExecution_FeeDrain(t *testing.T) {
+	balanceKey := []byte("balance")
+	const fee = int64(10)
+	const balance = int64(25)
+
+	anteOpt := func(bapp *baseapp.BaseApp) {
+		bapp.SetAnteHandler(feeDeductAnteHandler(t, balanceKey, fee))
+	}
+	initChainerOpt := func(bapp *baseapp.BaseApp) {
+		bapp.SetInitChainer(func(ctx sdk.Context, _ *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
+			setIntOnStore(ctx.KVStore(capKey1), balanceKey, balance)
+			return &abci.ResponseInitChain{}, nil
+		})
+	}
+
+	suite := NewBaseAppSuite(t, anteOpt, initChainerOpt)
+	baseapptestutil.RegisterCounterServer(suite.baseApp.MsgServiceRouter(), SpendCounterServerImpl{t, balanceKey})
+
+	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{
+		ConsensusParams: &cmtproto.ConsensusParams{},
+	})
+	require.NoError(t, err)
+
+	// tx A spends 15: balance 25 covers it after one fee, not after both
+	txA := newTxCounter(t, suite.txConfig, 0, 15)
+	// tx B spends nothing; it only needs its fee paid
+	txB := newTxCounter(t, suite.txConfig, 1, 0)
+
+	txABytes, err := suite.txConfig.TxEncoder()(txA)
+	require.NoError(t, err)
+	txBBytes, err := suite.txConfig.TxEncoder()(txB)
+	require.NoError(t, err)
+
+	res, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{
+		Height: 1,
+		Txs:    [][]byte{txABytes, txBBytes},
+	})
+	require.NoError(t, err)
+	require.Len(t, res.TxResults, 2)
+
+	// both antes ran first, so tx A's spend of 15 exceeds the remaining 5
+	require.EqualValues(t, sdkerrors.ErrInsufficientFunds.ABCICode(), res.TxResults[0].Code, res.TxResults[0].Log)
+	require.True(t, res.TxResults[1].IsOK(), res.TxResults[1].Log)
+
+	// both fees deducted, failed spend rolled back: 25 - 2*10 = 5
+	store := getFinalizeBlockStateCtx(suite.baseApp).KVStore(capKey1)
+	require.Equal(t, int64(5), getIntFromStore(t, store, balanceKey))
+}
+
+// TestABCI_PhasedExecution_AnteFailureSkipsMessages verifies that a failed
+// ante leaves no state and skips the tx's messages, without affecting its
+// neighbors.
+func TestABCI_PhasedExecution_AnteFailureSkipsMessages(t *testing.T) {
+	anteKey := []byte("ante-key")
+	deliverKey := []byte("deliver-key")
+
+	anteOpt := func(bapp *baseapp.BaseApp) { bapp.SetAnteHandler(anteHandlerTxTest(t, capKey1, anteKey)) }
+	suite := NewBaseAppSuite(t, anteOpt)
+	baseapptestutil.RegisterCounterServer(suite.baseApp.MsgServiceRouter(), CounterServerImpl{t, capKey1, deliverKey})
+
+	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{
+		ConsensusParams: &cmtproto.ConsensusParams{},
+	})
+	require.NoError(t, err)
+
+	tx0 := newTxCounter(t, suite.txConfig, 0, 0)
+	tx1 := setFailOnAnte(t, suite.txConfig, newTxCounter(t, suite.txConfig, 1, 1), true)
+	// tx1's failed ante doesn't increment the counter, so tx2 continues at 1
+	tx2 := newTxCounter(t, suite.txConfig, 1, 1)
+
+	txs := make([][]byte, 0, 3)
+	for _, tx := range []signing.Tx{tx0, tx1, tx2} {
+		bz, err := suite.txConfig.TxEncoder()(tx)
+		require.NoError(t, err)
+		txs = append(txs, bz)
+	}
+
+	res, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{
+		Height: 1,
+		Txs:    txs,
+	})
+	require.NoError(t, err)
+	require.Len(t, res.TxResults, 3)
+
+	require.True(t, res.TxResults[0].IsOK(), res.TxResults[0].Log)
+	require.EqualValues(t, sdkerrors.ErrUnauthorized.ABCICode(), res.TxResults[1].Code, res.TxResults[1].Log)
+	require.True(t, res.TxResults[2].IsOK(), res.TxResults[2].Log)
+
+	store := getFinalizeBlockStateCtx(suite.baseApp).KVStore(capKey1)
+
+	// only tx0 and tx2 incremented the ante counter
+	require.Equal(t, int64(2), getIntFromStore(t, store, anteKey))
+
+	// only tx0 and tx2 executed their messages
+	require.Equal(t, int64(2), getIntFromStore(t, store, deliverKey))
+}
+
+// TestABCI_PhasedExecution_OutOfGas verifies that out-of-gas in the ante
+// phase fails only that tx. The message phase and cumulative GasUsed are
+// covered by TestABCI_TxGasLimits.
+func TestABCI_PhasedExecution_OutOfGas(t *testing.T) {
+	gasGranted := uint64(10)
+	anteOpt := func(bapp *baseapp.BaseApp) {
+		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, _ bool) (newCtx sdk.Context, err error) {
+			newCtx = ctx.WithGasMeter(storetypes.NewGasMeter(gasGranted))
+
+			defer func() {
+				if r := recover(); r != nil {
+					switch rType := r.(type) {
+					case storetypes.ErrorOutOfGas:
+						err = errorsmod.Wrapf(sdkerrors.ErrOutOfGas, "out of gas in location: %v", rType.Descriptor)
+					default:
+						panic(r)
+					}
+				}
+			}()
+
+			count, _ := parseTxMemo(t, tx)
+			newCtx.GasMeter().ConsumeGas(uint64(count), "counter-ante")
+
+			return newCtx, nil
+		})
+	}
+
+	suite := NewBaseAppSuite(t, anteOpt)
+	baseapptestutil.RegisterCounterServer(suite.baseApp.MsgServiceRouter(), CounterServerImplGasMeterOnly{})
+
+	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{
+		ConsensusParams: &cmtproto.ConsensusParams{},
+	})
+	require.NoError(t, err)
+
+	testCases := []struct {
+		tx      signing.Tx
+		gasUsed int64
+		code    uint32
+	}{
+		// gas exhausted in the ante phase
+		{newTxCounter(t, suite.txConfig, 12, 0), 12, sdkerrors.ErrOutOfGas.ABCICode()},
+		// unaffected by its neighbor: ante 1 + message 1
+		{newTxCounter(t, suite.txConfig, 1, 1), 2, 0},
+	}
+
+	txs := make([][]byte, 0, len(testCases))
+	for _, tc := range testCases {
+		bz, err := suite.txConfig.TxEncoder()(tc.tx)
+		require.NoError(t, err)
+		txs = append(txs, bz)
+	}
+
+	res, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{
+		Height: 1,
+		Txs:    txs,
+	})
+	require.NoError(t, err)
+	require.Len(t, res.TxResults, len(testCases))
+
+	for i, tc := range testCases {
+		result := res.TxResults[i]
+		require.Equal(t, tc.code, result.Code, "tc #%d: %s", i, result.Log)
+		require.Equal(t, tc.gasUsed, result.GasUsed, "tc #%d: %s", i, result.Log)
+	}
+}
+
+// TestABCI_PhasedExecution_BlockGasOncePerTx verifies that each tx's total
+// gas (ante + messages) is charged to the block gas meter exactly once.
+func TestABCI_PhasedExecution_BlockGasOncePerTx(t *testing.T) {
+	gasGranted := uint64(100)
+	anteOpt := func(bapp *baseapp.BaseApp) {
+		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, _ bool) (sdk.Context, error) {
+			newCtx := ctx.WithGasMeter(storetypes.NewGasMeter(gasGranted))
+
+			count, _ := parseTxMemo(t, tx)
+			newCtx.GasMeter().ConsumeGas(uint64(count), "counter-ante")
+
+			return newCtx, nil
+		})
+	}
+
+	suite := NewBaseAppSuite(t, anteOpt)
+	baseapptestutil.RegisterCounterServer(suite.baseApp.MsgServiceRouter(), CounterServerImplGasMeterOnly{})
+
+	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{
+		ConsensusParams: &cmtproto.ConsensusParams{
+			Block: &cmtproto.BlockParams{
+				MaxGas: 100,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// three txs, each consuming 3 gas in ante and 4 in messages
+	txs := make([][]byte, 0, 3)
+	for i := 0; i < 3; i++ {
+		bz, err := suite.txConfig.TxEncoder()(newTxCounter(t, suite.txConfig, 3, 4))
+		require.NoError(t, err)
+		txs = append(txs, bz)
+	}
+
+	res, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{
+		Height: 1,
+		Txs:    txs,
+	})
+	require.NoError(t, err)
+	require.Len(t, res.TxResults, 3)
+
+	for i, result := range res.TxResults {
+		require.True(t, result.IsOK(), "tx #%d: %s", i, result.Log)
+		require.Equal(t, int64(7), result.GasUsed, "tx #%d", i)
+	}
+
+	// block gas = 3 txs * (3 ante + 4 msg), charged exactly once per tx
+	blockGasMeter := getFinalizeBlockStateCtx(suite.baseApp).BlockGasMeter()
+	require.Equal(t, uint64(21), blockGasMeter.GasConsumed())
+}
+
+// TestABCI_PhasedExecution_MalformedTx verifies that a malformed tx gets the
+// decode-error result at its canonical index without disturbing other txs.
+func TestABCI_PhasedExecution_MalformedTx(t *testing.T) {
+	anteKey := []byte("ante-key")
+	deliverKey := []byte("deliver-key")
+
+	anteOpt := func(bapp *baseapp.BaseApp) { bapp.SetAnteHandler(anteHandlerTxTest(t, capKey1, anteKey)) }
+	suite := NewBaseAppSuite(t, anteOpt)
+	baseapptestutil.RegisterCounterServer(suite.baseApp.MsgServiceRouter(), CounterServerImpl{t, capKey1, deliverKey})
+
+	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{
+		ConsensusParams: &cmtproto.ConsensusParams{},
+	})
+	require.NoError(t, err)
+
+	tx0Bytes, err := suite.txConfig.TxEncoder()(newTxCounter(t, suite.txConfig, 0, 0))
+	require.NoError(t, err)
+	tx2Bytes, err := suite.txConfig.TxEncoder()(newTxCounter(t, suite.txConfig, 1, 1))
+	require.NoError(t, err)
+
+	res, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{
+		Height: 1,
+		Txs:    [][]byte{tx0Bytes, []byte("example vote extension"), tx2Bytes},
+	})
+	require.NoError(t, err)
+	require.Len(t, res.TxResults, 3)
+
+	require.True(t, res.TxResults[0].IsOK(), res.TxResults[0].Log)
+	require.EqualValues(t, sdkerrors.ErrTxDecode.ABCICode(), res.TxResults[1].Code)
+	require.EqualValues(t, 0, res.TxResults[1].GasUsed)
+	require.EqualValues(t, 0, res.TxResults[1].GasWanted)
+	require.True(t, res.TxResults[2].IsOK(), res.TxResults[2].Log)
+}

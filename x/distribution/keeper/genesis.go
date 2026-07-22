@@ -3,6 +3,8 @@ package keeper
 import (
 	"fmt"
 
+	"cosmossdk.io/collections"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/distribution/types"
 )
@@ -113,6 +115,25 @@ func (k Keeper) InitGenesis(ctx sdk.Context, data types.GenesisState) {
 		if err != nil {
 			panic(err)
 		}
+	}
+	for _, uor := range data.UserOutstandingRewards {
+		delegatorAddress, err := k.authKeeper.AddressCodec().StringToBytes(uor.DelegatorAddress)
+		if err != nil {
+			panic(err)
+		}
+		valAddr, err := k.stakingKeeper.ValidatorAddressCodec().StringToBytes(uor.ValidatorAddress)
+		if err != nil {
+			panic(err)
+		}
+		err = k.UserOutstandingRewards.Set(
+			ctx,
+			collections.Join(sdk.AccAddress(delegatorAddress), sdk.ValAddress(valAddr)),
+			types.UserOutstandingRewards{Rewards: uor.Rewards},
+		)
+		if err != nil {
+			panic(err)
+		}
+		moduleHoldings = moduleHoldings.Add(sdk.NewDecCoinsFromCoins(uor.Rewards...)...)
 	}
 
 	moduleHoldings = moduleHoldings.Add(data.FeePool.CommunityPool...)
@@ -230,5 +251,20 @@ func (k Keeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
 		},
 	)
 
-	return types.NewGenesisState(params, feePool, dwi, pp, outstanding, acc, his, cur, dels, slashes)
+	userOutstanding := make([]types.UserOutstandingRewardsRecord, 0)
+	err = k.UserOutstandingRewards.Walk(ctx, nil,
+		func(key collections.Pair[sdk.AccAddress, sdk.ValAddress], rewards types.UserOutstandingRewards) (stop bool, err error) {
+			userOutstanding = append(userOutstanding, types.UserOutstandingRewardsRecord{
+				DelegatorAddress: key.K1().String(),
+				ValidatorAddress: key.K2().String(),
+				Rewards:          rewards.Rewards,
+			})
+			return false, nil
+		},
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	return types.NewGenesisState(params, feePool, dwi, pp, outstanding, acc, his, cur, dels, slashes, userOutstanding)
 }

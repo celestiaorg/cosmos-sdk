@@ -3,6 +3,8 @@ package keeper
 import (
 	"fmt"
 
+	"cosmossdk.io/collections"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/distribution/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -161,7 +163,8 @@ func ReferenceCountInvariant(k Keeper) sdk.Invariant {
 }
 
 // ModuleAccountInvariant checks that the coins held by the distr ModuleAccount
-// is consistent with the sum of validator outstanding rewards
+// is consistent with the sum of validator outstanding rewards, user outstanding
+// rewards and the community pool
 func ModuleAccountInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		var expectedCoins sdk.DecCoins
@@ -169,6 +172,16 @@ func ModuleAccountInvariant(k Keeper) sdk.Invariant {
 			expectedCoins = expectedCoins.Add(rewards.Rewards...)
 			return false
 		})
+
+		err := k.UserOutstandingRewards.Walk(ctx, nil,
+			func(_ collections.Pair[sdk.AccAddress, sdk.ValAddress], rewards types.UserOutstandingRewards) (stop bool, err error) {
+				expectedCoins = expectedCoins.Add(sdk.NewDecCoinsFromCoins(rewards.Rewards...)...)
+				return false, nil
+			},
+		)
+		if err != nil {
+			panic(err)
+		}
 
 		communityPool, err := k.FeePool.Get(ctx)
 		if err != nil {

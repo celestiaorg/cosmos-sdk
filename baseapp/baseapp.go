@@ -886,6 +886,11 @@ func (app *BaseApp) endBlock(_ context.Context) (sdk.EndBlock, error) {
 //
 // Execution is split into runTxAnte and runTxMsgs; the gas meter in the
 // prepared tx's context is cumulative across both phases.
+//
+// NOTE: FinalizeBlock no longer uses runTx; it executes blocks through
+// executeTxsPhased. runTx remains in use by CheckTx, Simulate, genesis tx
+// delivery (deliverTx), and PrepareProposal/ProcessProposal tx validation,
+// where runMsgs skips message execution so effectively only the antes run.
 func (app *BaseApp) runTx(mode execMode, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
 	p, err := app.runTxAnte(mode, txBytes)
 	if err == nil {

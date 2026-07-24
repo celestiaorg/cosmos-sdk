@@ -55,6 +55,10 @@ func (m BlockGasImpl) Set(ctx context.Context, msg *baseapptestutil.MsgKeyValue)
 }
 
 func TestBaseApp_BlockGas(t *testing.T) {
+	t.Skip("block gas is no longer consumed: Celestia sets MaxGas = -1, and phased execution " +
+		"(every ante before any message) could not enforce a finite MaxGas correctly anyway, " +
+		"since fees and sequence increments commit before block gas can run out")
+
 	testcases := []struct {
 		name         string
 		gasToConsume uint64 // gas to consume in the msg execution

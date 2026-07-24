@@ -27,19 +27,6 @@ type preparedTx struct {
 	gasWanted  uint64
 	anteEvents []abci.Event
 	priority   int64
-	// blockGasConsumed ensures block gas is charged at most once per tx.
-	blockGasConsumed bool
-}
-
-// consumeBlockGas charges the tx's gas consumption to the block gas meter,
-// at most once per tx. It must run even if tx processing fails.
-func (p *preparedTx) consumeBlockGas() {
-	if !p.blockGasConsumed {
-		p.blockGasConsumed = true
-		p.ctx.BlockGasMeter().ConsumeGas(
-			p.ctx.GasMeter().GasConsumedToLimit(), "block gas meter",
-		)
-	}
 }
 
 // runTxAnte runs the ante phase of a tx: decode, validation, ante handlers
@@ -55,40 +42,11 @@ func (app *BaseApp) runTxAnte(mode execMode, txBytes []byte) (p *preparedTx, err
 		ctx:     ctx,
 	}
 
-	// only run the tx if there is block gas remaining
-	//
-	// NOTE: phased execution assumes MaxGas = -1 (Celestia). With a positive
-	// MaxGas this check is weaker than sequential runTx: successful antes
-	// consume no block gas in phase 1, so every included tx pays its fee even
-	// if it later fails phase 2 on block gas.
-	if mode == execModeFinalize && ctx.BlockGasMeter().IsOutOfGas() {
-		return p, errorsmod.Wrap(sdkerrors.ErrOutOfGas, "no block gas left to run tx")
-	}
-
 	defer func() {
-		r := recover()
-		if r == nil && err == nil {
-			return
-		}
-
-		// The message phase won't run at this point. In finalize charge block gas for the ante
-		// handlers. ConsumeGas may itself panic past the block gas limit; that panic supersedes the original failure.
-		if mode == execModeFinalize {
-			func() {
-				defer func() {
-					if r2 := recover(); r2 != nil {
-						r = r2
-					}
-				}()
-
-				p.consumeBlockGas()
-			}()
-		}
-
-		if r != nil {
+		if r := recover(); r != nil {
 			recoveryMW := newOutOfGasRecoveryMiddleware(p.gasWanted, p.ctx, app.runTxRecoveryMiddleware)
 			err = processRecovery(r, recoveryMW)
-			p.ctx.Logger().Debug("panic recovered in runTx", "err", err)
+			p.ctx.Logger().Debug("panic recovered in runTxAnte", "err", err)
 		}
 	}()
 
@@ -174,7 +132,6 @@ func (app *BaseApp) runTxAnte(mode execMode, txBytes []byte) (p *preparedTx, err
 
 // runTxMsgs runs the message phase of a prepared tx: messages and optional
 // post handlers execute on a multistore branch, committed only on success.
-// In execModeFinalize the tx's total gas is charged to the block gas meter.
 func (app *BaseApp) runTxMsgs(mode execMode, p *preparedTx) (result *sdk.Result, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -183,16 +140,6 @@ func (app *BaseApp) runTxMsgs(mode execMode, p *preparedTx) (result *sdk.Result,
 			p.ctx.Logger().Debug("panic recovered in runTx", "err", err)
 		}
 	}()
-
-	// If BlockGasMeter() panics it will be caught by the above recover and will
-	// return an error - in any case BlockGasMeter will consume gas past the limit.
-	//
-	// NOTE: consumeBlockGas must exist in a separate defer function from the
-	// general deferred recovery function to recover from consumeBlockGas as it'll
-	// be executed first (deferred statements are executed as stack).
-	if mode == execModeFinalize {
-		defer p.consumeBlockGas()
-	}
 
 	// Create a new Context based off of the existing Context with a MultiStore branch
 	// in case message processing fails. At this point, the MultiStore
@@ -230,9 +177,6 @@ func (app *BaseApp) runTxMsgs(mode execMode, p *preparedTx) (result *sdk.Result,
 
 	if err == nil {
 		if mode == execModeFinalize {
-			// When block gas exceeds, it'll panic and won't commit the cached store.
-			p.consumeBlockGas()
-
 			msCache.Write()
 		}
 
@@ -291,6 +235,9 @@ func (app *BaseApp) phasedTxResult(p *preparedTx, result *sdk.Result, err error)
 // executeTxsPhased executes the block's transactions in two phases: first the
 // ante handlers of every tx, then the messages of every tx that passed ante,
 // both in canonical order.
+//
+// NOTE: Phased execution does not consume block gas, so a finite MaxGas is
+// not enforced: txs are limited only by their own gas limits.
 func (app *BaseApp) executeTxsPhased(ctx context.Context, txs [][]byte) ([]*abci.ExecTxResult, error) {
 	passedAnte := make([]*preparedTx, len(txs))
 	execTxResults := make([]*abci.ExecTxResult, len(txs))

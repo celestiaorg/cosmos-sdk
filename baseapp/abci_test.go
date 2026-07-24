@@ -1043,6 +1043,10 @@ func TestABCI_TxGasLimits(t *testing.T) {
 }
 
 func TestABCI_MaxBlockGasLimits(t *testing.T) {
+	t.Skip("block gas is no longer consumed: Celestia sets MaxGas = -1, and phased execution " +
+		"(every ante before any message) could not enforce a finite MaxGas correctly anyway, " +
+		"since fees and sequence increments commit before block gas can run out")
+
 	gasGranted := uint64(10)
 	anteOpt := func(bapp *baseapp.BaseApp) {
 		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
@@ -2768,6 +2772,10 @@ func TestABCI_PhasedExecution_OutOfGas(t *testing.T) {
 // TestABCI_PhasedExecution_BlockGasOncePerTx verifies that each tx's total
 // gas (ante + messages) is charged to the block gas meter exactly once.
 func TestABCI_PhasedExecution_BlockGasOncePerTx(t *testing.T) {
+	t.Skip("block gas is no longer consumed: Celestia sets MaxGas = -1, and phased execution " +
+		"(every ante before any message) could not enforce a finite MaxGas correctly anyway, " +
+		"since fees and sequence increments commit before block gas can run out")
+
 	gasGranted := uint64(100)
 	anteOpt := func(bapp *baseapp.BaseApp) {
 		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, _ bool) (sdk.Context, error) {

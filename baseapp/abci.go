@@ -808,6 +808,14 @@ func (app *BaseApp) internalFinalizeBlock(ctx context.Context, req *abci.Request
 		return nil, err
 	}
 
+	// check for ctx being done before running endBlock
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+		// continue
+	}
+
 	if app.finalizeBlockState.ms.TracingEnabled() {
 		app.finalizeBlockState.ms = app.finalizeBlockState.ms.SetTracingContext(nil).(storetypes.CacheMultiStore)
 	}

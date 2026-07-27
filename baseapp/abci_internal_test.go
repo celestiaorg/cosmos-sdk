@@ -28,7 +28,7 @@ func (tx cancellingTx) GetMsgs() []sdk.Msg { return tx.msgs }
 
 func (tx cancellingTx) GetMsgsV2() ([]protov2.Message, error) {
 	tx.cancel()
-	return nil, errors.New("tx cancelled")
+	return nil, errors.New("tx canceled")
 }
 
 type noopCounterServer struct{}

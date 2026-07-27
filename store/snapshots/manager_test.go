@@ -2,9 +2,12 @@ package snapshots_test
 
 import (
 	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	db "github.com/cosmos/cosmos-db"
+	protoio "github.com/cosmos/gogoproto/io"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -255,4 +258,106 @@ func TestManager_TakeError(t *testing.T) {
 
 	_, err = manager.Create(1)
 	require.Error(t, err)
+}
+
+func TestManager_CloseAbortsInFlightSnapshot(t *testing.T) {
+	store, err := snapshots.NewStore(db.NewMemDB(), t.TempDir())
+	require.NoError(t, err)
+
+	hung := newHungSnapshotter()
+	hung.SetSnapshotInterval(opts.Interval)
+	manager := snapshots.NewManager(store, opts, hung, nil, log.NewNopLogger())
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := manager.Create(1)
+		errCh <- err
+	}()
+
+	select {
+	case <-hung.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Snapshot to start")
+	}
+
+	require.NoError(t, manager.Close())
+
+	select {
+	case err := <-errCh:
+		require.ErrorIs(t, err, snapshots.ErrAborted)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Create to abort")
+	}
+
+	_, didPruneHeight := hung.prunedHeights[1]
+	require.False(t, didPruneHeight, "aborted snapshots should not prune snapshot heights")
+
+	// Further snapshot attempts should fail fast.
+	_, err = manager.Create(2)
+	require.ErrorIs(t, err, snapshots.ErrAborted)
+
+	manager.SnapshotIfApplicable(int64(opts.Interval)) // must not panic or hang
+}
+
+func TestManager_CloseIdempotent(t *testing.T) {
+	store, err := snapshots.NewStore(db.NewMemDB(), t.TempDir())
+	require.NoError(t, err)
+	manager := snapshots.NewManager(store, opts, &mockSnapshotter{}, nil, log.NewNopLogger())
+	require.NoError(t, manager.Close())
+	require.NoError(t, manager.Close())
+}
+
+// writingSnapshotter keeps writing until the stream writer fails (e.g. aborted by Close).
+type writingSnapshotter struct {
+	started chan struct{}
+	once    sync.Once
+}
+
+func (w *writingSnapshotter) Snapshot(height uint64, protoWriter protoio.Writer) error {
+	w.once.Do(func() { close(w.started) })
+	for {
+		err := protoWriter.WriteMsg(&types.SnapshotItem{
+			Item: &types.SnapshotItem_Store{
+				Store: &types.SnapshotStoreItem{Name: "busy"},
+			},
+		})
+		if err != nil {
+			return err
+		}
+	}
+}
+
+func (w *writingSnapshotter) PruneSnapshotHeight(height int64)            {}
+func (w *writingSnapshotter) SetSnapshotInterval(snapshotInterval uint64) {}
+func (w *writingSnapshotter) Restore(height uint64, format uint32, protoReader protoio.Reader) (types.SnapshotItem, error) {
+	panic("not implemented")
+}
+
+func TestManager_CloseAbortsWritingSnapshot(t *testing.T) {
+	store, err := snapshots.NewStore(db.NewMemDB(), t.TempDir())
+	require.NoError(t, err)
+
+	writer := &writingSnapshotter{started: make(chan struct{})}
+	manager := snapshots.NewManager(store, opts, writer, nil, log.NewNopLogger())
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := manager.Create(1)
+		errCh <- err
+	}()
+
+	select {
+	case <-writer.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for writing snapshot to start")
+	}
+
+	require.NoError(t, manager.Close())
+
+	select {
+	case err := <-errCh:
+		require.ErrorIs(t, err, snapshots.ErrAborted)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Create to abort")
+	}
 }

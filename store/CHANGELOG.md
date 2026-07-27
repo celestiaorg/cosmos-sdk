@@ -29,6 +29,12 @@ Ref: https://keepachangelog.com/en/1.0.0/
 > With Cosmos SDK v2 (with store/v2), CometBFT has been pushed to the boundaries, so issues like this
 > are not expected to happen again.
 
+## Unreleased
+
+### Bug Fixes
+
+* (snapshots) [celestia-app#7252](https://github.com/celestiaorg/celestia-app/issues/7252) Abort in-flight snapshots on `Manager.Close`, wait for export work to unwind before closing the snapshot DB, and stop panicking in `HandleSnapshotHeight` on DB write errors (shutdown race with `application.db`).
+
 ## v1.1.1 (September 06, 2024)
 
 ### Improvements

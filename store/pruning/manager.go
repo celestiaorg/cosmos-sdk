@@ -66,9 +66,13 @@ func (m *Manager) GetOptions() types.PruningOptions {
 }
 
 // HandleSnapshotHeight persists the snapshot height to be pruned at the next appropriate
-// height defined by the pruning strategy. It flushes the update to disk and panics if the flush fails.
+// height defined by the pruning strategy. It flushes the update to disk.
 // The input height must be greater than 0, and the pruning strategy must not be set to pruning nothing.
 // If either of these conditions is not met, this function does nothing.
+//
+// DB write errors are logged and ignored; panicking here can crash the process during
+// shutdown when application.db is already closed.
+// See https://github.com/celestiaorg/celestia-app/issues/7252.
 func (m *Manager) HandleSnapshotHeight(height int64) {
 	if m.opts.GetPruningStrategy() == types.PruningNothing || height <= 0 {
 		return
@@ -90,7 +94,7 @@ func (m *Manager) HandleSnapshotHeight(height int64) {
 
 	// flush the updates to disk so that they are not lost if crash happens.
 	if err := m.db.SetSync(pruneSnapshotHeightsKey, int64SliceToBytes(m.pruneSnapshotHeights)); err != nil {
-		panic(err)
+		m.logger.Error("failed to persist prune snapshot heights", "height", height, "err", err)
 	}
 }
 

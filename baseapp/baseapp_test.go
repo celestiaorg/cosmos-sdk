@@ -53,7 +53,7 @@ type (
 		baseApp   *baseapp.BaseApp
 		cdc       *codec.ProtoCodec
 		txConfig  client.TxConfig
-		logBuffer *bytes.Buffer
+		logBuffer *syncedLogBuffer
 	}
 
 	SnapshotsConfig struct {
@@ -65,13 +65,38 @@ type (
 	}
 )
 
+// syncedLogBuffer is a bytes.Buffer safe for concurrent logger writes
+// (e.g. SnapshotIfApplicable goroutine racing BaseApp.Close).
+type syncedLogBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncedLogBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncedLogBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func (b *syncedLogBuffer) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf.Reset()
+}
+
 func NewBaseAppSuite(t *testing.T, opts ...func(*baseapp.BaseApp)) *BaseAppSuite {
 	cdc := codectestutil.CodecOptions{}.NewCodec()
 	baseapptestutil.RegisterInterfaces(cdc.InterfaceRegistry())
 
 	txConfig := authtx.NewTxConfig(cdc, authtx.DefaultSignModes)
 	db := dbm.NewMemDB()
-	logBuffer := new(bytes.Buffer)
+	logBuffer := &syncedLogBuffer{}
 	logger := log.NewLogger(logBuffer, log.ColorOption(false))
 
 	app := baseapp.NewBaseApp(t.Name(), logger, db, txConfig.TxDecoder(), opts...)

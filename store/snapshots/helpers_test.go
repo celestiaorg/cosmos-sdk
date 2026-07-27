@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -222,7 +223,11 @@ func setupBusyManager(t *testing.T) *snapshots.Manager {
 	go func() {
 		defer close(done)
 		_, err := mgr.Create(1)
-		require.NoError(t, err)
+		// Manager.Close may abort an in-flight Create; that is expected.
+		if err != nil {
+			require.ErrorIs(t, err, snapshots.ErrAborted)
+			return
+		}
 		_, didPruneHeight := hung.prunedHeights[1]
 		require.True(t, didPruneHeight)
 	}()
@@ -240,6 +245,10 @@ func setupBusyManager(t *testing.T) *snapshots.Manager {
 // hungSnapshotter can be used to test operations in progress. Call close to end the snapshot.
 type hungSnapshotter struct {
 	ch               chan struct{}
+	abortCh          <-chan struct{}
+	entered          chan struct{}
+	enteredOnce      sync.Once
+	closeOnce        sync.Once
 	prunedHeights    map[int64]struct{}
 	snapshotInterval uint64
 }
@@ -247,17 +256,31 @@ type hungSnapshotter struct {
 func newHungSnapshotter() *hungSnapshotter {
 	return &hungSnapshotter{
 		ch:            make(chan struct{}),
+		entered:       make(chan struct{}),
 		prunedHeights: make(map[int64]struct{}),
 	}
 }
 
+func (m *hungSnapshotter) SetSnapshotAbortCh(abort <-chan struct{}) {
+	m.abortCh = abort
+}
+
 func (m *hungSnapshotter) Close() {
-	close(m.ch)
+	m.closeOnce.Do(func() {
+		close(m.ch)
+	})
 }
 
 func (m *hungSnapshotter) Snapshot(height uint64, protoWriter protoio.Writer) error {
-	<-m.ch
-	return nil
+	m.enteredOnce.Do(func() {
+		close(m.entered)
+	})
+	select {
+	case <-m.ch:
+		return nil
+	case <-m.abortCh:
+		return snapshots.ErrAborted
+	}
 }
 
 func (m *hungSnapshotter) PruneSnapshotHeight(height int64) {

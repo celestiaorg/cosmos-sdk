@@ -8,9 +8,12 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"sync"
 	"testing"
+	"time"
 
 	dbm "github.com/cosmos/cosmos-db"
+	protoio "github.com/cosmos/gogoproto/io"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -302,6 +305,85 @@ func benchmarkMultistoreSnapshotRestore(b *testing.B, stores uint8, storeKeys ui
 		require.NoError(b, err)
 		require.Equal(b, source.LastCommitID(), target.LastCommitID())
 	}
+}
+
+// signalingSnapshotter wraps a real Snapshotter and signals when Snapshot begins so
+// tests can Close the manager mid-IAVL export.
+type signalingSnapshotter struct {
+	inner   snapshottypes.Snapshotter
+	entered chan struct{}
+	once    sync.Once
+}
+
+func (s *signalingSnapshotter) Snapshot(height uint64, protoWriter protoio.Writer) error {
+	s.once.Do(func() { close(s.entered) })
+	return s.inner.Snapshot(height, protoWriter)
+}
+
+func (s *signalingSnapshotter) PruneSnapshotHeight(height int64) {
+	s.inner.PruneSnapshotHeight(height)
+}
+
+func (s *signalingSnapshotter) SetSnapshotInterval(snapshotInterval uint64) {
+	s.inner.SetSnapshotInterval(snapshotInterval)
+}
+
+func (s *signalingSnapshotter) Restore(height uint64, format uint32, protoReader protoio.Reader) (snapshottypes.SnapshotItem, error) {
+	return s.inner.Restore(height, format, protoReader)
+}
+
+// TestMultistoreSnapshot_ManagerCloseAbortsExport starts a real rootmulti/IAVL
+// snapshot via snapshots.Manager, then Close() mid-export. Create must return
+// ErrAborted and must not leave the process panicking.
+// See https://github.com/celestiaorg/celestia-app/issues/7252.
+func TestMultistoreSnapshot_ManagerCloseAbortsExport(t *testing.T) {
+	// Large enough that export outlives the test's Close after "entered".
+	multiStore := newMultiStoreWithGeneratedData(dbm.NewMemDB(), 5, 10000)
+	version := uint64(multiStore.LastCommitID().Version)
+	require.EqualValues(t, 1, version)
+
+	snapshotDB := dbm.NewMemDB()
+	snapshotStore, err := snapshots.NewStore(snapshotDB, t.TempDir())
+	require.NoError(t, err)
+
+	gate := &signalingSnapshotter{
+		inner:   multiStore,
+		entered: make(chan struct{}),
+	}
+	opts := snapshottypes.NewSnapshotOptions(1, 1)
+	manager := snapshots.NewManager(snapshotStore, opts, gate, nil, log.NewNopLogger())
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := manager.Create(version)
+		errCh <- err
+	}()
+
+	select {
+	case <-gate.entered:
+	case <-time.After(30 * time.Second):
+		t.Fatal("timed out waiting for rootmulti Snapshot to start")
+	}
+
+	require.NoError(t, manager.Close())
+
+	select {
+	case err := <-errCh:
+		require.ErrorIs(t, err, snapshots.ErrAborted)
+	case <-time.After(30 * time.Second):
+		t.Fatal("timed out waiting for Create to abort after Manager.Close")
+	}
+
+	// App state DB must remain usable; Manager.Close only closes snapshot metadata.
+	require.EqualValues(t, 1, multiStore.LastCommitID().Version)
+	store0 := multiStore.GetStoreByName("store0").(types.KVStore)
+	key := make([]byte, 8)
+	binary.BigEndian.PutUint64(key, 0)
+	require.NotNil(t, store0.Get(key))
+
+	// Closed manager rejects new work.
+	_, err = manager.Create(version)
+	require.ErrorIs(t, err, snapshots.ErrAborted)
 }
 
 func BenchmarkMultistoreSnapshot100K(b *testing.B) {

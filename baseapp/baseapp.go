@@ -883,180 +883,22 @@ func (app *BaseApp) endBlock(_ context.Context) (sdk.EndBlock, error) {
 // Note, gas execution info is always returned. A reference to a Result is
 // returned if the tx does not run out of gas and if all the messages are valid
 // and execute successfully. An error is returned otherwise.
+//
+// Execution is split into runTxAnte and runTxMsgs; the gas meter in the
+// prepared tx's context is cumulative across both phases.
+//
+// NOTE: FinalizeBlock no longer uses runTx; it executes blocks through
+// executeTxsPhased. runTx remains in use by CheckTx, Simulate, genesis tx
+// delivery (deliverTx), and PrepareProposal/ProcessProposal tx validation,
+// where runMsgs skips message execution so effectively only the antes run.
 func (app *BaseApp) runTx(mode execMode, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
-	// NOTE: GasWanted should be returned by the AnteHandler. GasUsed is
-	// determined by the GasMeter. We need access to the context to get the gas
-	// meter, so we initialize upfront.
-	var gasWanted uint64
-
-	ctx := app.getContextForTx(mode, txBytes)
-	ms := ctx.MultiStore()
-
-	// only run the tx if there is block gas remaining
-	if mode == execModeFinalize && ctx.BlockGasMeter().IsOutOfGas() {
-		return gInfo, nil, nil, 0, errorsmod.Wrap(sdkerrors.ErrOutOfGas, "no block gas left to run tx")
-	}
-
-	defer func() {
-		if r := recover(); r != nil {
-			recoveryMW := newOutOfGasRecoveryMiddleware(gasWanted, ctx, app.runTxRecoveryMiddleware)
-			err, result = processRecovery(r, recoveryMW), nil
-			ctx.Logger().Debug("panic recovered in runTx", "err", err)
-		}
-
-		gInfo = sdk.GasInfo{GasWanted: gasWanted, GasUsed: ctx.GasMeter().GasConsumed()}
-	}()
-
-	blockGasConsumed := false
-
-	// consumeBlockGas makes sure block gas is consumed at most once. It must
-	// happen after tx processing, and must be executed even if tx processing
-	// fails. Hence, it's execution is deferred.
-	consumeBlockGas := func() {
-		if !blockGasConsumed {
-			blockGasConsumed = true
-			ctx.BlockGasMeter().ConsumeGas(
-				ctx.GasMeter().GasConsumedToLimit(), "block gas meter",
-			)
-		}
-	}
-
-	// If BlockGasMeter() panics it will be caught by the above recover and will
-	// return an error - in any case BlockGasMeter will consume gas past the limit.
-	//
-	// NOTE: consumeBlockGas must exist in a separate defer function from the
-	// general deferred recovery function to recover from consumeBlockGas as it'll
-	// be executed first (deferred statements are executed as stack).
-	if mode == execModeFinalize {
-		defer consumeBlockGas()
-	}
-
-	tx, err := app.txDecoder(txBytes)
-	if err != nil {
-		return sdk.GasInfo{}, nil, nil, 0, err
-	}
-
-	msgs := tx.GetMsgs()
-	if err := validateBasicTxMsgs(msgs); err != nil {
-		return sdk.GasInfo{}, nil, nil, 0, err
-	}
-
-	for _, msg := range msgs {
-		handler := app.msgServiceRouter.Handler(msg)
-		if handler == nil {
-			return sdk.GasInfo{}, nil, nil, 0, errorsmod.Wrapf(sdkerrors.ErrUnknownRequest, "no message handler found for %T", msg)
-		}
-	}
-
-	if app.anteHandler != nil {
-		var (
-			anteCtx sdk.Context
-			msCache storetypes.CacheMultiStore
-		)
-
-		// Branch context before AnteHandler call in case it aborts.
-		// This is required for both CheckTx and DeliverTx.
-		// Ref: https://github.com/cosmos/cosmos-sdk/issues/2772
-		//
-		// NOTE: Alternatively, we could require that AnteHandler ensures that
-		// writes do not happen if aborted/failed.  This may have some
-		// performance benefits, but it'll be more difficult to get right.
-		anteCtx, msCache = app.cacheTxContext(ctx, txBytes)
-		anteCtx = anteCtx.WithEventManager(sdk.NewEventManager())
-		newCtx, err := app.anteHandler(anteCtx, tx, mode == execModeSimulate)
-
-		if !newCtx.IsZero() {
-			// At this point, newCtx.MultiStore() is a store branch, or something else
-			// replaced by the AnteHandler. We want the original multistore.
-			//
-			// Also, in the case of the tx aborting, we need to track gas consumed via
-			// the instantiated gas meter in the AnteHandler, so we update the context
-			// prior to returning.
-			ctx = newCtx.WithMultiStore(ms)
-		}
-
-		events := ctx.EventManager().Events()
-
-		// GasMeter expected to be set in AnteHandler
-		gasWanted = ctx.GasMeter().Limit()
-
-		if err != nil {
-			if mode == execModeReCheck {
-				// if the ante handler fails on recheck, we want to remove the tx from the mempool
-				if mempoolErr := app.mempool.Remove(tx); mempoolErr != nil {
-					return gInfo, nil, anteEvents, 0, errors.Join(err, mempoolErr)
-				}
-			}
-			return gInfo, nil, nil, 0, err
-		}
-
-		msCache.Write()
-		anteEvents = events.ToABCIEvents()
-		priority = ctx.Priority()
-	}
-
-	if mode == execModeCheck {
-		err = app.mempool.Insert(ctx, tx)
-		if err != nil {
-			return gInfo, nil, anteEvents, priority, err
-		}
-	} else if mode == execModeFinalize {
-		err = app.mempool.Remove(tx)
-		if err != nil && !errors.Is(err, mempool.ErrTxNotFound) {
-			return gInfo, nil, anteEvents, priority,
-				fmt.Errorf("failed to remove tx from mempool: %w", err)
-		}
-	}
-
-	// Create a new Context based off of the existing Context with a MultiStore branch
-	// in case message processing fails. At this point, the MultiStore
-	// is a branch of a branch.
-	runMsgCtx, msCache := app.cacheTxContext(ctx, txBytes)
-
-	// Attempt to execute all messages and only update state if all messages pass
-	// and we're in DeliverTx. Note, runMsgs will never return a reference to a
-	// Result if any single message fails or does not have a registered Handler.
-	msgsV2, err := tx.GetMsgsV2()
+	p, err := app.runTxAnte(mode, txBytes)
 	if err == nil {
-		result, err = app.runMsgs(runMsgCtx, msgs, msgsV2, mode)
+		result, err = app.runTxMsgs(mode, p)
 	}
 
-	// Run optional postHandlers (should run regardless of the execution result).
-	//
-	// Note: If the postHandler fails, we also revert the runMsgs state.
-	if app.postHandler != nil {
-		// The runMsgCtx context currently contains events emitted by the ante handler.
-		// We clear this to correctly order events without duplicates.
-		// Note that the state is still preserved.
-		postCtx := runMsgCtx.WithEventManager(sdk.NewEventManager())
-
-		newCtx, errPostHandler := app.postHandler(postCtx, tx, mode == execModeSimulate, err == nil)
-		if errPostHandler != nil {
-			return gInfo, nil, anteEvents, priority, errors.Join(err, errPostHandler)
-		}
-
-		// we don't want runTx to panic if runMsgs has failed earlier
-		if result == nil {
-			result = &sdk.Result{}
-		}
-		result.Events = append(result.Events, newCtx.EventManager().ABCIEvents()...)
-	}
-
-	if err == nil {
-		if mode == execModeFinalize {
-			// When block gas exceeds, it'll panic and won't commit the cached store.
-			consumeBlockGas()
-
-			msCache.Write()
-		}
-
-		if len(anteEvents) > 0 && (mode == execModeFinalize || mode == execModeSimulate) {
-			// append the events in the order of occurrence
-			result.Events = append(anteEvents, result.Events...)
-		}
-	}
-
-	return gInfo, result, anteEvents, priority, err
+	gInfo = sdk.GasInfo{GasWanted: p.gasWanted, GasUsed: p.ctx.GasMeter().GasConsumed()}
+	return gInfo, result, p.anteEvents, p.priority, err
 }
 
 // runMsgs iterates through a list of messages and executes them with the provided

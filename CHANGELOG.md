@@ -36,6 +36,16 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 # Changelog
 
+## [Unreleased]
+
+### State Machine Breaking
+
+* (baseapp) [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) `FinalizeBlock` now executes transactions in two phases. Ante handlers run first for all transactions in block order, followed by message execution for every transaction whose ante handler succeeded. Compared with sequential execution:
+    * Fees, sequence increments, and other ante writes are committed before any messages execute. A transaction can no longer pay its fee using funds received from an earlier transaction in the same block.
+    * Each message observes the ante writes of all transactions, including later transactions in the block. For example, an account balance reflects fees deducted by later transactions before any message reads or modifies it.
+    * Each message uses the context produced by its transaction's ante handler. Context-carried values, such as consensus parameters, are therefore captured during the ante phase.
+    * Block gas is no longer consumed or enforced. Transactions remain subject to their individual gas limits. Celestia configures `block.max_gas = -1` to keep block gas unlimited.
+
 ## [v0.50.x-celestia]
 
 * (baseapp) [#1](https://github.com/01builders/cosmos-sdk/pull/1) `SetProtocolVersion` has been renamed to `SetAppVersion`. It now updates the consensus params in baseapp's `ParamStore`.

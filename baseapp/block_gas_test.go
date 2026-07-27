@@ -54,11 +54,10 @@ func (m BlockGasImpl) Set(ctx context.Context, msg *baseapptestutil.MsgKeyValue)
 	return &baseapptestutil.MsgCreateKeyValueResponse{}, nil
 }
 
+// TestBaseApp_BlockGas verifies that phased execution measures per-tx gas
+// exactly like the old sequential implementation, and that block gas is no
+// longer consumed.
 func TestBaseApp_BlockGas(t *testing.T) {
-	t.Skip("block gas is no longer consumed: Celestia sets MaxGas = -1, and phased execution " +
-		"(every ante before any message) could not enforce a finite MaxGas correctly anyway, " +
-		"since fees and sequence increments commit before block gas can run out")
-
 	testcases := []struct {
 		name         string
 		gasToConsume uint64 // gas to consume in the msg execution
@@ -177,14 +176,15 @@ func TestBaseApp_BlockGas(t *testing.T) {
 				require.Equal(t, uint32(0), rsp.TxResults[0].Code)
 				require.Equal(t, []byte("ok"), okValue)
 			}
-			// check block gas is always consumed
-			baseGas := uint64(57504) // baseGas is the gas consumed before tx msg
-			expGasConsumed := addUint64Saturating(tc.gasToConsume, baseGas)
-			if expGasConsumed > uint64(simtestutil.DefaultConsensusParams.Block.MaxGas) {
-				// capped by gasLimit
-				expGasConsumed = uint64(simtestutil.DefaultConsensusParams.Block.MaxGas)
-			}
-			require.Equal(t, int(expGasConsumed), int(ctx.BlockGasMeter().GasConsumed()))
+			// If gas measurement changes, GasUsed no longer matches the expected
+			// values hardcoded here, which come from a run of the old sequential
+			// implementation (commit 87a6e78fe7).
+			baseGas := uint64(57504) // gas consumed by ante and tx overhead before the msg
+			expGasUsed := int64(addUint64Saturating(tc.gasToConsume, baseGas))
+			require.Equal(t, expGasUsed, rsp.TxResults[0].GasUsed)
+
+			// block gas is never consumed under phased execution
+			require.Zero(t, ctx.BlockGasMeter().GasConsumed())
 			// tx fee is always deducted
 			require.Equal(t, int64(0), bankKeeper.GetBalance(ctx, addr1, feeCoin.Denom).Amount.Int64())
 			// sender's sequence is always increased

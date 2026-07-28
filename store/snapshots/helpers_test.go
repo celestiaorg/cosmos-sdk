@@ -244,8 +244,6 @@ func setupBusyManager(t *testing.T) *snapshots.Manager {
 // hungSnapshotter can be used to test operations in progress. Call Close to end the snapshot.
 type hungSnapshotter struct {
 	ch               chan struct{}
-	entered          chan struct{}
-	enteredOnce      sync.Once
 	closeOnce        sync.Once
 	prunedHeights    map[int64]struct{}
 	snapshotInterval uint64
@@ -254,7 +252,6 @@ type hungSnapshotter struct {
 func newHungSnapshotter() *hungSnapshotter {
 	return &hungSnapshotter{
 		ch:            make(chan struct{}),
-		entered:       make(chan struct{}),
 		prunedHeights: make(map[int64]struct{}),
 	}
 }
@@ -266,9 +263,6 @@ func (m *hungSnapshotter) Close() {
 }
 
 func (m *hungSnapshotter) Snapshot(height uint64, protoWriter protoio.Writer) error {
-	m.enteredOnce.Do(func() {
-		close(m.entered)
-	})
 	<-m.ch
 	return nil
 }

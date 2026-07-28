@@ -46,17 +46,10 @@ type Manager struct {
 	operation         operation
 	closed            bool
 	abortCh           chan struct{}
-	activeWriter      *StreamWriter
 	chRestore         chan<- uint32
 	chRestoreDone     <-chan restoreDone
 	restoreSnapshot   *types.Snapshot
 	restoreChunkIndex uint32
-}
-
-// snapshotAbortAware is optionally implemented by snapshotters that can honor
-// manager shutdown without relying on snapshot stream write failures.
-type snapshotAbortAware interface {
-	SetSnapshotAbortCh(abort <-chan struct{})
 }
 
 // operation represents a Manager operation. Only one operation can be in progress at a time.
@@ -100,9 +93,6 @@ func NewManager(store *Store, opts types.SnapshotOptions, multistore types.Snaps
 		abortCh:    make(chan struct{}),
 	}
 	m.idle = sync.NewCond(&m.mtx)
-	if a, ok := multistore.(snapshotAbortAware); ok {
-		a.SetSnapshotAbortCh(m.abortCh)
-	}
 	return m
 }
 
@@ -219,25 +209,11 @@ func (m *Manager) Create(height uint64) (*types.Snapshot, error) {
 			"a more recent snapshot already exists at height %v", latest.Height)
 	}
 
-	// Spawn goroutine to generate snapshot chunks and pass their io.ReadClosers through a channel.
-	// Wait for it to finish before returning so Close can safely proceed only after
-	// export goroutines have stopped touching application state.
+	// Spawn goroutine to generate snapshot chunks and pass their io.ReadClosers through a channel
 	ch := make(chan io.ReadCloser)
-	var snapshotWG sync.WaitGroup
-	snapshotWG.Add(1)
-	go func() {
-		defer snapshotWG.Done()
-		m.createSnapshot(height, ch)
-	}()
+	go m.createSnapshot(height, ch)
 
-	snapshot, err := m.store.Save(height, types.CurrentFormat, ch)
-	snapshotWG.Wait()
-	// Prefer ErrAborted once the manager is closing so callers (e.g. SnapshotIfApplicable)
-	// treat shutdown cancellation distinctly from snapshot failures.
-	if m.isClosed() {
-		return nil, ErrAborted
-	}
-	return snapshot, err
+	return m.store.Save(height, types.CurrentFormat, ch)
 }
 
 // createSnapshot do the heavy work of snapshotting after the validations of request are done
@@ -247,34 +223,23 @@ func (m *Manager) createSnapshot(height uint64, ch chan<- io.ReadCloser) {
 	if streamWriter == nil {
 		return
 	}
-
-	m.mtx.Lock()
-	if m.closed {
-		m.mtx.Unlock()
-		streamWriter.CloseWithError(ErrAborted)
-		return
-	}
-	m.activeWriter = streamWriter
-	abortCh := m.abortCh
-	// Wake Close if it is waiting for the writer to be registered.
-	m.idle.Broadcast()
-	m.mtx.Unlock()
-
 	defer func() {
-		m.mtx.Lock()
-		if m.activeWriter == streamWriter {
-			m.activeWriter = nil
-		}
-		m.idle.Broadcast()
-		m.mtx.Unlock()
-
 		if err := streamWriter.Close(); err != nil {
 			streamWriter.CloseWithError(err)
 		}
 	}()
 
-	// Honor manager abort on every WriteMsg so Close does not wait for zlib/bufio
-	// buffers (snapshotBufferSize) to fill before ChunkWriter observes the close.
+	m.mtx.Lock()
+	closed := m.closed
+	abortCh := m.abortCh
+	m.mtx.Unlock()
+	if closed {
+		streamWriter.CloseWithError(ErrAborted)
+		return
+	}
+
+	// Honor manager abort on every WriteMsg so Close need not wait for zlib/bufio
+	// buffers (snapshotBufferSize) to fill before the export observes shutdown.
 	out := &abortAwareWriter{StreamWriter: streamWriter, abortCh: abortCh}
 
 	if err := m.multistore.Snapshot(height, out); err != nil {
@@ -661,7 +626,8 @@ func (m *Manager) snapshot(height int64) {
 // application state, then closes the snapshot metadata database.
 //
 // Close does not wait for a snapshot to finish being created; it cancels in-flight
-// work and only waits for that work to unwind.
+// work and only waits for that work to unwind. Abort is observed on the next
+// WriteMsg after any in-flight chunk write is consumed by Save.
 func (m *Manager) Close() error {
 	if m == nil {
 		return nil
@@ -680,45 +646,25 @@ func (m *Manager) Close() error {
 	op := m.operation
 	// Avoid double-close if RestoreChunk already closed the channel.
 	m.chRestore = nil
-	m.mtx.Unlock()
 
 	if chRestore != nil {
+		m.mtx.Unlock()
 		close(chRestore)
+		m.mtx.Lock()
 	}
 	if op == opRestore && chRestoreDone != nil {
+		m.mtx.Unlock()
 		<-chRestoreDone
 		m.mtx.Lock()
 		if m.operation == opRestore {
 			m.endLocked()
 		}
-		m.mtx.Unlock()
 	}
 
-	// Abort any active snapshot writer. Loop until idle so we cannot miss a writer that
-	// registers after we sample activeWriter as nil (createSnapshot race).
-	for {
-		m.mtx.Lock()
-		for m.operation != opNone && m.activeWriter == nil {
-			// Create has begun but createSnapshot has not registered the writer yet.
-			m.idle.Wait()
-		}
-		writer := m.activeWriter
-		idle := m.operation == opNone
-		m.mtx.Unlock()
-
-		if writer != nil {
-			writer.CloseWithError(ErrAborted)
-		}
-		if idle {
-			break
-		}
-
-		m.mtx.Lock()
-		for m.operation != opNone && m.activeWriter == writer {
-			m.idle.Wait()
-		}
-		m.mtx.Unlock()
+	for m.operation != opNone {
+		m.idle.Wait()
 	}
+	m.mtx.Unlock()
 
 	return m.store.db.Close()
 }

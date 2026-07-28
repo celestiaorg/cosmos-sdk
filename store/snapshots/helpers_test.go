@@ -205,7 +205,10 @@ func (m *mockErrorSnapshotter) SetSnapshotInterval(snapshotInterval uint64) {
 }
 
 // setupBusyManager creates a manager with an empty store that is busy creating a snapshot at height 1.
-// The snapshot will complete when the returned closer is called.
+// The snapshot completes when hungSnapshotter.Close runs (via t.Cleanup).
+//
+// Do not call manager.Close() while the hung snapshotter is blocked: Close waits for the
+// in-flight Create to observe abort on WriteMsg, and hungSnapshotter never writes.
 func setupBusyManager(t *testing.T) *snapshots.Manager {
 	t.Helper()
 	store, err := snapshots.NewStore(db.NewMemDB(), t.TempDir())
@@ -223,11 +226,7 @@ func setupBusyManager(t *testing.T) *snapshots.Manager {
 	go func() {
 		defer close(done)
 		_, err := mgr.Create(1)
-		// Manager.Close may abort an in-flight Create; that is expected.
-		if err != nil {
-			require.ErrorIs(t, err, snapshots.ErrAborted)
-			return
-		}
+		require.NoError(t, err)
 		_, didPruneHeight := hung.prunedHeights[1]
 		require.True(t, didPruneHeight)
 	}()
@@ -242,10 +241,9 @@ func setupBusyManager(t *testing.T) *snapshots.Manager {
 	return mgr
 }
 
-// hungSnapshotter can be used to test operations in progress. Call close to end the snapshot.
+// hungSnapshotter can be used to test operations in progress. Call Close to end the snapshot.
 type hungSnapshotter struct {
 	ch               chan struct{}
-	abortCh          <-chan struct{}
 	entered          chan struct{}
 	enteredOnce      sync.Once
 	closeOnce        sync.Once
@@ -261,10 +259,6 @@ func newHungSnapshotter() *hungSnapshotter {
 	}
 }
 
-func (m *hungSnapshotter) SetSnapshotAbortCh(abort <-chan struct{}) {
-	m.abortCh = abort
-}
-
 func (m *hungSnapshotter) Close() {
 	m.closeOnce.Do(func() {
 		close(m.ch)
@@ -275,12 +269,8 @@ func (m *hungSnapshotter) Snapshot(height uint64, protoWriter protoio.Writer) er
 	m.enteredOnce.Do(func() {
 		close(m.entered)
 	})
-	select {
-	case <-m.ch:
-		return nil
-	case <-m.abortCh:
-		return snapshots.ErrAborted
-	}
+	<-m.ch
+	return nil
 }
 
 func (m *hungSnapshotter) PruneSnapshotHeight(height int64) {

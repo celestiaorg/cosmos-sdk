@@ -33,7 +33,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### Bug Fixes
 
-* (snapshots) [celestia-app#7252](https://github.com/celestiaorg/celestia-app/issues/7252) Abort in-flight snapshots on `Manager.Close`, wait for export work to unwind before closing the snapshot DB, and stop panicking in `HandleSnapshotHeight` on DB write errors (shutdown race with `application.db`).
+* (snapshots) [#7252](https://github.com/celestiaorg/celestia-app/issues/7252) Abort in-flight snapshots on `Manager.Close`, wait for export work to unwind before closing the snapshot DB, and stop panicking in `HandleSnapshotHeight` on DB write errors (shutdown race with `application.db`).
 
 ## v1.1.1 (September 06, 2024)
 

@@ -38,8 +38,6 @@ func TestManager_List(t *testing.T) {
 	list, err := manager.List()
 	require.NoError(t, err)
 	assert.Equal(t, []*types.Snapshot{}, list)
-
-	require.NoError(t, manager.Close())
 }
 
 func TestManager_LoadChunk(t *testing.T) {
@@ -260,45 +258,6 @@ func TestManager_TakeError(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestManager_CloseAbortsInFlightSnapshot(t *testing.T) {
-	store, err := snapshots.NewStore(db.NewMemDB(), t.TempDir())
-	require.NoError(t, err)
-
-	hung := newHungSnapshotter()
-	hung.SetSnapshotInterval(opts.Interval)
-	manager := snapshots.NewManager(store, opts, hung, nil, log.NewNopLogger())
-
-	errCh := make(chan error, 1)
-	go func() {
-		_, err := manager.Create(1)
-		errCh <- err
-	}()
-
-	select {
-	case <-hung.entered:
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for Snapshot to start")
-	}
-
-	require.NoError(t, manager.Close())
-
-	select {
-	case err := <-errCh:
-		require.ErrorIs(t, err, snapshots.ErrAborted)
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for Create to abort")
-	}
-
-	_, didPruneHeight := hung.prunedHeights[1]
-	require.False(t, didPruneHeight, "aborted snapshots should not prune snapshot heights")
-
-	// Further snapshot attempts should fail fast.
-	_, err = manager.Create(2)
-	require.ErrorIs(t, err, snapshots.ErrAborted)
-
-	manager.SnapshotIfApplicable(int64(opts.Interval)) // must not panic or hang
-}
-
 func TestManager_CloseIdempotent(t *testing.T) {
 	store, err := snapshots.NewStore(db.NewMemDB(), t.TempDir())
 	require.NoError(t, err)
@@ -309,8 +268,9 @@ func TestManager_CloseIdempotent(t *testing.T) {
 
 // writingSnapshotter keeps writing until the stream writer fails (e.g. aborted by Close).
 type writingSnapshotter struct {
-	started chan struct{}
-	once    sync.Once
+	started       chan struct{}
+	once          sync.Once
+	prunedHeights map[int64]struct{}
 }
 
 func (w *writingSnapshotter) Snapshot(height uint64, protoWriter protoio.Writer) error {
@@ -327,7 +287,12 @@ func (w *writingSnapshotter) Snapshot(height uint64, protoWriter protoio.Writer)
 	}
 }
 
-func (w *writingSnapshotter) PruneSnapshotHeight(height int64)            {}
+func (w *writingSnapshotter) PruneSnapshotHeight(height int64) {
+	if w.prunedHeights == nil {
+		w.prunedHeights = make(map[int64]struct{})
+	}
+	w.prunedHeights[height] = struct{}{}
+}
 func (w *writingSnapshotter) SetSnapshotInterval(snapshotInterval uint64) {}
 func (w *writingSnapshotter) Restore(height uint64, format uint32, protoReader protoio.Reader) (types.SnapshotItem, error) {
 	panic("not implemented")
@@ -337,7 +302,10 @@ func TestManager_CloseAbortsWritingSnapshot(t *testing.T) {
 	store, err := snapshots.NewStore(db.NewMemDB(), t.TempDir())
 	require.NoError(t, err)
 
-	writer := &writingSnapshotter{started: make(chan struct{})}
+	writer := &writingSnapshotter{
+		started:       make(chan struct{}),
+		prunedHeights: make(map[int64]struct{}),
+	}
 	manager := snapshots.NewManager(store, opts, writer, nil, log.NewNopLogger())
 
 	errCh := make(chan error, 1)
@@ -360,4 +328,13 @@ func TestManager_CloseAbortsWritingSnapshot(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for Create to abort")
 	}
+
+	_, didPruneHeight := writer.prunedHeights[1]
+	require.False(t, didPruneHeight, "aborted snapshots should not prune snapshot heights")
+
+	// Further snapshot attempts should fail fast.
+	_, err = manager.Create(2)
+	require.ErrorIs(t, err, snapshots.ErrAborted)
+
+	manager.SnapshotIfApplicable(int64(opts.Interval)) // must not panic or hang
 }

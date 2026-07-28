@@ -3,7 +3,6 @@ package snapshots
 import (
 	"io"
 	"math"
-	"sync"
 
 	"cosmossdk.io/errors"
 	snapshottypes "cosmossdk.io/store/snapshots/types"
@@ -12,15 +11,7 @@ import (
 
 // ChunkWriter reads an input stream, splits it into fixed-size chunks, and writes them to a
 // sequence of io.ReadClosers via a channel.
-//
-// Close / CloseWithError may run concurrently with Write (e.g. Manager.Close aborting an
-// in-flight snapshot). pipe.Write is never called while mtx is held so CloseWithError can
-// unblock a writer via pipe.CloseWithError. Channel close is done under mtx so it cannot
-// race with a send (sending on a closed channel panics).
 type ChunkWriter struct {
-	mtx         sync.Mutex
-	closeChOnce sync.Once
-
 	ch        chan<- io.ReadCloser
 	pipe      *io.PipeWriter
 	chunkSize uint64
@@ -36,137 +27,81 @@ func NewChunkWriter(ch chan<- io.ReadCloser, chunkSize uint64) *ChunkWriter {
 	}
 }
 
-// chunkLocked creates a new chunk. Caller must hold w.mtx.
-func (w *ChunkWriter) chunkLocked() error {
+// chunk creates a new chunk.
+func (w *ChunkWriter) chunk() error {
 	if w.pipe != nil {
-		pipe := w.pipe
-		w.pipe = nil
-		w.mtx.Unlock()
-		err := pipe.Close()
-		w.mtx.Lock()
+		err := w.pipe.Close()
 		if err != nil {
 			return err
 		}
-		if w.closed {
-			return errors.Wrap(storetypes.ErrLogic, "cannot write to closed ChunkWriter")
-		}
 	}
-
-	if w.closed {
-		return errors.Wrap(storetypes.ErrLogic, "cannot write to closed ChunkWriter")
-	}
-
 	pr, pw := io.Pipe()
-	// Hold the lock across the channel send so CloseWithError cannot close the channel
-	// concurrently (sending on a closed channel panics).
 	w.ch <- pr
 	w.pipe = pw
 	w.written = 0
 	return nil
 }
 
-func (w *ChunkWriter) closeChannelLocked() {
-	w.closeChOnce.Do(func() {
-		close(w.ch)
-	})
-}
-
 // Close implements io.Closer.
 func (w *ChunkWriter) Close() error {
-	w.mtx.Lock()
-	if w.closed {
-		w.mtx.Unlock()
-		return nil
-	}
-	w.closed = true
-	pipe := w.pipe
-	w.pipe = nil
-	w.closeChannelLocked()
-	w.mtx.Unlock()
-
-	if pipe != nil {
-		return pipe.Close()
+	if !w.closed {
+		w.closed = true
+		close(w.ch)
+		var err error
+		if w.pipe != nil {
+			err = w.pipe.Close()
+		}
+		return err
 	}
 	return nil
 }
 
 // CloseWithError closes the writer and sends an error to the reader.
-// Safe to call concurrently with Write.
 func (w *ChunkWriter) CloseWithError(err error) {
-	w.mtx.Lock()
-	if w.closed {
-		w.mtx.Unlock()
-		return
+	if !w.closed {
+		if w.pipe == nil {
+			// create a dummy pipe just to propagate the error to the reader, it always returns nil
+			_ = w.chunk()
+		}
+		w.closed = true
+		close(w.ch)
+		_ = w.pipe.CloseWithError(err) // CloseWithError always returns nil
 	}
-	w.closed = true
-
-	// Historical behavior: if no chunk exists yet, create a dummy one so Save observes
-	// the error instead of completing an empty snapshot successfully.
-	if w.pipe == nil {
-		pr, pw := io.Pipe()
-		w.ch <- pr
-		w.pipe = pw
-	}
-	pipe := w.pipe
-	w.pipe = nil
-	w.closeChannelLocked()
-	w.mtx.Unlock()
-
-	_ = pipe.CloseWithError(err)
 }
 
 // Write implements io.Writer.
 func (w *ChunkWriter) Write(data []byte) (int, error) {
+	if w.closed {
+		return 0, errors.Wrap(storetypes.ErrLogic, "cannot write to closed ChunkWriter")
+	}
 	nTotal := 0
 	for len(data) > 0 {
-		pipe, writeSize, err := w.prepareWrite(len(data))
-		if err != nil {
-			return nTotal, err
+		if w.pipe == nil || (w.written >= w.chunkSize && w.chunkSize > 0) {
+			err := w.chunk()
+			if err != nil {
+				return nTotal, err
+			}
 		}
 
-		n, err := pipe.Write(data[:writeSize])
-		if n > 0 {
-			w.addWritten(pipe, n)
-			nTotal += n
+		var writeSize uint64
+		if w.chunkSize == 0 {
+			writeSize = uint64(len(data))
+		} else {
+			writeSize = w.chunkSize - w.written
 		}
+		if writeSize > uint64(len(data)) {
+			writeSize = uint64(len(data))
+		}
+
+		n, err := w.pipe.Write(data[:writeSize])
+		w.written += uint64(n)
+		nTotal += n
 		if err != nil {
 			return nTotal, err
 		}
 		data = data[writeSize:]
 	}
 	return nTotal, nil
-}
-
-func (w *ChunkWriter) prepareWrite(dataLen int) (*io.PipeWriter, int, error) {
-	w.mtx.Lock()
-	defer w.mtx.Unlock()
-
-	if w.closed {
-		return nil, 0, errors.Wrap(storetypes.ErrLogic, "cannot write to closed ChunkWriter")
-	}
-
-	for w.pipe == nil || (w.chunkSize > 0 && w.written >= w.chunkSize) {
-		if err := w.chunkLocked(); err != nil {
-			return nil, 0, err
-		}
-	}
-
-	writeSize := dataLen
-	if w.chunkSize > 0 {
-		remaining := int(w.chunkSize - w.written)
-		if writeSize > remaining {
-			writeSize = remaining
-		}
-	}
-	return w.pipe, writeSize, nil
-}
-
-func (w *ChunkWriter) addWritten(pipe *io.PipeWriter, n int) {
-	w.mtx.Lock()
-	defer w.mtx.Unlock()
-	if w.pipe == pipe {
-		w.written += uint64(n)
-	}
 }
 
 // ChunkReader reads chunks from a channel of io.ReadClosers and outputs them as an io.Reader

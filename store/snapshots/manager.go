@@ -635,26 +635,23 @@ func (m *Manager) snapshot(height int64) {
 	}
 }
 
-// Close aborts any in-flight snapshot/restore work, waits for it to stop touching
+// Close aborts in-flight snapshot/restore work, waits until it stops touching
 // application state, then closes the snapshot metadata database.
 //
-// Close does not wait for a full snapshot to finish being created; it cancels
-// in-flight work and waits only until that work returns (in particular until
-// Snapshot() has returned), so application.db is not closed under a live export.
-// Abort is observed on the next WriteMsg (abortAwareWriter), and by snapshotters
-// that honor SetSnapshotAbortCh (including rootmulti before/between export writes).
-// Snapshotters that ignore abort and never return can delay Close indefinitely;
-// returning earlier would reintroduce read-after-close panics on application.db.
+// It cancels work rather than waiting for a full snapshot to finish, but still
+// waits until Snapshot() (or restore) returns so application.db is not closed
+// under a live export. Abort is observed via abortAwareWriter on WriteMsg and
+// via SetSnapshotAbortCh (rootmulti). Snapshotters that ignore abort and never
+// return can delay Close; returning earlier would reintroduce #7252 panics.
 //
-// Concurrent Close callers share completion: the first performs shutdown, others
-// wait and return the same error. This prevents a second Close from returning
-// before the snapshot manager has finished, which would allow BaseApp to close
-// application.db while export work is still running.
+// Concurrent Close callers share completion so a second Close cannot return and
+// let BaseApp close application.db while export work is still running.
 func (m *Manager) Close() error {
 	if m == nil {
 		return nil
 	}
 
+	// Followers wait for the leader's shutdown to finish (same result).
 	m.mtx.Lock()
 	if m.closeCh != nil {
 		ch := m.closeCh
@@ -662,21 +659,44 @@ func (m *Manager) Close() error {
 		<-ch
 		return m.closeErr
 	}
-
 	closeCh := make(chan struct{})
 	m.closeCh = closeCh
+
+	// Reject new work and wake exporters that observe abortCh.
 	m.closed = true
 	close(m.abortCh)
 
+	// Detach restore channels under the lock. RestoreChunk may already have
+	// closed chRestore on the final chunk; nil both fields so Close owns the
+	// local copies and we do not double-close.
 	chRestore := m.chRestore
 	chRestoreDone := m.chRestoreDone
-	op := m.operation
-	// Avoid double-close if RestoreChunk already closed the channel.
 	m.chRestore = nil
+	m.chRestoreDone = nil
 	m.mtx.Unlock()
 
-	m.abortRestore(chRestore, chRestoreDone, op)
-	m.waitOperationIdle()
+	// Unblock an in-flight async restore, then clear opRestore once its goroutine
+	// exits. Do not hold mtx while waiting: RestoreChunk can hold mtx on the same
+	// done channel. The restore goroutine does not call endLocked itself — only
+	// RestoreChunk or Close does — so Close must end the op after <-chRestoreDone.
+	if chRestore != nil {
+		close(chRestore)
+	}
+	if chRestoreDone != nil {
+		<-chRestoreDone
+		m.mtx.Lock()
+		if m.operation == opRestore {
+			m.endLocked()
+		}
+		m.mtx.Unlock()
+	}
+
+	// Wait for any remaining operation (Create / Prune / RestoreLocalSnapshot).
+	m.mtx.Lock()
+	for m.operation != opNone {
+		m.idle.Wait()
+	}
+	m.mtx.Unlock()
 
 	err := m.store.db.Close()
 
@@ -685,29 +705,4 @@ func (m *Manager) Close() error {
 	close(closeCh)
 	m.mtx.Unlock()
 	return err
-}
-
-// abortRestore stops an in-flight restore, if any, and clears opRestore.
-func (m *Manager) abortRestore(chRestore chan<- uint32, chRestoreDone <-chan restoreDone, op operation) {
-	if chRestore != nil {
-		close(chRestore)
-	}
-	if op != opRestore || chRestoreDone == nil {
-		return
-	}
-	<-chRestoreDone
-	m.mtx.Lock()
-	if m.operation == opRestore {
-		m.endLocked()
-	}
-	m.mtx.Unlock()
-}
-
-// waitOperationIdle blocks until no manager operation is in progress.
-func (m *Manager) waitOperationIdle() {
-	m.mtx.Lock()
-	for m.operation != opNone {
-		m.idle.Wait()
-	}
-	m.mtx.Unlock()
 }

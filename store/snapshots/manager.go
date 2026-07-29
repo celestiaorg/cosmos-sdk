@@ -46,6 +46,8 @@ type Manager struct {
 	operation         operation
 	closed            bool
 	abortCh           chan struct{}
+	closeCh           chan struct{} // non-nil once Close starts; closed when Close fully finishes
+	closeErr          error         // result of Close; stable after closeCh is closed
 	chRestore         chan<- uint32
 	chRestoreDone     <-chan restoreDone
 	restoreSnapshot   *types.Snapshot
@@ -76,8 +78,14 @@ const (
 var (
 	ErrOptsZeroSnapshotInterval = errors.New("snaphot-interval must not be 0")
 	// ErrAborted is returned when a snapshot operation is canceled because the manager is closing.
-	ErrAborted = errors.New("snapshot aborted")
+	ErrAborted = types.ErrAborted
 )
+
+// snapshotAbortAware is optionally implemented by snapshotters that can observe
+// manager shutdown before or between WriteMsg calls (e.g. rootmulti during IAVL export).
+type snapshotAbortAware interface {
+	SetSnapshotAbortCh(abort <-chan struct{})
+}
 
 // NewManager creates a new manager.
 func NewManager(store *Store, opts types.SnapshotOptions, multistore types.Snapshotter, extensions map[string]types.ExtensionSnapshotter, logger log.Logger) *Manager {
@@ -93,6 +101,9 @@ func NewManager(store *Store, opts types.SnapshotOptions, multistore types.Snaps
 		abortCh:    make(chan struct{}),
 	}
 	m.idle = sync.NewCond(&m.mtx)
+	if a, ok := multistore.(snapshotAbortAware); ok {
+		a.SetSnapshotAbortCh(m.abortCh)
+	}
 	return m
 }
 
@@ -354,6 +365,8 @@ func (m *Manager) Restore(snapshot types.Snapshot) error {
 
 	dir := m.store.pathSnapshot(snapshot.Height, snapshot.Format)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
+		// Roll back the operation so Close is not left waiting on opRestore forever.
+		m.endLocked()
 		return errorsmod.Wrapf(err, "failed to create snapshot directory %q", dir)
 	}
 
@@ -625,19 +638,33 @@ func (m *Manager) snapshot(height int64) {
 // Close aborts any in-flight snapshot/restore work, waits for it to stop touching
 // application state, then closes the snapshot metadata database.
 //
-// Close does not wait for a snapshot to finish being created; it cancels in-flight
-// work and only waits for that work to unwind. Abort is observed on the next
-// WriteMsg after any in-flight chunk write is consumed by Save.
+// Close does not wait for a full snapshot to finish being created; it cancels
+// in-flight work and waits only until that work returns (in particular until
+// Snapshot() has returned), so application.db is not closed under a live export.
+// Abort is observed on the next WriteMsg (abortAwareWriter), and by snapshotters
+// that honor SetSnapshotAbortCh (including rootmulti before/between export writes).
+// Snapshotters that ignore abort and never return can delay Close indefinitely;
+// returning earlier would reintroduce read-after-close panics on application.db.
+//
+// Concurrent Close callers share completion: the first performs shutdown, others
+// wait and return the same error. This prevents a second Close from returning
+// before the snapshot manager has finished, which would allow BaseApp to close
+// application.db while export work is still running.
 func (m *Manager) Close() error {
 	if m == nil {
 		return nil
 	}
 
 	m.mtx.Lock()
-	if m.closed {
+	if m.closeCh != nil {
+		ch := m.closeCh
 		m.mtx.Unlock()
-		return nil
+		<-ch
+		return m.closeErr
 	}
+
+	closeCh := make(chan struct{})
+	m.closeCh = closeCh
 	m.closed = true
 	close(m.abortCh)
 
@@ -646,25 +673,41 @@ func (m *Manager) Close() error {
 	op := m.operation
 	// Avoid double-close if RestoreChunk already closed the channel.
 	m.chRestore = nil
+	m.mtx.Unlock()
 
+	m.abortRestore(chRestore, chRestoreDone, op)
+	m.waitOperationIdle()
+
+	err := m.store.db.Close()
+
+	m.mtx.Lock()
+	m.closeErr = err
+	close(closeCh)
+	m.mtx.Unlock()
+	return err
+}
+
+// abortRestore stops an in-flight restore, if any, and clears opRestore.
+func (m *Manager) abortRestore(chRestore chan<- uint32, chRestoreDone <-chan restoreDone, op operation) {
 	if chRestore != nil {
-		m.mtx.Unlock()
 		close(chRestore)
-		m.mtx.Lock()
 	}
-	if op == opRestore && chRestoreDone != nil {
-		m.mtx.Unlock()
-		<-chRestoreDone
-		m.mtx.Lock()
-		if m.operation == opRestore {
-			m.endLocked()
-		}
+	if op != opRestore || chRestoreDone == nil {
+		return
 	}
+	<-chRestoreDone
+	m.mtx.Lock()
+	if m.operation == opRestore {
+		m.endLocked()
+	}
+	m.mtx.Unlock()
+}
 
+// waitOperationIdle blocks until no manager operation is in progress.
+func (m *Manager) waitOperationIdle() {
+	m.mtx.Lock()
 	for m.operation != opNone {
 		m.idle.Wait()
 	}
 	m.mtx.Unlock()
-
-	return m.store.db.Close()
 }

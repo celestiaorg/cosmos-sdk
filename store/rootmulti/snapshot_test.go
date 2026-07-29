@@ -328,6 +328,15 @@ func (s *signalingSnapshotter) SetSnapshotInterval(snapshotInterval uint64) {
 	s.inner.SetSnapshotInterval(snapshotInterval)
 }
 
+func (s *signalingSnapshotter) SetSnapshotAbortCh(abort <-chan struct{}) {
+	type abortAware interface {
+		SetSnapshotAbortCh(<-chan struct{})
+	}
+	if a, ok := s.inner.(abortAware); ok {
+		a.SetSnapshotAbortCh(abort)
+	}
+}
+
 func (s *signalingSnapshotter) Restore(height uint64, format uint32, protoReader protoio.Reader) (snapshottypes.SnapshotItem, error) {
 	return s.inner.Restore(height, format, protoReader)
 }

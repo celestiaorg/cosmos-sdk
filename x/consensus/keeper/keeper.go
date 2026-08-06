@@ -15,6 +15,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/consensus/exported"
 	"github.com/cosmos/cosmos-sdk/x/consensus/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
@@ -85,6 +86,12 @@ func (k Keeper) UpdateParams(ctx context.Context, msg *types.MsgUpdateParams) (*
 	}
 
 	params := cmttypes.ConsensusParamsFromProto(paramsProto)
+
+	// Keep block.MaxGas unchanged. Ante handlers run before messages, so a new
+	// limit could commit ante writes while reverting message writes.
+	if consensusParams.Block.MaxGas != params.Block.MaxGas {
+		return nil, errors.Wrapf(sdkerrors.ErrInvalidRequest, "block.MaxGas cannot be modified; current: %d, requested: %d", params.Block.MaxGas, consensusParams.Block.MaxGas)
+	}
 
 	nextParams := params.Update(&consensusParams)
 

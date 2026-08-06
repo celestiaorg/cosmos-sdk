@@ -56,7 +56,6 @@ func (s *KeeperTestSuite) TestGRPCQueryConsensusParams() {
 	// Create ConsensusParams with modified fields
 	modifiedConsensusParams := cmttypes.DefaultConsensusParams().ToProto()
 	modifiedConsensusParams.Block.MaxBytes++
-	modifiedConsensusParams.Block.MaxGas = 100
 	modifiedConsensusParams.Evidence.MaxAgeDuration++
 	modifiedConsensusParams.Evidence.MaxAgeNumBlocks++
 	modifiedConsensusParams.Evidence.MaxBytes++
@@ -168,12 +167,45 @@ func (s *KeeperTestSuite) TestUpdateParams() {
 			name: "invalid  params",
 			input: &types.MsgUpdateParams{
 				Authority: s.consensusParamsKeeper.GetAuthority(),
-				Block:     &cmtproto.BlockParams{MaxGas: -10, MaxBytes: -10},
+				Block:     &cmtproto.BlockParams{MaxGas: defaultConsensusParams.Block.MaxGas, MaxBytes: -10},
 				Validator: defaultConsensusParams.Validator,
 				Evidence:  defaultConsensusParams.Evidence,
 			},
 			expErr:    true,
 			expErrMsg: "block.MaxBytes must be -1 or greater than 0. Got -10",
+		},
+		{
+			name: "modifying block.MaxGas is not allowed",
+			input: &types.MsgUpdateParams{
+				Authority: s.consensusParamsKeeper.GetAuthority(),
+				Block:     &cmtproto.BlockParams{MaxGas: 100, MaxBytes: defaultConsensusParams.Block.MaxBytes},
+				Validator: defaultConsensusParams.Validator,
+				Evidence:  defaultConsensusParams.Evidence,
+			},
+			expErr:    true,
+			expErrMsg: "block.MaxGas cannot be modified",
+		},
+		{
+			name: "modifying block.MaxGas to a different negative value is not allowed",
+			input: &types.MsgUpdateParams{
+				Authority: s.consensusParamsKeeper.GetAuthority(),
+				Block:     &cmtproto.BlockParams{MaxGas: -2, MaxBytes: defaultConsensusParams.Block.MaxBytes},
+				Validator: defaultConsensusParams.Validator,
+				Evidence:  defaultConsensusParams.Evidence,
+			},
+			expErr:    true,
+			expErrMsg: "block.MaxGas cannot be modified",
+		},
+		{
+			name: "unchanged block.MaxGas is allowed",
+			input: &types.MsgUpdateParams{
+				Authority: s.consensusParamsKeeper.GetAuthority(),
+				Block:     &cmtproto.BlockParams{MaxGas: defaultConsensusParams.Block.MaxGas, MaxBytes: defaultConsensusParams.Block.MaxBytes + 1},
+				Validator: defaultConsensusParams.Validator,
+				Evidence:  defaultConsensusParams.Evidence,
+			},
+			expErr:    false,
+			expErrMsg: "",
 		},
 		{
 			name: "invalid authority",

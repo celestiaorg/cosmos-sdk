@@ -45,6 +45,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
     * Each message observes the ante writes of all transactions, including later transactions in the block. For example, an account balance reflects fees deducted by later transactions before any message reads or modifies it.
     * Each message uses the context produced by its transaction's ante handler. Context-carried values, such as consensus parameters, are therefore captured during the ante phase.
     * Block gas is no longer consumed or enforced. Transactions remain subject to their individual gas limits. Celestia configures `block.max_gas = -1` to keep block gas unlimited.
+* (x/consensus) [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) `MsgUpdateParams` now rejects any change to `block.max_gas`. With the two-phase execution model, a block gas limit hit mid-execution would leave ante writes (fees, sequences) committed while message writes revert, so the block gas limit must stay at its current (unlimited) value.
 
 ## [v0.50.x-celestia]
 

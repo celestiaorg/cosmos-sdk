@@ -14,6 +14,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/tx"
 )
 
+// txRawSignaturesField is the field number of the repeated signatures field in
+// TxRaw. It is the only TxRaw field that may appear more than once.
+const txRawSignaturesField = protowire.Number(3)
+
 // DefaultTxDecoder returns a default protobuf TxDecoder using the provided Marshaler.
 func DefaultTxDecoder(cdc codec.Codec) sdk.TxDecoder {
 	return func(txBytes []byte) (sdk.Tx, error) {
@@ -117,6 +121,13 @@ func rejectNonADR027TxRaw(txBytes []byte) error {
 		// Make sure fields are ordered in ascending order.
 		if tagNum < prevTagNum {
 			return fmt.Errorf("txRaw must follow ADR-027, got tagNum %d after tagNum %d", tagNum, prevTagNum)
+		}
+		// Only the signatures field is repeated in TxRaw, so it is the only field
+		// that may appear more than once. A repeated body_bytes or auth_info_bytes
+		// is ambiguous: this decoder keeps the last occurrence, while other proto
+		// implementations merge or keep the first one.
+		if tagNum == prevTagNum && tagNum != txRawSignaturesField {
+			return fmt.Errorf("txRaw must follow ADR-027, got tagNum %d more than once", tagNum)
 		}
 		prevTagNum = tagNum
 

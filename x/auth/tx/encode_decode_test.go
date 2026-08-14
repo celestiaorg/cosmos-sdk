@@ -241,6 +241,16 @@ func TestRejectNonADR027(t *testing.T) {
 			append(append(longVarintBodyBz, authInfoBz...), sigsBz...),
 			true,
 		},
+		{
+			"duplicate body",
+			concat(bodyBz, bodyBz, authInfoBz, sigsBz),
+			true,
+		},
+		{
+			"duplicate authInfo",
+			concat(bodyBz, authInfoBz, authInfoBz, sigsBz),
+			true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -254,6 +264,16 @@ func TestRejectNonADR027(t *testing.T) {
 			}
 		})
 	}
+}
+
+// concat returns a new byte slice containing all of the provided slices, without
+// mutating any of them.
+func concat(bzs ...[]byte) []byte {
+	out := []byte{}
+	for _, bz := range bzs {
+		out = append(out, bz...)
+	}
+	return out
 }
 
 func TestVarintMinLength(t *testing.T) {

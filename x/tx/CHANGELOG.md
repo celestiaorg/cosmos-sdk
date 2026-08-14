@@ -33,6 +33,10 @@ Since v0.13.0, x/tx follows Cosmos SDK semver: https://github.com/cosmos/cosmos-
 
 ## [Unreleased]
 
+### Bug Fixes
+
+* [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) Reject `TxRaw` bytes that repeat `body_bytes` (field 1) or `auth_info_bytes` (field 2). Only `signatures` (field 3) may appear more than once.
+
 ## [v0.13.8](https://github.com/cosmos/cosmos-sdk/releases/tag/x/tx/v0.13.8) - 2025-01-28
 
 * [#23513](https://github.com/cosmos/cosmos-sdk/pull/23513), [#23539](https://github.com/cosmos/cosmos-sdk/pull/23539) Add map marshalling support (as option) to Amino JSON encoder. 

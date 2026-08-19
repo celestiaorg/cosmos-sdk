@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"cosmossdk.io/x/evidence/types"
@@ -31,6 +32,12 @@ func (k Keeper) handleEquivocationEvidence(ctx context.Context, evidence *types.
 
 	validator, err := k.stakingKeeper.ValidatorByConsAddr(ctx, consAddr)
 	if err != nil {
+		if errors.Is(err, stakingtypes.ErrNoValidatorFound) {
+			// The validator's record was deleted (e.g. it fully unbonded).
+			// Ignore the evidence rather than halting the chain.
+			logger.Error(fmt.Sprintf("ignore evidence; validator %s not found", consAddr))
+			return nil
+		}
 		return err
 	}
 	if validator == nil || validator.IsUnbonded() {

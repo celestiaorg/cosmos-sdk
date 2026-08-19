@@ -15,7 +15,7 @@ import (
 
 // TestHandleEquivocationEvidenceDeletedValidator verifies that evidence naming
 // a validator whose record no longer exists in staking state is ignored
-// instead of returning an error, which would halt the chain.
+// instead of returning an error.
 func (suite *KeeperTestSuite) TestHandleEquivocationEvidenceDeletedValidator() {
 	pk := ed25519.GenPrivKey()
 	evidence := &types.Equivocation{

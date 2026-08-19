@@ -23,6 +23,12 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 # Changelog
 
+## [Unreleased]
+
+### Bug Fixes
+
+* (keeper) [#749](https://github.com/celestiaorg/cosmos-sdk/pull/749) Ignore equivocation evidence for a validator whose record no longer exists instead of returning an error that halts the chain.
+
 ## [v0.1.1](https://github.com/cosmos/cosmos-sdk/releases/tag/x/evidence/v0.1.1) - 2024-04-22
 
 ### Improvements

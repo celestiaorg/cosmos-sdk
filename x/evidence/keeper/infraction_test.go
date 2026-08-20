@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"errors"
 	"time"
 
 	"github.com/golang/mock/gomock"
@@ -32,4 +33,22 @@ func (suite *KeeperTestSuite) TestHandleEquivocationEvidenceDeletedValidator() {
 
 	err := suite.evidenceKeeper.HandleEquivocationEvidence(suite.ctx, evidence)
 	suite.Require().NoError(err)
+}
+
+// TestHandleEquivocationEvidenceStakingError verifies that errors other than
+// ErrNoValidatorFound from the staking keeper still propagate.
+func (suite *KeeperTestSuite) TestHandleEquivocationEvidenceStakingError() {
+	pk := ed25519.GenPrivKey()
+	evidence := &types.Equivocation{
+		Height:           1,
+		Power:            100,
+		Time:             time.Now().UTC(),
+		ConsensusAddress: sdk.ConsAddress(pk.PubKey().Address().Bytes()).String(),
+	}
+
+	suite.stakingKeeper.EXPECT().ConsensusAddressCodec().Return(address.NewBech32Codec(sdk.Bech32PrefixConsAddr)).AnyTimes()
+	suite.stakingKeeper.EXPECT().ValidatorByConsAddr(gomock.Any(), gomock.Any()).Return(stakingtypes.Validator{}, errors.New("boom"))
+
+	err := suite.evidenceKeeper.HandleEquivocationEvidence(suite.ctx, evidence)
+	suite.Require().ErrorContains(err, "boom")
 }

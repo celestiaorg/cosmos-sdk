@@ -609,7 +609,7 @@ func (s *E2ETestSuite) TestSimMultiSigTx() {
 
 	// Send coins from validator to multisig.
 	coins := sdk.NewInt64Coin(s.cfg.BondDenom, 15)
-	_, err = cli.MsgSendExec(
+	sendRes, err := cli.MsgSendExec(
 		val1.ClientCtx,
 		val1.Address,
 		addr,
@@ -622,10 +622,12 @@ func (s *E2ETestSuite) TestSimMultiSigTx() {
 	)
 	s.Require().NoError(err)
 
-	height, err = s.network.LatestHeight()
-	s.Require().NoError(err)
-	_, err = s.network.WaitForHeight(height + 1)
-	s.Require().NoError(err)
+	// The send was broadcast in sync mode (mempool acceptance only), so a
+	// single WaitForHeight isn't enough to guarantee the multisig account is
+	// actually funded and queryable yet. Confirm it was committed instead.
+	var sendResponse sdk.TxResponse
+	s.Require().NoError(val1.ClientCtx.Codec.UnmarshalJSON(sendRes.Bytes(), &sendResponse), sendRes.String())
+	s.Require().NoError(cli.CheckTxCode(s.network, val1.ClientCtx, sendResponse.TxHash, 0))
 
 	// Generate multisig transaction.
 	multiGeneratedTx, err := cli.MsgSendExec(

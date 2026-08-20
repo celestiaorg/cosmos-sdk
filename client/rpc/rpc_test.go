@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"testing"
+	"time"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/stretchr/testify/suite"
@@ -101,9 +102,20 @@ func (s *IntegrationTestSuite) TestQueryABCIHeight() {
 				Prove:  true,
 			}
 
-			res, err := clientCtx.QueryABCI(req)
+			// The app's committed state can briefly lag behind the block header
+			// height reported by WaitForHeight, since CometBFT makes the new
+			// block header visible slightly before the app finishes Commit().
+			// Retry a few times to absorb that lag instead of racing it.
+			var res abci.ResponseQuery
+			var err error
+			for attempt := 0; attempt < 5; attempt++ {
+				res, err = clientCtx.QueryABCI(req)
+				if err == nil && res.Height == tc.expHeight {
+					break
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
 			s.Require().NoError(err)
-
 			s.Require().Equal(tc.expHeight, res.Height)
 		})
 	}

@@ -91,7 +91,7 @@ func (s *E2ETestSuite) SetupSuite() {
 	s.grantee[2] = s.createAccount("grantee3")
 
 	// grant send authorization to grantee3
-	_, err = authzclitestutil.CreateGrant(val.ClientCtx, []string{
+	out, err = authzclitestutil.CreateGrant(val.ClientCtx, []string{
 		s.grantee[2].String(),
 		"send",
 		fmt.Sprintf("--%s=100stake", cli.FlagSpendLimit),
@@ -102,7 +102,8 @@ func (s *E2ETestSuite) SetupSuite() {
 		fmt.Sprintf("--%s=%d", cli.FlagExpiration, time.Now().Add(time.Minute*time.Duration(120)).Unix()),
 	})
 	s.Require().NoError(err)
-	s.Require().NoError(s.network.WaitForNextBlock())
+	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &response), out.String())
+	s.Require().NoError(clitestutil.CheckTxCode(s.network, val.ClientCtx, response.TxHash, 0))
 
 	// Create new accounts in the keyring.
 	s.grantee[3] = s.createAccount("grantee4")
@@ -157,7 +158,10 @@ func (s *E2ETestSuite) msgSendExec(grantee sdk.AccAddress) {
 	)
 	s.Require().NoError(err)
 	s.Require().Contains(out.String(), `"code":0`)
-	s.Require().NoError(s.network.WaitForNextBlock())
+
+	var response sdk.TxResponse
+	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &response), out.String())
+	s.Require().NoError(clitestutil.CheckTxCode(s.network, val.ClientCtx, response.TxHash, 0))
 }
 
 func (s *E2ETestSuite) TearDownSuite() {

@@ -139,12 +139,26 @@ func (s *E2ETestSuite) TestQueryBySig() {
 	// encode, format, query
 	b64Sig := base64.StdEncoding.EncodeToString(sig.Signature)
 	sigFormatted := fmt.Sprintf("%s.%s='%s'", sdk.EventTypeTx, sdk.AttributeKeySignature, b64Sig)
-	res, err := s.queryClient.GetTxsEvent(context.Background(), &tx.GetTxsEventRequest{
-		Query:   sigFormatted,
-		OrderBy: 0,
-		Page:    0,
-		Limit:   10,
-	})
+
+	// The tx was broadcast in sync mode, so it's only guaranteed to be in the
+	// mempool, not indexed, after a single WaitForNextBlock. Retry until it
+	// shows up instead of racing its inclusion.
+	var res *tx.GetTxsEventResponse
+	err = s.network.RetryForBlocks(func() error {
+		res, err = s.queryClient.GetTxsEvent(context.Background(), &tx.GetTxsEventRequest{
+			Query:   sigFormatted,
+			OrderBy: 0,
+			Page:    0,
+			Limit:   10,
+		})
+		if err != nil {
+			return err
+		}
+		if len(res.Txs) == 0 {
+			return fmt.Errorf("tx not yet indexed")
+		}
+		return nil
+	}, 3)
 	s.Require().NoError(err)
 	s.Require().Len(res.Txs, 1)
 	s.Require().Len(res.Txs[0].Signatures, 1)

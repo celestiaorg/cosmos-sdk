@@ -240,6 +240,8 @@ should be slashed, even if it has since been redelegated or started unbonding.
 In addition, the validator is permanently jailed and tombstoned to make it impossible for that
 validator to ever re-enter the validator set.
 
+Evidence naming a validator whose record no longer exists in staking state (e.g. it fully unbonded and was removed) is ignored.
+
 The `Equivocation` evidence is handled as follows:
 
 ```go reference

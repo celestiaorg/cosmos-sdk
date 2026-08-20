@@ -270,12 +270,21 @@ func (s *E2ETestSuite) TestCLISignBatch() {
 		sdk.NewCoins(sdk.NewInt64Coin(s.cfg.BondDenom, 1000)),
 	)
 	s.Require().NoError(err)
-	s.Require().NoError(s.network.WaitForNextBlock())
 
-	// fetch the sequence after a tx, should be incremented.
-	_, seq1, err := val.ClientCtx.AccountRetriever.GetAccountNumberSequence(val.ClientCtx, val.Address)
+	// fetch the sequence after a tx, should be incremented. The tx is broadcast in sync
+	// mode, so it's only guaranteed to be in the mempool, not committed, after one block.
+	var seq1 uint64
+	err = s.network.RetryForBlocks(func() error {
+		_, seq1, err = val.ClientCtx.AccountRetriever.GetAccountNumberSequence(val.ClientCtx, val.Address)
+		if err != nil {
+			return err
+		}
+		if seq1 != seq+1 {
+			return fmt.Errorf("expected sequence %d, got %d", seq+1, seq1)
+		}
+		return nil
+	}, 3)
 	s.Require().NoError(err)
-	s.Require().Equal(seq+1, seq1)
 
 	// signing sign-batch should start from the last sequence.
 	signed, err := authclitestutil.TxSignBatchExec(val.ClientCtx, val.Address, outputFile.Name(), fmt.Sprintf("--%s=%s", flags.FlagChainID, val.ClientCtx.ChainID), "--signature-only")

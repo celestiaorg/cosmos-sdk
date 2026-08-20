@@ -398,11 +398,13 @@ func (s *E2ETestSuite) TestCLIQueryTxCmdByEvents() {
 	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &txRes))
 	s.Require().NoError(s.network.WaitForNextBlock())
 
-	// Query the tx by hash to get the inner tx.
+	// Query the tx by hash to get the inner tx. Use a generous retry budget:
+	// under CI resource contention (many e2e packages producing blocks
+	// concurrently), block times can run well past their nominal duration.
 	err = s.network.RetryForBlocks(func() error {
 		out, err = clitestutil.ExecTestCLICmd(val.ClientCtx, authcli.QueryTxCmd(), []string{txRes.TxHash, fmt.Sprintf("--%s=json", flags.FlagOutput)})
 		return err
-	}, 3)
+	}, 6)
 	s.Require().NoError(err)
 	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &txRes))
 	protoTx := txRes.GetTx().(*tx.Tx)
@@ -519,11 +521,13 @@ func (s *E2ETestSuite) TestCLIQueryTxsCmdByEvents() {
 	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &txRes))
 	s.Require().NoError(s.network.WaitForNextBlock())
 
-	// Query the tx by hash to get the inner tx.
+	// Query the tx by hash to get the inner tx. Use a generous retry budget:
+	// under CI resource contention (many e2e packages producing blocks
+	// concurrently), block times can run well past their nominal duration.
 	err = s.network.RetryForBlocks(func() error {
 		out, err = clitestutil.ExecTestCLICmd(val.ClientCtx, authcli.QueryTxCmd(), []string{txRes.TxHash, fmt.Sprintf("--%s=json", flags.FlagOutput)})
 		return err
-	}, 3)
+	}, 6)
 	s.Require().NoError(err)
 	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &txRes))
 
@@ -857,13 +861,26 @@ func (s *E2ETestSuite) TestCLIMultisignSortSignatures() {
 		sdk.NewCoins(sendTokens),
 	)
 	s.Require().NoError(err)
-	s.Require().NoError(s.network.WaitForNextBlock())
 
-	resp, err = testutil.GetRequest(fmt.Sprintf("%s/cosmos/bank/v1beta1/balances/%s", val1.APIAddress, addr))
+	// The send was broadcast in sync mode (mempool acceptance only), so a
+	// single WaitForNextBlock isn't enough to guarantee the queried balance
+	// reflects it yet. Retry until it does.
+	var diff sdk.Coins
+	err = s.network.RetryForBlocks(func() error {
+		resp, err = testutil.GetRequest(fmt.Sprintf("%s/cosmos/bank/v1beta1/balances/%s", val1.APIAddress, addr))
+		if err != nil {
+			return err
+		}
+		if err := val1.ClientCtx.Codec.UnmarshalJSON(resp, &balRes); err != nil {
+			return err
+		}
+		diff, _ = balRes.Balances.SafeSub(intialCoins...)
+		if !diff.AmountOf(s.cfg.BondDenom).Equal(sendTokens.Amount) {
+			return fmt.Errorf("balance not yet updated")
+		}
+		return nil
+	}, 3)
 	s.Require().NoError(err)
-	err = val1.ClientCtx.Codec.UnmarshalJSON(resp, &balRes)
-	s.Require().NoError(err)
-	diff, _ := balRes.Balances.SafeSub(intialCoins...)
 	s.Require().Equal(sendTokens.Amount, diff.AmountOf(s.cfg.BondDenom))
 
 	// Generate multisig transaction.

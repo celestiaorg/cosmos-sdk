@@ -756,6 +756,27 @@ func (n *Network) RetryForBlocks(retryFunc func() error, blocks int) error {
 	return nil
 }
 
+// RetryWithTimeout retries retryFunc, sleeping interval between attempts,
+// until it returns a nil error or timeout elapses. Prefer this over
+// RetryForBlocks when waiting out a known-transient race (e.g. eventual
+// consistency after a broadcast) rather than a specific number of blocks:
+// a fixed attempt/block count is a magic number that can be too small on a
+// slow or loaded machine, whereas a generous wall-clock timeout still lets a
+// genuine bug surface - it just won't hang forever.
+func (n *Network) RetryWithTimeout(retryFunc func() error, timeout, interval time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		err := retryFunc()
+		if err == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(interval)
+	}
+}
+
 // WaitForNextBlock waits for the next block to be committed, returning an error
 // upon failure.
 func (n *Network) WaitForNextBlock() error {

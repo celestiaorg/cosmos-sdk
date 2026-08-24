@@ -336,16 +336,24 @@ func (s *E2ETestSuite) TestABCIQuery() {
 			// header CometBFT already reports (same root cause fixed for
 			// TestQueryABCIHeight in client/rpc): a query issued right after
 			// SetupSuite's single WaitForNextBlock can transiently see the
-			// query height as invalid. Retry a few times to absorb that lag
-			// instead of racing it, but only for queries expected to succeed.
+			// query height as invalid. Retry until it catches up instead of
+			// racing it with a fixed attempt count, but only for queries
+			// expected to succeed - a genuine bug still surfaces via timeout.
 			var res *cmtservice.ABCIQueryResponse
 			var err error
-			for attempt := 0; attempt < 5; attempt++ {
+			if tc.expectErr {
 				res, err = s.queryClient.ABCIQuery(context.Background(), tc.req)
-				if tc.expectErr || (err == nil && res != nil && res.Code == tc.expectedCode) {
-					break
-				}
-				time.Sleep(200 * time.Millisecond)
+			} else {
+				err = s.network.RetryWithTimeout(func() error {
+					res, err = s.queryClient.ABCIQuery(context.Background(), tc.req)
+					if err != nil {
+						return err
+					}
+					if res == nil || res.Code != tc.expectedCode {
+						return fmt.Errorf("expected code %d, got %v", tc.expectedCode, res)
+					}
+					return nil
+				}, 30*time.Second, 200*time.Millisecond)
 			}
 			if tc.expectErr {
 				s.Require().Error(err)

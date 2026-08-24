@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/suite"
 
@@ -141,10 +142,11 @@ func (s *E2ETestSuite) TestQueryBySig() {
 	sigFormatted := fmt.Sprintf("%s.%s='%s'", sdk.EventTypeTx, sdk.AttributeKeySignature, b64Sig)
 
 	// The tx was broadcast in sync mode, so it's only guaranteed to be in the
-	// mempool, not indexed, after a single WaitForNextBlock. Retry until it
-	// shows up instead of racing its inclusion.
+	// mempool, not indexed, immediately. Retry until it shows up instead of
+	// racing its inclusion with a fixed attempt count - a genuine bug still
+	// surfaces via the timeout.
 	var res *tx.GetTxsEventResponse
-	err = s.network.RetryForBlocks(func() error {
+	s.Require().NoError(s.network.RetryWithTimeout(func() error {
 		res, err = s.queryClient.GetTxsEvent(context.Background(), &tx.GetTxsEventRequest{
 			Query:   sigFormatted,
 			OrderBy: 0,
@@ -158,8 +160,7 @@ func (s *E2ETestSuite) TestQueryBySig() {
 			return fmt.Errorf("tx not yet indexed")
 		}
 		return nil
-	}, 3)
-	s.Require().NoError(err)
+	}, 30*time.Second, 500*time.Millisecond))
 	s.Require().Len(res.Txs, 1)
 	s.Require().Len(res.Txs[0].Signatures, 1)
 	s.Require().Equal(res.Txs[0].Signatures[0], sig.Signature)

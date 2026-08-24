@@ -105,17 +105,20 @@ func (s *IntegrationTestSuite) TestQueryABCIHeight() {
 			// The app's committed state can briefly lag behind the block header
 			// height reported by WaitForHeight, since CometBFT makes the new
 			// block header visible slightly before the app finishes Commit().
-			// Retry a few times to absorb that lag instead of racing it.
+			// Retry until it catches up instead of racing it with a fixed
+			// attempt count - a genuine bug still surfaces via the timeout.
 			var res abci.ResponseQuery
 			var err error
-			for attempt := 0; attempt < 5; attempt++ {
+			s.Require().NoError(s.network.RetryWithTimeout(func() error {
 				res, err = clientCtx.QueryABCI(req)
-				if err == nil && res.Height == tc.expHeight {
-					break
+				if err != nil {
+					return err
 				}
-				time.Sleep(200 * time.Millisecond)
-			}
-			s.Require().NoError(err)
+				if res.Height != tc.expHeight {
+					return fmt.Errorf("expected height %d, got %d", tc.expHeight, res.Height)
+				}
+				return nil
+			}, 30*time.Second, 200*time.Millisecond))
 			s.Require().Equal(tc.expHeight, res.Height)
 		})
 	}

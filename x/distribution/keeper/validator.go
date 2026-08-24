@@ -95,6 +95,15 @@ func (k Keeper) IncrementValidatorPeriod(ctx context.Context, val stakingtypes.V
 
 	cumRewardRatio := historical.CumulativeRewardRatio
 
+	// Add the current period's ratio to the cumulative ratio. LegacyDec.Add
+	// panics on overflow, so recover and return an error instead to keep a
+	// slashing hook (BeginBlocker) from halting the chain. Done before any
+	// state is mutated so a failure leaves state unchanged.
+	newCumRewardRatio, err := addDecCoins(cumRewardRatio, current)
+	if err != nil {
+		return 0, err
+	}
+
 	// decrement reference count
 	err = k.decrementReferenceCount(ctx, valBz, rewards.Period-1)
 	if err != nil {
@@ -102,7 +111,7 @@ func (k Keeper) IncrementValidatorPeriod(ctx context.Context, val stakingtypes.V
 	}
 
 	// set new historical rewards with reference count of 1
-	err = k.SetValidatorHistoricalRewards(ctx, valBz, rewards.Period, types.NewValidatorHistoricalRewards(cumRewardRatio.Add(current...), 1))
+	err = k.SetValidatorHistoricalRewards(ctx, valBz, rewards.Period, types.NewValidatorHistoricalRewards(newCumRewardRatio, 1))
 	if err != nil {
 		return 0, err
 	}
@@ -114,6 +123,17 @@ func (k Keeper) IncrementValidatorPeriod(ctx context.Context, val stakingtypes.V
 	}
 
 	return rewards.Period, nil
+}
+
+// addDecCoins returns a + b, converting the overflow panic from LegacyDec.Add
+// into an error so callers can handle it without halting the chain.
+func addDecCoins(a, b sdk.DecCoins) (sum sdk.DecCoins, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("reward ratio overflow: %v", r)
+		}
+	}()
+	return a.Add(b...), nil
 }
 
 // increment the reference count for a historical rewards value

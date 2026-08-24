@@ -233,6 +233,64 @@ func TestMultistoreSnapshotRestore(t *testing.T) {
 	}
 }
 
+// TestMultistoreRestore_NegativeIAVLVersion verifies that Restore rejects a snapshot
+// whose IAVL item carries a negative version, rather than panicking. A negative version
+// would otherwise index the iavl importer's nonce slice out of range and crash the process.
+func TestMultistoreRestore_NegativeIAVLVersion(t *testing.T) {
+	source := newMultiStoreWithMixedMountsAndBasicData(dbm.NewMemDB())
+	version := uint64(source.LastCommitID().Version)
+
+	// Capture a genuine snapshot as a stream of items.
+	chunks := make(chan io.ReadCloser, 100)
+	go func() {
+		streamWriter := snapshots.NewStreamWriter(chunks)
+		defer streamWriter.Close()
+		require.NoError(t, source.Snapshot(version, streamWriter))
+	}()
+	streamReader, err := snapshots.NewStreamReader(chunks)
+	require.NoError(t, err)
+	var items []snapshottypes.SnapshotItem
+	for {
+		var item snapshottypes.SnapshotItem
+		err := streamReader.ReadMsg(&item)
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+		items = append(items, item)
+	}
+	require.NoError(t, streamReader.Close())
+
+	// Negate the first IAVL item's version. Nothing else changes.
+	mutated := false
+	for i := range items {
+		if iavlItem, ok := items[i].Item.(*snapshottypes.SnapshotItem_IAVL); ok {
+			iavlItem.IAVL.Version = -1
+			mutated = true
+			break
+		}
+	}
+	require.True(t, mutated, "expected at least one IAVL item")
+
+	// Feed the mutated stream back and expect an error, not a panic.
+	replay := make(chan io.ReadCloser, 100)
+	go func() {
+		streamWriter := snapshots.NewStreamWriter(replay)
+		defer streamWriter.Close()
+		for i := range items {
+			require.NoError(t, streamWriter.WriteMsg(&items[i]))
+		}
+	}()
+	replayReader, err := snapshots.NewStreamReader(replay)
+	require.NoError(t, err)
+	defer replayReader.Close()
+
+	target := newMultiStoreWithMixedMounts(dbm.NewMemDB())
+	_, err = target.Restore(version, snapshottypes.CurrentFormat, replayReader)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "version")
+}
+
 func benchmarkMultistoreSnapshot(b *testing.B, stores uint8, storeKeys uint64) {
 	b.Helper()
 	b.Skip("Noisy with slow setup time, please see https://github.com/cosmos/cosmos-sdk/issues/8855.")

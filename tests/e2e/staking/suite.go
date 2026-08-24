@@ -63,7 +63,11 @@ func (s *E2ETestSuite) SetupSuite() {
 	var txRes sdk.TxResponse
 	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &txRes))
 	s.Require().Equal(uint32(0), txRes.Code)
-	s.Require().NoError(s.network.WaitForNextBlock())
+	// The tx was broadcast in sync mode (mempool acceptance only), so a
+	// single WaitForNextBlock isn't enough to guarantee it's committed before
+	// the next tx below signs against this account's now-incremented
+	// sequence. Confirm it actually landed instead of racing it.
+	s.Require().NoError(clitestutil.CheckTxCode(s.network, val.ClientCtx, txRes.TxHash, 0))
 
 	unbondingAmount := sdk.NewCoin(sdk.DefaultBondDenom, math.NewInt(5))
 
@@ -72,15 +76,14 @@ func (s *E2ETestSuite) SetupSuite() {
 	s.Require().NoError(err)
 	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &txRes))
 	s.Require().Equal(uint32(0), txRes.Code)
-	s.Require().NoError(s.network.WaitForNextBlock())
+	s.Require().NoError(clitestutil.CheckTxCode(s.network, val.ClientCtx, txRes.TxHash, 0))
 
 	// unbonding the amount
 	out, err = MsgUnbondExec(val.ClientCtx, val.Address, val.ValAddress, unbondingAmount)
 	s.Require().NoError(err)
-	s.Require().NoError(err)
 	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &txRes))
 	s.Require().Equal(uint32(0), txRes.Code)
-	s.Require().NoError(s.network.WaitForNextBlock())
+	s.Require().NoError(clitestutil.CheckTxCode(s.network, val.ClientCtx, txRes.TxHash, 0))
 }
 
 func (s *E2ETestSuite) TearDownSuite() {

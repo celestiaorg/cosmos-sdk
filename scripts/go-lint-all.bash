@@ -29,9 +29,25 @@ else
   fi
 
   for f in $(dirname $(echo "$GIT_DIFF" | tr -d "'") | uniq); do
-    echo "linting $f [$(date -Iseconds -u)]" &&
-    cd $f &&
-    golangci-lint run ./... -c "${REPO_ROOT}/.golangci.yml" "$@" &&
-    cd $REPO_ROOT
+    echo "linting $f [$(date -Iseconds -u)]"
+    # Run in a subshell so this iteration's `cd` can never leak into the
+    # next one - a failure here used to skip the "cd back to repo root"
+    # step, leaving every subsequent directory resolved relative to the
+    # wrong place ("no such file or directory").
+    set +e
+    output=$(cd "$f" && golangci-lint run ./... -c "${REPO_ROOT}/.golangci.yml" "$@" 2>&1)
+    status=$?
+    set -e
+    echo "$output"
+    if [[ $status -ne 0 ]]; then
+      # A directory whose only .go file(s) carry a build tag we don't pass
+      # (e.g. an e2e-only test package) has nothing for golangci-lint to
+      # analyze - that's not a lint violation, so don't fail the run over it.
+      if echo "$output" | grep -q "no go files to analyze"; then
+        echo "skipping $f: no lintable go files for the active build tags"
+        continue
+      fi
+      exit "$status"
+    fi
   done
 fi

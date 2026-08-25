@@ -253,3 +253,73 @@ func (s *eventsTestSuite) TestMarkEventsToIndex() {
 		})
 	}
 }
+
+func (s *eventsTestSuite) TestStringifyEvent() {
+	event := abci.Event{
+		Type: "message",
+		Attributes: []abci.EventAttribute{
+			{Key: "sender", Value: "foo"},
+			{Key: "empty", Value: ""},
+			{Key: "κλειδί", Value: "τιμή 🚀"},
+		},
+	}
+
+	se := sdk.StringifyEvent(event)
+	s.Require().Equal("message", se.Type)
+	s.Require().Equal([]sdk.Attribute{
+		sdk.NewAttribute("sender", "foo"),
+		sdk.NewAttribute("empty", ""),
+		sdk.NewAttribute("κλειδί", "τιμή 🚀"),
+	}, se.Attributes)
+}
+
+func (s *eventsTestSuite) TestParseTypedEvent() {
+	s.Run("parses a hand-built event", func() {
+		event := abci.Event{
+			Type: "cosmos.base.v1beta1.Coin",
+			Attributes: []abci.EventAttribute{
+				{Key: "denom", Value: `"fakedenom"`},
+				{Key: "amount", Value: `"1999999"`},
+			},
+		}
+
+		msg, err := sdk.ParseTypedEvent(event)
+		s.Require().NoError(err)
+		coin, ok := msg.(*sdk.Coin)
+		s.Require().True(ok)
+		s.Require().Equal(sdk.NewCoin("fakedenom", sdk.NewInt(1999999)), *coin)
+	})
+
+	s.Run("duplicate attribute keys: last one wins", func() {
+		event := abci.Event{
+			Type: "cosmos.base.v1beta1.Coin",
+			Attributes: []abci.EventAttribute{
+				{Key: "denom", Value: `"fakedenom"`},
+				{Key: "amount", Value: `"1"`},
+				{Key: "amount", Value: `"2"`},
+			},
+		}
+
+		msg, err := sdk.ParseTypedEvent(event)
+		s.Require().NoError(err)
+		s.Require().Equal("2", msg.(*sdk.Coin).Amount.String())
+	})
+
+	s.Run("unregistered event type", func() {
+		_, err := sdk.ParseTypedEvent(abci.Event{Type: "not.registered.Type"})
+		s.Require().Error(err)
+		s.Require().Contains(err.Error(), "failed to retrieve the message of type")
+	})
+
+	s.Run("invalid attribute value JSON", func() {
+		event := abci.Event{
+			Type: "cosmos.base.v1beta1.Coin",
+			Attributes: []abci.EventAttribute{
+				{Key: "denom", Value: "not-json"},
+			},
+		}
+
+		_, err := sdk.ParseTypedEvent(event)
+		s.Require().Error(err)
+	})
+}

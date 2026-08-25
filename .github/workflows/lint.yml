@@ -20,20 +20,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
-      - uses: technote-space/get-diff-action@v6.1.2
-        id: git_diff
-        with:
-          PATTERNS: |
-            **/*.go
-            go.mod
-            go.sum
-            **/go.mod
-            **/go.sum
-            Makefile
-            **/Makefile
-            .golangci.yml
       - name: golangci-lint
-        if: env.GIT_DIFF
         uses: golangci/golangci-lint-action@v6.1.0
         with:
           version: v1.61.0

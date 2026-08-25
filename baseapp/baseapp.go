@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"sync"
 	"strconv"
+	"sync"
 
 	"github.com/cockroachdb/errors"
 	abci "github.com/cometbft/cometbft/abci/types"
@@ -1053,22 +1053,20 @@ func (app *BaseApp) TxEncode(tx sdk.Tx) ([]byte, error) {
 func (app *BaseApp) Close() error {
 	var errs []error
 
-	// Close app.db (opened by cosmos-sdk/server/start.go call to openDB)
-	if app.db != nil {
-		app.logger.Info("Closing application.db")
-		if err := app.db.Close(); err != nil {
+	// Abort in-flight snapshots and close snapshots/metadata.db before application.db.
+	// Snapshot export reads application.db; closing the app DB first races with that work
+	// and can panic. See https://github.com/celestiaorg/celestia-app/issues/7252.
+	if app.snapshotManager != nil {
+		app.logger.Info("Closing snapshots/metadata.db")
+		if err := app.snapshotManager.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
-	// Close app.snapshotManager
-	// - opened when app chains use cosmos-sdk/server/util.go/DefaultBaseappOptions (boilerplate)
-	// - which calls cosmos-sdk/server/util.go/GetSnapshotStore
-	// - which is passed to baseapp/options.go/SetSnapshot
-	// - to set app.snapshotManager = snapshots.NewManager
-	if app.snapshotManager != nil {
-		app.logger.Info("Closing snapshots/metadata.db")
-		if err := app.snapshotManager.Close(); err != nil {
+	// Close app.db (opened by cosmos-sdk/server/start.go call to openDB)
+	if app.db != nil {
+		app.logger.Info("Closing application.db")
+		if err := app.db.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}

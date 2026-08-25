@@ -64,29 +64,21 @@ import (
 )
 
 // package-wide network lock to only allow one test network at a time
-var (
-	lock     = new(sync.Mutex)
-	portPool = make(chan string, 200)
-)
+var lock = new(sync.Mutex)
 
-func init() {
-	closeFns := []func() error{}
-	for i := 0; i < 200; i++ {
-		_, port, closeFn, err := FreeTCPAddr()
-		if err != nil {
-			panic(err)
-		}
-
-		portPool <- port
-		closeFns = append(closeFns, closeFn)
+// getFreePort returns a TCP port that is free at the time of the call. Unlike
+// pre-allocating a pool of "free" ports far ahead of when they're actually
+// bound, allocating immediately before use keeps the window in which another
+// process could grab the same port as small as possible.
+func getFreePort() (string, error) {
+	_, port, closeFn, err := FreeTCPAddr()
+	if err != nil {
+		return "", err
 	}
-
-	for _, closeFn := range closeFns {
-		err := closeFn()
-		if err != nil {
-			panic(err)
-		}
+	if err := closeFn(); err != nil {
+		return "", err
 	}
+	return port, nil
 }
 
 // AppConstructor defines a function which accepts a network configuration and
@@ -387,10 +379,10 @@ func New(l Logger, baseDir string, cfg Config) (*Network, error) {
 			if cfg.APIAddress != "" {
 				apiListenAddr = cfg.APIAddress
 			} else {
-				if len(portPool) == 0 {
-					return nil, fmt.Errorf("failed to get port for API server")
+				port, err := getFreePort()
+				if err != nil {
+					return nil, fmt.Errorf("failed to get port for API server: %w", err)
 				}
-				port := <-portPool
 				apiListenAddr = fmt.Sprintf("tcp://0.0.0.0:%s", port)
 			}
 
@@ -404,20 +396,20 @@ func New(l Logger, baseDir string, cfg Config) (*Network, error) {
 			if cfg.RPCAddress != "" {
 				cmtCfg.RPC.ListenAddress = cfg.RPCAddress
 			} else {
-				if len(portPool) == 0 {
-					return nil, fmt.Errorf("failed to get port for RPC server")
+				port, err := getFreePort()
+				if err != nil {
+					return nil, fmt.Errorf("failed to get port for RPC server: %w", err)
 				}
-				port := <-portPool
 				cmtCfg.RPC.ListenAddress = fmt.Sprintf("tcp://0.0.0.0:%s", port)
 			}
 
 			if cfg.GRPCAddress != "" {
 				appCfg.GRPC.Address = cfg.GRPCAddress
 			} else {
-				if len(portPool) == 0 {
-					return nil, fmt.Errorf("failed to get port for GRPC server")
+				port, err := getFreePort()
+				if err != nil {
+					return nil, fmt.Errorf("failed to get port for GRPC server: %w", err)
 				}
-				port := <-portPool
 				appCfg.GRPC.Address = fmt.Sprintf("0.0.0.0:%s", port)
 			}
 			appCfg.GRPC.Enable = true
@@ -450,17 +442,17 @@ func New(l Logger, baseDir string, cfg Config) (*Network, error) {
 		cmtCfg.Moniker = nodeDirName
 		monikers[i] = nodeDirName
 
-		if len(portPool) == 0 {
-			return nil, fmt.Errorf("failed to get port for Proxy server")
+		port, err := getFreePort()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get port for Proxy server: %w", err)
 		}
-		port := <-portPool
 		proxyAddr := fmt.Sprintf("tcp://0.0.0.0:%s", port)
 		cmtCfg.ProxyApp = proxyAddr
 
-		if len(portPool) == 0 {
-			return nil, fmt.Errorf("failed to get port for Proxy server")
+		port, err = getFreePort()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get port for P2P server: %w", err)
 		}
-		port = <-portPool
 		p2pAddr := fmt.Sprintf("tcp://0.0.0.0:%s", port)
 		cmtCfg.P2P.ListenAddress = p2pAddr
 		cmtCfg.P2P.AddrBookStrict = false
@@ -762,6 +754,27 @@ func (n *Network) RetryForBlocks(retryFunc func() error, blocks int) error {
 		}
 	}
 	return nil
+}
+
+// RetryWithTimeout retries retryFunc, sleeping interval between attempts,
+// until it returns a nil error or timeout elapses. Prefer this over
+// RetryForBlocks when waiting out a known-transient race (e.g. eventual
+// consistency after a broadcast) rather than a specific number of blocks:
+// a fixed attempt/block count is a magic number that can be too small on a
+// slow or loaded machine, whereas a generous wall-clock timeout still lets a
+// genuine bug surface - it just won't hang forever.
+func (n *Network) RetryWithTimeout(retryFunc func() error, timeout, interval time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		err := retryFunc()
+		if err == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(interval)
+	}
 }
 
 // WaitForNextBlock waits for the next block to be committed, returning an error

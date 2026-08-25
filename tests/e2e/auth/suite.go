@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/stretchr/testify/require"
@@ -270,12 +271,22 @@ func (s *E2ETestSuite) TestCLISignBatch() {
 		sdk.NewCoins(sdk.NewInt64Coin(s.cfg.BondDenom, 1000)),
 	)
 	s.Require().NoError(err)
-	s.Require().NoError(s.network.WaitForNextBlock())
 
-	// fetch the sequence after a tx, should be incremented.
-	_, seq1, err := val.ClientCtx.AccountRetriever.GetAccountNumberSequence(val.ClientCtx, val.Address)
-	s.Require().NoError(err)
-	s.Require().Equal(seq+1, seq1)
+	// fetch the sequence after a tx, should be incremented. The tx is broadcast
+	// in sync mode, so it's only guaranteed to be in the mempool, not
+	// committed, immediately. Retry until it lands rather than picking a
+	// fixed block count - a genuine bug still surfaces via the timeout.
+	var seq1 uint64
+	s.Require().NoError(s.network.RetryWithTimeout(func() error {
+		_, seq1, err = val.ClientCtx.AccountRetriever.GetAccountNumberSequence(val.ClientCtx, val.Address)
+		if err != nil {
+			return err
+		}
+		if seq1 != seq+1 {
+			return fmt.Errorf("expected sequence %d, got %d", seq+1, seq1)
+		}
+		return nil
+	}, 30*time.Second, 500*time.Millisecond))
 
 	// signing sign-batch should start from the last sequence.
 	signed, err := authclitestutil.TxSignBatchExec(val.ClientCtx, val.Address, outputFile.Name(), fmt.Sprintf("--%s=%s", flags.FlagChainID, val.ClientCtx.ChainID), "--signature-only")
@@ -389,12 +400,15 @@ func (s *E2ETestSuite) TestCLIQueryTxCmdByEvents() {
 	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &txRes))
 	s.Require().NoError(s.network.WaitForNextBlock())
 
-	// Query the tx by hash to get the inner tx.
-	err = s.network.RetryForBlocks(func() error {
+	// Query the tx by hash to get the inner tx. Retry until it's indexed
+	// rather than picking a fixed block count - under CI resource contention
+	// (many e2e packages producing blocks concurrently), block times can run
+	// well past their nominal duration, and a genuine bug still surfaces via
+	// the timeout below.
+	s.Require().NoError(s.network.RetryWithTimeout(func() error {
 		out, err = clitestutil.ExecTestCLICmd(val.ClientCtx, authcli.QueryTxCmd(), []string{txRes.TxHash, fmt.Sprintf("--%s=json", flags.FlagOutput)})
 		return err
-	}, 3)
-	s.Require().NoError(err)
+	}, 30*time.Second, 500*time.Millisecond))
 	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &txRes))
 	protoTx := txRes.GetTx().(*tx.Tx)
 
@@ -510,12 +524,15 @@ func (s *E2ETestSuite) TestCLIQueryTxsCmdByEvents() {
 	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &txRes))
 	s.Require().NoError(s.network.WaitForNextBlock())
 
-	// Query the tx by hash to get the inner tx.
-	err = s.network.RetryForBlocks(func() error {
+	// Query the tx by hash to get the inner tx. Retry until it's indexed
+	// rather than picking a fixed block count - under CI resource contention
+	// (many e2e packages producing blocks concurrently), block times can run
+	// well past their nominal duration, and a genuine bug still surfaces via
+	// the timeout below.
+	s.Require().NoError(s.network.RetryWithTimeout(func() error {
 		out, err = clitestutil.ExecTestCLICmd(val.ClientCtx, authcli.QueryTxCmd(), []string{txRes.TxHash, fmt.Sprintf("--%s=json", flags.FlagOutput)})
 		return err
-	}, 3)
-	s.Require().NoError(err)
+	}, 30*time.Second, 500*time.Millisecond))
 	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &txRes))
 
 	testCases := []struct {
@@ -848,13 +865,26 @@ func (s *E2ETestSuite) TestCLIMultisignSortSignatures() {
 		sdk.NewCoins(sendTokens),
 	)
 	s.Require().NoError(err)
-	s.Require().NoError(s.network.WaitForNextBlock())
 
-	resp, err = testutil.GetRequest(fmt.Sprintf("%s/cosmos/bank/v1beta1/balances/%s", val1.APIAddress, addr))
-	s.Require().NoError(err)
-	err = val1.ClientCtx.Codec.UnmarshalJSON(resp, &balRes)
-	s.Require().NoError(err)
-	diff, _ := balRes.Balances.SafeSub(intialCoins...)
+	// The send was broadcast in sync mode (mempool acceptance only), so a
+	// single WaitForNextBlock isn't enough to guarantee the queried balance
+	// reflects it yet. Retry until it does, bounded by a timeout rather than
+	// a fixed block count so a genuine bug still surfaces.
+	var diff sdk.Coins
+	s.Require().NoError(s.network.RetryWithTimeout(func() error {
+		resp, err = testutil.GetRequest(fmt.Sprintf("%s/cosmos/bank/v1beta1/balances/%s", val1.APIAddress, addr))
+		if err != nil {
+			return err
+		}
+		if err := val1.ClientCtx.Codec.UnmarshalJSON(resp, &balRes); err != nil {
+			return err
+		}
+		diff, _ = balRes.Balances.SafeSub(intialCoins...)
+		if !diff.AmountOf(s.cfg.BondDenom).Equal(sendTokens.Amount) {
+			return fmt.Errorf("balance not yet updated")
+		}
+		return nil
+	}, 30*time.Second, 500*time.Millisecond))
 	s.Require().Equal(sendTokens.Amount, diff.AmountOf(s.cfg.BondDenom))
 
 	// Generate multisig transaction.

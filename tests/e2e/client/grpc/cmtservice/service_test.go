@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"cosmossdk.io/simapp"
 	"github.com/stretchr/testify/suite"
@@ -331,7 +332,29 @@ func (s *E2ETestSuite) TestABCIQuery() {
 		tc := tc
 
 		s.Run(tc.name, func() {
-			res, err := s.queryClient.ABCIQuery(context.Background(), tc.req)
+			// The app's committed state can briefly lag behind the block
+			// header CometBFT already reports (same root cause fixed for
+			// TestQueryABCIHeight in client/rpc): a query issued right after
+			// SetupSuite's single WaitForNextBlock can transiently see the
+			// query height as invalid. Retry until it catches up instead of
+			// racing it with a fixed attempt count, but only for queries
+			// expected to succeed - a genuine bug still surfaces via timeout.
+			var res *cmtservice.ABCIQueryResponse
+			var err error
+			if tc.expectErr {
+				res, err = s.queryClient.ABCIQuery(context.Background(), tc.req)
+			} else {
+				err = s.network.RetryWithTimeout(func() error {
+					res, err = s.queryClient.ABCIQuery(context.Background(), tc.req)
+					if err != nil {
+						return err
+					}
+					if res == nil || res.Code != tc.expectedCode {
+						return fmt.Errorf("expected code %d, got %v", tc.expectedCode, res)
+					}
+					return nil
+				}, 30*time.Second, 200*time.Millisecond)
+			}
 			if tc.expectErr {
 				s.Require().Error(err)
 				s.Require().Nil(res)

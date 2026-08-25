@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
+	"time"
 
 	cmtcfg "github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/node"
@@ -17,6 +19,7 @@ import (
 	cmttypes "github.com/cometbft/cometbft/types"
 	cmttime "github.com/cometbft/cometbft/types/time"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
 
 	"cosmossdk.io/log"
 
@@ -56,25 +59,66 @@ func startInProcess(cfg Config, val *Validator) error {
 		return appGenesis.ToGenesisDoc()
 	}
 
-	cmtApp := server.NewCometABCIWrapper(app)
-	tmNode, err := node.NewNode( //resleak:notresource
-		cmtCfg,
-		pvm.LoadOrGenFilePV(cmtCfg.PrivValidatorKeyFile(), cmtCfg.PrivValidatorStateFile()),
-		nodeKey,
-		proxy.NewLocalClientCreator(cmtApp),
-		appGenesisProvider,
-		cmtcfg.DefaultDBProvider,
-		node.DefaultMetricsProvider(cmtCfg.Instrumentation),
-		servercmtlog.CometLoggerWrapper{Logger: logger.With("module", val.Moniker)},
-	)
-	if err != nil {
-		return err
-	}
+	// The addresses handed to us were only free at the moment they were probed;
+	// another concurrently running test binary may grab the same port before we
+	// actually bind it. Retry with freshly allocated ports on a bind failure
+	// instead of failing the whole test outright.
+	const maxBindAttempts = 3
 
-	if err := tmNode.Start(); err != nil {
-		return err
+	cmtApp := server.NewCometABCIWrapper(app)
+	var tmNode *node.Node
+	for attempt := 1; ; attempt++ {
+		tmNode, err = node.NewNode( //resleak:notresource
+			cmtCfg,
+			pvm.LoadOrGenFilePV(cmtCfg.PrivValidatorKeyFile(), cmtCfg.PrivValidatorStateFile()),
+			nodeKey,
+			proxy.NewLocalClientCreator(cmtApp),
+			appGenesisProvider,
+			cmtcfg.DefaultDBProvider,
+			node.DefaultMetricsProvider(cmtCfg.Instrumentation),
+			servercmtlog.CometLoggerWrapper{Logger: logger.With("module", val.Moniker)},
+		)
+		if err != nil {
+			return err
+		}
+
+		startErr := tmNode.Start()
+		if startErr == nil {
+			break
+		}
+		if tmNode.IsRunning() {
+			_ = tmNode.Stop()
+		}
+		if attempt >= maxBindAttempts {
+			return fmt.Errorf("comet node failed to start after %d attempts: %w", attempt, startErr)
+		}
+
+		// Reallocate the P2P/proxy-app addresses (and RPC, if this validator
+		// exposes one): any of them may have lost the same probe-then-bind
+		// race as the gRPC/API addresses handled below.
+		p2pPort, err := getFreePort()
+		if err != nil {
+			return err
+		}
+		cmtCfg.P2P.ListenAddress = fmt.Sprintf("tcp://0.0.0.0:%s", p2pPort)
+
+		proxyPort, err := getFreePort()
+		if err != nil {
+			return err
+		}
+		cmtCfg.ProxyApp = fmt.Sprintf("tcp://0.0.0.0:%s", proxyPort)
+
+		if cmtCfg.RPC.ListenAddress != "" {
+			rpcPort, err := getFreePort()
+			if err != nil {
+				return err
+			}
+			cmtCfg.RPC.ListenAddress = fmt.Sprintf("tcp://0.0.0.0:%s", rpcPort)
+			val.RPCAddress = cmtCfg.RPC.ListenAddress
+		}
 	}
 	val.tmNode = tmNode
+	val.P2PAddress = cmtCfg.P2P.ListenAddress
 
 	if val.RPCAddress != "" {
 		val.RPCClient = local.New(tmNode)
@@ -97,27 +141,77 @@ func startInProcess(cfg Config, val *Validator) error {
 	grpcCfg := val.AppConfig.GRPC
 
 	if grpcCfg.Enable {
-		grpcSrv, err := servergrpc.NewGRPCServer(val.ClientCtx, app, grpcCfg)
-		if err != nil {
-			return err
-		}
+		var grpcSrv *grpc.Server
+		for attempt := 1; ; attempt++ {
+			var err error
+			grpcSrv, err = servergrpc.NewGRPCServer(val.ClientCtx, app, grpcCfg)
+			if err != nil {
+				return err
+			}
 
-		// Start the gRPC server in a goroutine. Note, the provided ctx will ensure
-		// that the server is gracefully shut down.
-		val.errGroup.Go(func() error {
-			return servergrpc.StartGRPCServer(ctx, logger.With(log.ModuleKey, "grpc-server"), grpcCfg, grpcSrv)
-		})
+			// Start the gRPC server in a goroutine. Note, the provided ctx will
+			// ensure that the server is gracefully shut down once it's up.
+			startErrCh := make(chan error, 1)
+			go func() {
+				startErrCh <- servergrpc.StartGRPCServer(ctx, logger.With(log.ModuleKey, "grpc-server"), grpcCfg, grpcSrv)
+			}()
+
+			select {
+			case startErr := <-startErrCh:
+				if attempt >= maxBindAttempts {
+					return fmt.Errorf("gRPC server failed to start after %d attempts: %w", attempt, startErr)
+				}
+				port, err := getFreePort()
+				if err != nil {
+					return err
+				}
+				grpcCfg.Address = fmt.Sprintf("0.0.0.0:%s", port)
+				val.AppConfig.GRPC.Address = grpcCfg.Address
+				continue
+			case <-time.After(500 * time.Millisecond):
+				// Bound successfully; hand the already-running goroutine off to
+				// the error group so Cleanup() can wait for its eventual exit.
+				val.errGroup.Go(func() error { return <-startErrCh })
+			}
+			break
+		}
 
 		val.grpc = grpcSrv
 	}
 
 	if val.APIAddress != "" {
-		apiSrv := api.New(val.ClientCtx, logger.With(log.ModuleKey, "api-server"), val.grpc)
-		app.RegisterAPIRoutes(apiSrv, val.AppConfig.API)
+		var apiSrv *api.Server
+		for attempt := 1; ; attempt++ {
+			apiSrv = api.New(val.ClientCtx, logger.With(log.ModuleKey, "api-server"), val.grpc)
+			app.RegisterAPIRoutes(apiSrv, val.AppConfig.API)
 
-		val.errGroup.Go(func() error {
-			return apiSrv.Start(ctx, *val.AppConfig)
-		})
+			startErrCh := make(chan error, 1)
+			go func() {
+				startErrCh <- apiSrv.Start(ctx, *val.AppConfig)
+			}()
+
+			select {
+			case startErr := <-startErrCh:
+				if attempt >= maxBindAttempts {
+					return fmt.Errorf("API server failed to start after %d attempts: %w", attempt, startErr)
+				}
+				port, err := getFreePort()
+				if err != nil {
+					return err
+				}
+				apiListenAddr := fmt.Sprintf("tcp://0.0.0.0:%s", port)
+				val.AppConfig.API.Address = apiListenAddr
+				apiURL, err := url.Parse(apiListenAddr)
+				if err != nil {
+					return err
+				}
+				val.APIAddress = fmt.Sprintf("http://%s:%s", apiURL.Hostname(), apiURL.Port())
+				continue
+			case <-time.After(500 * time.Millisecond):
+				val.errGroup.Go(func() error { return <-startErrCh })
+			}
+			break
+		}
 
 		val.api = apiSrv
 	}

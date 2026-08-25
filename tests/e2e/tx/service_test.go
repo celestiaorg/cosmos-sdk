@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/suite"
 
@@ -139,13 +140,27 @@ func (s *E2ETestSuite) TestQueryBySig() {
 	// encode, format, query
 	b64Sig := base64.StdEncoding.EncodeToString(sig.Signature)
 	sigFormatted := fmt.Sprintf("%s.%s='%s'", sdk.EventTypeTx, sdk.AttributeKeySignature, b64Sig)
-	res, err := s.queryClient.GetTxsEvent(context.Background(), &tx.GetTxsEventRequest{
-		Query:   sigFormatted,
-		OrderBy: 0,
-		Page:    0,
-		Limit:   10,
-	})
-	s.Require().NoError(err)
+
+	// The tx was broadcast in sync mode, so it's only guaranteed to be in the
+	// mempool, not indexed, immediately. Retry until it shows up instead of
+	// racing its inclusion with a fixed attempt count - a genuine bug still
+	// surfaces via the timeout.
+	var res *tx.GetTxsEventResponse
+	s.Require().NoError(s.network.RetryWithTimeout(func() error {
+		res, err = s.queryClient.GetTxsEvent(context.Background(), &tx.GetTxsEventRequest{
+			Query:   sigFormatted,
+			OrderBy: 0,
+			Page:    0,
+			Limit:   10,
+		})
+		if err != nil {
+			return err
+		}
+		if len(res.Txs) == 0 {
+			return fmt.Errorf("tx not yet indexed")
+		}
+		return nil
+	}, 30*time.Second, 500*time.Millisecond))
 	s.Require().Len(res.Txs, 1)
 	s.Require().Len(res.Txs[0].Signatures, 1)
 	s.Require().Equal(res.Txs[0].Signatures[0], sig.Signature)
@@ -595,7 +610,7 @@ func (s *E2ETestSuite) TestSimMultiSigTx() {
 
 	// Send coins from validator to multisig.
 	coins := sdk.NewInt64Coin(s.cfg.BondDenom, 15)
-	_, err = cli.MsgSendExec(
+	sendRes, err := cli.MsgSendExec(
 		val1.ClientCtx,
 		val1.Address,
 		addr,
@@ -608,10 +623,12 @@ func (s *E2ETestSuite) TestSimMultiSigTx() {
 	)
 	s.Require().NoError(err)
 
-	height, err = s.network.LatestHeight()
-	s.Require().NoError(err)
-	_, err = s.network.WaitForHeight(height + 1)
-	s.Require().NoError(err)
+	// The send was broadcast in sync mode (mempool acceptance only), so a
+	// single WaitForHeight isn't enough to guarantee the multisig account is
+	// actually funded and queryable yet. Confirm it was committed instead.
+	var sendResponse sdk.TxResponse
+	s.Require().NoError(val1.ClientCtx.Codec.UnmarshalJSON(sendRes.Bytes(), &sendResponse), sendRes.String())
+	s.Require().NoError(cli.CheckTxCode(s.network, val1.ClientCtx, sendResponse.TxHash, 0))
 
 	// Generate multisig transaction.
 	multiGeneratedTx, err := cli.MsgSendExec(

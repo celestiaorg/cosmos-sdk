@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"testing"
+	"time"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/stretchr/testify/suite"
@@ -101,9 +102,23 @@ func (s *IntegrationTestSuite) TestQueryABCIHeight() {
 				Prove:  true,
 			}
 
-			res, err := clientCtx.QueryABCI(req)
-			s.Require().NoError(err)
-
+			// The app's committed state can briefly lag behind the block header
+			// height reported by WaitForHeight, since CometBFT makes the new
+			// block header visible slightly before the app finishes Commit().
+			// Retry until it catches up instead of racing it with a fixed
+			// attempt count - a genuine bug still surfaces via the timeout.
+			var res abci.ResponseQuery
+			var err error
+			s.Require().NoError(s.network.RetryWithTimeout(func() error {
+				res, err = clientCtx.QueryABCI(req)
+				if err != nil {
+					return err
+				}
+				if res.Height != tc.expHeight {
+					return fmt.Errorf("expected height %d, got %d", tc.expHeight, res.Height)
+				}
+				return nil
+			}, 30*time.Second, 200*time.Millisecond))
 			s.Require().Equal(tc.expHeight, res.Height)
 		})
 	}

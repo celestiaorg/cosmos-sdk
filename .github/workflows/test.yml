@@ -5,12 +5,13 @@ on:
   push:
     branches:
       - release/**
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}-tests
+  group: ci-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}-tests
   cancel-in-progress: true
 
 jobs:

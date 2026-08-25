@@ -187,11 +187,26 @@ func NewBaseAppSuiteWithSnapshots(t *testing.T, cfg SnapshotsConfig, opts ...fun
 				snapshot, err := snapshotStore.Get(uint64(height), snapshottypes.CurrentFormat)
 				require.NoError(t, err)
 
-				if snapshot != nil {
-					break
+				if snapshot == nil {
+					time.Sleep(100 * time.Millisecond)
+					continue
 				}
 
-				time.Sleep(100 * time.Millisecond)
+				// The manager prunes older snapshots down to KeepRecent in the
+				// same goroutine, right after creating this one - but that
+				// hasn't necessarily happened yet just because this snapshot
+				// is now visible. Wait for pruning to catch up too, or callers
+				// immediately listing snapshots can still see stale entries.
+				if cfg.snapshotKeepRecent > 0 {
+					all, err := snapshotStore.List()
+					require.NoError(t, err)
+					if uint32(len(all)) > cfg.snapshotKeepRecent {
+						time.Sleep(100 * time.Millisecond)
+						continue
+					}
+				}
+
+				break
 			}
 		}
 	}

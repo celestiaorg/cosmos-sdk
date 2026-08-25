@@ -97,10 +97,15 @@ func (suite *DeterministicTestSuite) createAndSetAccounts(t *rapid.T, count int)
 		return i
 	}).Draw(t, "acc-nums")
 
-	// then we change account numbers in such a way that there cannot be accounts with the same account number
+	// Then we change account numbers in such a way that there cannot be accounts
+	// with the same account number, even across concurrent/repeated calls to
+	// this helper: reserve the high 32 bits for a globally unique lane and
+	// confine the (still effectively random) low bits to the remaining 32,
+	// rather than adding a small offset to an unbounded draw - which can, and
+	// eventually will, collide with another lane's own out-of-range draw.
 	lane := atomic.AddUint64(&suite.accountNumberLanes, 1)
 	for i := range accNums {
-		accNums[i] += lane * 1000
+		accNums[i] = (lane << 32) | (accNums[i] & 0xFFFFFFFF)
 	}
 
 	for i := 0; i < count; i++ {

@@ -980,6 +980,9 @@ loop:
 				return snapshottypes.SnapshotItem{}, errorsmod.Wrapf(types.ErrLogic, "node height %v cannot exceed %v",
 					item.IAVL.Height, math.MaxInt8)
 			}
+			if item.IAVL.Version < 0 {
+				return snapshottypes.SnapshotItem{}, errorsmod.Wrapf(types.ErrLogic, "node version %v cannot be negative", item.IAVL.Version)
+			}
 			node := &iavltree.ExportNode{
 				Key:     item.IAVL.Key,
 				Value:   item.IAVL.Value,

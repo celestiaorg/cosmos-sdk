@@ -1,0 +1,33 @@
+pull_request_rules:
+  - name: backport patches to release/v0.46.x-celestia branch
+    conditions:
+      - label=backport:v0.46.x-celestia
+      - -base=release/v0.46.x-celestia
+    actions:
+      backport:
+        branches:
+          - release/v0.46.x-celestia
+  - name: backport patches to release/v0.50.x-celestia branch
+    conditions:
+      - label=backport:v0.50.x-celestia
+      - -base=release/v0.50.x-celestia
+    actions:
+      backport:
+        branches:
+          - release/v0.50.x-celestia
+  - name: backport patches to release/v0.51.x-celestia branch
+    conditions:
+      - label=backport:v0.51.x-celestia
+      - -base=release/v0.51.x-celestia
+    actions:
+      backport:
+        branches:
+          - release/v0.51.x-celestia
+  - name: backport patches to release/v0.52.x-celestia branch
+    conditions:
+      - label=backport:v0.52.x-celestia
+      - -base=release/v0.52.x-celestia
+    actions:
+      backport:
+        branches:
+          - release/v0.52.x-celestia

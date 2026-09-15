@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rs/zerolog"
-
 	"cosmossdk.io/log"
 	upgradetypes "cosmossdk.io/x/upgrade/types"
 )
@@ -30,6 +28,13 @@ type fileWatcher struct {
 
 	initialized bool
 }
+
+// How long CheckUpdate waits for a newly created upgrade-info.json to be
+// written before concluding there is no update.
+const (
+	emptyFileRetries       = 10
+	emptyFileRetryInterval = 2 * time.Millisecond
+)
 
 func newUpgradeFileWatcher(logger log.Logger, filename string, interval time.Duration) (*fileWatcher, error) {
 	if filename == "" {
@@ -106,15 +111,31 @@ func (fw *fileWatcher) CheckUpdate(currentUpgrade upgradetypes.Plan) bool {
 		return false
 	}
 
+	// The application creates upgrade-info.json and writes it in two steps, so a
+	// poll landing between the two sees a zero-length file. Treat that as "no
+	// update yet" rather than a parse error, giving the write a moment to land.
+	// See https://github.com/cosmos/cosmos-sdk/issues/21086.
+	for i := 0; stat.Size() == 0 && i < emptyFileRetries; i++ {
+		time.Sleep(emptyFileRetryInterval)
+		if stat, err = os.Stat(fw.filename); err != nil {
+			return false
+		}
+	}
+	if stat.Size() == 0 {
+		return false
+	}
+
 	if !stat.ModTime().After(fw.lastModTime) {
 		return false
 	}
 
 	info, err := parseUpgradeInfoFile(fw.filename)
 	if err != nil {
-		zl := fw.logger.Impl().(*zerolog.Logger)
-		zl.Fatal().Err(err).Msg("failed to parse upgrade info file")
-		return false
+		// A malformed upgrade-info.json must not be skipped silently: cosmovisor
+		// would miss the upgrade and the node would halt at the upgrade height
+		// anyway. Panic rather than Fatal so the failure is not tied to the
+		// logger implementation.
+		panic(fmt.Errorf("failed to parse upgrade info file: %w", err))
 	}
 
 	if !fw.initialized {

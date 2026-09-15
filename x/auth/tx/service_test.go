@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -30,7 +29,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authclient "github.com/cosmos/cosmos-sdk/x/auth/client"
 	authtest "github.com/cosmos/cosmos-sdk/x/auth/client/testutil"
-	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 	bankcli "github.com/cosmos/cosmos-sdk/x/bank/client/testutil"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 )
@@ -147,61 +145,8 @@ func (s *IntegrationTestSuite) TestQueryBySig() {
 	s.Require().Equal(res.Txs[0].Signatures[0], sig.Signature)
 
 	// bad format should error
-	_, err = s.queryClient.GetTxsEvent(context.Background(), &tx.GetTxsEventRequest{Events: []string{"tx.foo.bar='baz'"}})
-	s.Require().ErrorContains(err, "invalid event;")
-}
-
-func TestEventRegex(t *testing.T) {
-	t.Parallel()
-
-	testCases := []struct {
-		name  string
-		event string
-		match bool
-	}{
-		{
-			name:  "valid: with quotes",
-			event: "tx.message='something'",
-			match: true,
-		},
-		{
-			name:  "valid: with underscores",
-			event: "claim_reward.message_action='something'",
-			match: true,
-		},
-		{
-			name:  "valid: no quotes",
-			event: "tx.message=something",
-			match: true,
-		},
-		{
-			name:  "invalid: too many separators",
-			event: "tx.message.foo='bar'",
-			match: false,
-		},
-		{
-			name:  "valid: symbols ok",
-			event: "tx.signature='foobar/baz123=='",
-			match: true,
-		},
-		{
-			name:  "valid: with >= operator",
-			event: "tx.height>=10'",
-			match: true,
-		},
-		{
-			name:  "valid: with <= operator",
-			event: "tx.height<=10'",
-			match: true,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			match := authtx.EventRegex.Match([]byte(tc.event))
-			require.Equal(t, tc.match, match)
-		})
-	}
+	_, err = s.queryClient.GetTxsEvent(context.Background(), &tx.GetTxsEventRequest{Events: []string{"tx.foo.bar"}})
+	s.Require().Error(err)
 }
 
 func (s IntegrationTestSuite) TestSimulateTx_GRPC() {
@@ -314,7 +259,7 @@ func (s IntegrationTestSuite) TestGetTxEvents_GRPC() {
 		{
 			"request with dummy event",
 			&tx.GetTxsEventRequest{Events: []string{"foobar"}},
-			true, "event foobar should be of the format: {eventType}.{eventAttribute}={value}", 0,
+			true, "parse error", 0,
 		},
 		{
 			"request with order-by",
@@ -366,6 +311,32 @@ func (s IntegrationTestSuite) TestGetTxEvents_GRPC() {
 				s.Require().NotEmpty(grpcRes.TxResponses[0].Timestamp)
 				s.Require().NotEmpty(grpcRes.TxResponses[0].RawLog)
 			}
+		})
+	}
+}
+
+func (s IntegrationTestSuite) TestGetTxEventOperators_GRPC() {
+	testCases := []struct {
+		name  string
+		query string
+	}{
+		{"equal", bankMsgSendEventAction},
+		{"less than", "tx.height<1000000"},
+		{"less than or equal", "tx.height<=1000000"},
+		{"greater than", "tx.height>0"},
+		{"greater than or equal", "tx.height>=1"},
+		{"contains", "message.action CONTAINS 'MsgSend'"},
+		{"exists", "message.action EXISTS"},
+	}
+
+	for _, tc := range testCases {
+		s.Run(tc.name, func() {
+			res, err := s.queryClient.GetTxsEvent(context.Background(), &tx.GetTxsEventRequest{
+				Events: []string{tc.query},
+				Limit:  100,
+			})
+			s.Require().NoError(err)
+			s.Require().NotEmpty(res.Txs)
 		})
 	}
 }

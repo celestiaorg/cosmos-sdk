@@ -2,7 +2,6 @@ package tx
 
 import (
 	"context"
-	"fmt"
 	"regexp"
 	"strings"
 
@@ -44,13 +43,10 @@ func NewTxServer(clientCtx client.Context, simulate baseAppSimulateFn, interface
 var (
 	_ txtypes.ServiceServer = txServer{}
 
-	// EventRegex checks that an event string is formatted with {alphabetic}.{alphabetic}={value}
-	// Note: in addition to equality, the `>=` and `<=` operators are also valid.
+	// EventRegex checks that an event string is formatted with {alphabetic}.{alphabetic}={value}.
+	//
+	// Deprecated: transaction event queries are parsed by the consensus engine.
 	EventRegex = regexp.MustCompile(`^[a-zA-Z_]+\.[a-zA-Z_]+[<>]?=\S+$`)
-)
-
-const (
-	eventFormat = "{eventType}.{eventAttribute}={value}"
 )
 
 // GetTxsEvent implements the ServiceServer.TxsByEvents RPC method.
@@ -74,12 +70,6 @@ func (s txServer) GetTxsEvent(ctx context.Context, req *txtypes.GetTxsEventReque
 
 	if len(req.Events) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "must declare at least one event to search")
-	}
-
-	for _, event := range req.Events {
-		if !EventRegex.Match([]byte(event)) {
-			return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid event; event %s should be of the format: %s", event, eventFormat))
-		}
 	}
 
 	result, err := QueryTxsByEvents(s.clientCtx, req.Events, page, limit, orderBy)

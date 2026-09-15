@@ -185,13 +185,38 @@ func TestEventRegex(t *testing.T) {
 			match: true,
 		},
 		{
-			name:  "valid: with >= operator",
-			event: "tx.height>=10'",
+			name:  "valid: equal operator",
+			event: "tx.height=10",
 			match: true,
 		},
 		{
-			name:  "valid: with <= operator",
-			event: "tx.height<=10'",
+			name:  "valid: less than operator",
+			event: "tx.height<10",
+			match: true,
+		},
+		{
+			name:  "valid: less than or equal operator",
+			event: "tx.height<=10",
+			match: true,
+		},
+		{
+			name:  "valid: greater than operator",
+			event: "tx.height>10",
+			match: true,
+		},
+		{
+			name:  "valid: greater than or equal operator",
+			event: "tx.height>=10",
+			match: true,
+		},
+		{
+			name:  "valid: contains operator",
+			event: "tx.memo CONTAINS 'something'",
+			match: true,
+		},
+		{
+			name:  "valid: exists operator",
+			event: "tx.height EXISTS",
 			match: true,
 		},
 	}

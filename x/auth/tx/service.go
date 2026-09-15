@@ -44,9 +44,8 @@ func NewTxServer(clientCtx client.Context, simulate baseAppSimulateFn, interface
 var (
 	_ txtypes.ServiceServer = txServer{}
 
-	// EventRegex checks that an event string is formatted with {alphabetic}.{alphabetic}={value}
-	// Note: in addition to equality, the `>=` and `<=` operators are also valid.
-	EventRegex = regexp.MustCompile(`^[a-zA-Z_]+\.[a-zA-Z_]+[<>]?=\S+$`)
+	// EventRegex checks that an event string is formatted as a Celestia Core query condition.
+	EventRegex = regexp.MustCompile(`(?i)^[a-z_]+\.[a-z_]+ *(?:(?:[<>]=?|=) *\S+| +CONTAINS +\S+| +EXISTS)$`)
 )
 
 const (

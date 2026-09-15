@@ -1,11 +1,14 @@
 package cosmovisor
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"cosmossdk.io/log"
 	upgradetypes "cosmossdk.io/x/upgrade/types"
 )
 
@@ -75,4 +78,22 @@ func TestParseUpgradeInfoFile(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCheckUpdateEmptyFile covers the race in which the watcher stats
+// upgrade-info.json between the app creating it and writing its contents. The
+// watcher must treat a zero-length file as "no update yet" rather than a parse
+// error; see https://github.com/cosmos/cosmos-sdk/issues/21086.
+func TestCheckUpdateEmptyFile(t *testing.T) {
+	require := require.New(t)
+
+	filename := filepath.Join(t.TempDir(), "upgrade-info.json")
+	f, err := os.Create(filename)
+	require.NoError(err)
+	require.NoError(f.Close())
+
+	fw, err := newUpgradeFileWatcher(log.NewNopLogger(), filename, time.Millisecond)
+	require.NoError(err)
+
+	require.False(fw.CheckUpdate(upgradetypes.Plan{}))
 }

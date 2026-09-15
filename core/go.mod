@@ -5,7 +5,7 @@ go 1.25.14
 require (
 	cosmossdk.io/api v0.7.0
 	cosmossdk.io/depinject v1.0.0
-	cosmossdk.io/math v1.1.2
+	cosmossdk.io/math v1.4.0
 	github.com/cosmos/cosmos-db v1.0.0
 	github.com/stretchr/testify v1.9.0
 	google.golang.org/grpc v1.83.1

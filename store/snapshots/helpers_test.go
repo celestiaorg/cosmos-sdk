@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -204,7 +205,10 @@ func (m *mockErrorSnapshotter) SetSnapshotInterval(snapshotInterval uint64) {
 }
 
 // setupBusyManager creates a manager with an empty store that is busy creating a snapshot at height 1.
-// The snapshot will complete when the returned closer is called.
+// The snapshot completes when hungSnapshotter.Close runs (via t.Cleanup).
+//
+// Do not call manager.Close() while the hung snapshotter is blocked: Close waits for the
+// in-flight Create to observe abort on WriteMsg, and hungSnapshotter never writes.
 func setupBusyManager(t *testing.T) *snapshots.Manager {
 	t.Helper()
 	store, err := snapshots.NewStore(db.NewMemDB(), t.TempDir())
@@ -237,9 +241,10 @@ func setupBusyManager(t *testing.T) *snapshots.Manager {
 	return mgr
 }
 
-// hungSnapshotter can be used to test operations in progress. Call close to end the snapshot.
+// hungSnapshotter can be used to test operations in progress. Call Close to end the snapshot.
 type hungSnapshotter struct {
 	ch               chan struct{}
+	closeOnce        sync.Once
 	prunedHeights    map[int64]struct{}
 	snapshotInterval uint64
 }
@@ -252,7 +257,9 @@ func newHungSnapshotter() *hungSnapshotter {
 }
 
 func (m *hungSnapshotter) Close() {
-	close(m.ch)
+	m.closeOnce.Do(func() {
+		close(m.ch)
+	})
 }
 
 func (m *hungSnapshotter) Snapshot(height uint64, protoWriter protoio.Writer) error {

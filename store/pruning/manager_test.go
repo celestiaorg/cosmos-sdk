@@ -196,7 +196,7 @@ func TestPruningHeight_Inputs(t *testing.T) {
 	}
 }
 
-func TestHandleSnapshotHeight_DbErr_Panic(t *testing.T) {
+func TestHandleSnapshotHeight_DbErr_NoPanic(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
 	// Setup
@@ -208,13 +208,9 @@ func TestHandleSnapshotHeight_DbErr_Panic(t *testing.T) {
 	manager.SetOptions(types.NewPruningOptions(types.PruningEverything))
 	require.NotNil(t, manager)
 
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fail()
-		}
-	}()
-
-	manager.HandleSnapshotHeight(10)
+	require.NotPanics(t, func() {
+		manager.HandleSnapshotHeight(10)
+	})
 }
 
 func TestHandleSnapshotHeight_LoadFromDisk(t *testing.T) {

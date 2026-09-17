@@ -58,8 +58,8 @@ func keysFromStoreKeyMap[V any](m map[types.StoreKey]V) []types.StoreKey {
 type Store struct {
 	db                  dbm.DB
 	logger              log.Logger
-	lastCommitInfo   *types.CommitInfo
-	lastCommitInfoMu sync.RWMutex
+	lastCommitInfo      *types.CommitInfo
+	lastCommitInfoMu    sync.RWMutex
 	pruningManager      *pruning.Manager
 	iavlCacheSize       int
 	iavlDisableFastNode bool
@@ -75,6 +75,11 @@ type Store struct {
 	listeners           map[types.StoreKey]*types.MemoryListener
 	metrics             metrics.StoreMetrics
 	commitHeader        cmtproto.Header
+
+	// snapshotAbortCh is set by snapshots.Manager so Snapshot can observe shutdown
+	// before/between writes (not only when WriteMsg fails).
+	snapshotAbortChMu sync.RWMutex
+	snapshotAbortCh   <-chan struct{}
 }
 
 var (
@@ -123,6 +128,29 @@ func (rs *Store) SetMetrics(metrics metrics.StoreMetrics) {
 // It is used by the store to determine which heights to retain until after the snapshot is complete.
 func (rs *Store) SetSnapshotInterval(snapshotInterval uint64) {
 	rs.pruningManager.SetSnapshotInterval(snapshotInterval)
+}
+
+// SetSnapshotAbortCh registers a channel closed by snapshots.Manager on Close so
+// Snapshot can return early when shutdown begins, including before the first WriteMsg.
+func (rs *Store) SetSnapshotAbortCh(abort <-chan struct{}) {
+	rs.snapshotAbortChMu.Lock()
+	defer rs.snapshotAbortChMu.Unlock()
+	rs.snapshotAbortCh = abort
+}
+
+func (rs *Store) snapshotAborted() bool {
+	rs.snapshotAbortChMu.RLock()
+	ch := rs.snapshotAbortCh
+	rs.snapshotAbortChMu.RUnlock()
+	if ch == nil {
+		return false
+	}
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
 }
 
 func (rs *Store) SetIAVLCacheSize(cacheSize int) {
@@ -872,6 +900,10 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 	// and the following messages contain a SnapshotNode (i.e. an ExportNode). Store changes
 	// are demarcated by new SnapshotStore items.
 	for _, store := range stores {
+		if rs.snapshotAborted() {
+			return snapshottypes.ErrAborted
+		}
+
 		rs.logger.Trace("starting snapshot", "store", store.name, "height", height)
 		exporter, err := store.Export(int64(height))
 		if err != nil {
@@ -881,6 +913,10 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 
 		err = func() error {
 			defer exporter.Close()
+
+			if rs.snapshotAborted() {
+				return snapshottypes.ErrAborted
+			}
 
 			err := protoWriter.WriteMsg(&snapshottypes.SnapshotItem{
 				Item: &snapshottypes.SnapshotItem_Store{
@@ -896,6 +932,9 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 
 			nodeCount := 0
 			for {
+				if rs.snapshotAborted() {
+					return snapshottypes.ErrAborted
+				}
 				node, err := exporter.Next()
 				if err == iavltree.ErrorExportDone {
 					rs.logger.Trace("snapshot Done", "store", store.name, "nodeCount", nodeCount)

@@ -1,0 +1,4 @@
+# The legacy Cosmos SDK keyring imports x/crypto/openpgp. The package is
+# deprecated and has no patched release; remove this exception when the
+# keyring no longer imports it.
+GO-2026-5932

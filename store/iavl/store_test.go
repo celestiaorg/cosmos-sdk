@@ -712,3 +712,98 @@ func TestChangeSets(t *testing.T) {
 	restoreCommitID := iavlStore.LastCommitID()
 	require.Equal(t, commitID, restoreCommitID)
 }
+
+// rootKey returns the raw database key of the root node of version v.
+func rootKey(v int64) []byte {
+	return append([]byte{'s'}, iavl.GetRootKey(v)...)
+}
+
+// tearNextVersion saves a new version on tree and deletes its root node, which
+// is what a commit killed right before its last write leaves behind. It returns
+// the torn version.
+func tearNextVersion(t *testing.T, db dbm.DB, tree *iavl.MutableTree) int64 {
+	t.Helper()
+	_, err := tree.Set([]byte("torn"), []byte("torn"))
+	require.NoError(t, err)
+	_, torn, err := tree.SaveVersion()
+	require.NoError(t, err)
+	require.NoError(t, db.Delete(rootKey(torn)))
+	return torn
+}
+
+func loadStoreWithOpts(t *testing.T, db dbm.DB, id types.CommitID, opts LoadStoreOptions) *Store {
+	t.Helper()
+	store, err := LoadStoreWithOpts(db, log.NewNopLogger(), types.NewKVStoreKey("test"), id, 0, DefaultIAVLCacheSize, false, metrics.NewNoOpMetrics(), opts)
+	require.NoError(t, err)
+	require.Equal(t, id, store.LastCommitID())
+	return store.(*Store)
+}
+
+// TestLoadStorePanicsOnPartiallyWrittenVersion pins the iavl behavior that
+// DiscardVersionsAboveTarget repairs: a version with nodes but no root loads
+// fine and then panics on the next commit.
+func TestLoadStorePanicsOnPartiallyWrittenVersion(t *testing.T) {
+	db := dbm.NewMemDB()
+	tree, cID := newAlohaTree(t, db)
+	torn := tearNextVersion(t, db, tree)
+
+	store := loadStoreWithOpts(t, db, cID, LoadStoreOptions{})
+
+	// iavl counts the torn version as existing but cannot load it.
+	require.True(t, store.VersionExists(torn))
+	_, err := store.GetImmutable(torn)
+	require.ErrorIs(t, err, iavl.ErrVersionDoesNotExist)
+
+	store.Set([]byte("k"), []byte("v"))
+	require.PanicsWithError(t, iavl.ErrVersionDoesNotExist.Error(), func() { store.Commit() })
+}
+
+func TestLoadStoreWithOptsDiscardsPartiallyWrittenVersion(t *testing.T) {
+	db := dbm.NewMemDB()
+	tree, cID := newAlohaTree(t, db)
+	torn := tearNextVersion(t, db, tree)
+
+	store := loadStoreWithOpts(t, db, cID, LoadStoreOptions{DiscardVersionsAboveTarget: true})
+
+	// Nothing of the torn version is left on disk: a fresh load no longer sees it.
+	fresh := loadStoreWithOpts(t, db, cID, LoadStoreOptions{})
+	require.False(t, fresh.VersionExists(torn))
+
+	// The committed state survives the repair and the torn version commits again.
+	require.Equal(t, []byte("goodbye"), store.Get([]byte("hello")))
+	store.Set([]byte("k"), []byte("v"))
+	var next types.CommitID
+	require.NotPanics(t, func() { next = store.Commit() })
+	require.Equal(t, torn, next.Version)
+}
+
+func TestLoadStoreWithOptsKeepsCompleteVersionAboveTarget(t *testing.T) {
+	db := dbm.NewMemDB()
+	tree, cID := newAlohaTree(t, db)
+
+	// A kill between this store's commit and the multistore's commit info write
+	// leaves a complete version above the one the multistore points at.
+	_, err := tree.Set([]byte("k"), []byte("v"))
+	require.NoError(t, err)
+	hash, next, err := tree.SaveVersion()
+	require.NoError(t, err)
+
+	store := loadStoreWithOpts(t, db, cID, LoadStoreOptions{DiscardVersionsAboveTarget: true})
+
+	_, err = store.GetImmutable(next)
+	require.NoError(t, err, "complete version must be kept")
+
+	// Replaying the same block commits idempotently.
+	store.Set([]byte("k"), []byte("v"))
+	require.Equal(t, types.CommitID{Version: next, Hash: hash}, store.Commit())
+}
+
+func TestLoadStoreWithOptsNoopOnCleanTree(t *testing.T) {
+	db := dbm.NewMemDB()
+	_, cID := newAlohaTree(t, db)
+
+	store := loadStoreWithOpts(t, db, cID, LoadStoreOptions{DiscardVersionsAboveTarget: true})
+
+	store.Set([]byte("k"), []byte("v"))
+	require.Equal(t, cID.Version+1, store.Commit().Version)
+}

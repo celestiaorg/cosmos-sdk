@@ -9,6 +9,7 @@ import (
 	"time"
 
 	dbm "github.com/cosmos/cosmos-db"
+	iavltree "github.com/cosmos/iavl"
 	"github.com/stretchr/testify/require"
 
 	"cosmossdk.io/errors"
@@ -1035,6 +1036,74 @@ func TestCommitStores(t *testing.T) {
 			}
 			require.Equal(t, version, res.Version)
 			require.Equal(t, tc.exptectCommit, store.Committed)
+		})
+	}
+}
+
+// TestLoadLatestVersionRepairsInterruptedCommit checks that loading the latest
+// version discards a version an interrupted commit left in an IAVL store, and
+// that loading an explicit version leaves it alone.
+func TestLoadLatestVersionRepairsInterruptedCommit(t *testing.T) {
+	pruning := pruningtypes.NewPruningOptions(pruningtypes.PruningNothing)
+
+	// tearDB commits a few versions, then commits the next version in store1
+	// only and deletes its root node: the state a kill right before the last
+	// write of store1's commit leaves behind. Commit info stays at latest.
+	tearDB := func(t *testing.T) (db dbm.DB, latest int64) {
+		t.Helper()
+		db = dbm.NewMemDB()
+		ms := newMultiStoreWithMounts(db, pruning)
+		require.NoError(t, ms.LoadLatestVersion())
+		for i := 0; i < 3; i++ {
+			ms.GetStoreByName("store1").(types.KVStore).Set([]byte(fmt.Sprintf("k%d", i)), []byte("v"))
+			ms.GetStoreByName("store2").(types.KVStore).Set([]byte(fmt.Sprintf("k%d", i)), []byte("v"))
+			ms.Commit()
+		}
+		latest = ms.LastCommitID().Version
+
+		store1 := ms.GetCommitKVStore(testStoreKey1)
+		store1.Set([]byte("torn"), []byte("torn"))
+		torn := store1.Commit().Version
+		require.Equal(t, latest+1, torn)
+
+		// loadCommitStoreFromParams gives each store the keyspace "s/k:<name>/".
+		store1DB := dbm.NewPrefixDB(db, []byte("s/k:store1/"))
+		require.NoError(t, store1DB.Delete(append([]byte{'s'}, iavltree.GetRootKey(torn)...)))
+		return db, latest
+	}
+
+	testCases := []struct {
+		name    string
+		load    func(ms *Store, latest int64) error
+		repairs bool
+	}{
+		{"LoadLatestVersion", func(ms *Store, _ int64) error { return ms.LoadLatestVersion() }, true},
+		{"LoadLatestVersionAndUpgrade", func(ms *Store, _ int64) error { return ms.LoadLatestVersionAndUpgrade(&types.StoreUpgrades{}) }, true},
+		{"LoadVersion", func(ms *Store, latest int64) error { return ms.LoadVersion(latest) }, false},
+		{"LoadVersionAndUpgrade", func(ms *Store, latest int64) error { return ms.LoadVersionAndUpgrade(latest, &types.StoreUpgrades{}) }, false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, latest := tearDB(t)
+			torn := latest + 1
+
+			ms := newMultiStoreWithMounts(db, pruning)
+			require.NoError(t, tc.load(ms, latest))
+			require.Equal(t, latest, ms.LastCommitID().Version)
+
+			store1 := ms.GetCommitKVStore(testStoreKey1).(*iavl.Store)
+			if !tc.repairs {
+				require.True(t, store1.VersionExists(torn), "an explicit load must not delete newer state")
+				return
+			}
+			require.False(t, store1.VersionExists(torn), "the torn version must be discarded")
+
+			// Replaying the interrupted block now commits instead of panicking.
+			store1.Set([]byte("k"), []byte("v"))
+			var cid types.CommitID
+			require.NotPanics(t, func() { cid = ms.Commit() })
+			require.Equal(t, torn, cid.Version)
 		})
 	}
 }

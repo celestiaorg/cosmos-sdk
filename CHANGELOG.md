@@ -47,6 +47,10 @@ Ref: https://keepachangelog.com/en/1.0.0/
     * Block gas is no longer consumed or enforced. Transactions remain subject to their individual gas limits. Celestia configures `block.max_gas = -1` to keep block gas unlimited.
 * (x/consensus) [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) `MsgUpdateParams` now rejects any change to `block.max_gas`. With the two-phase execution model, a block gas limit hit mid-execution would leave ante writes (fees, sequences) committed while message writes revert, so the block gas limit must stay at its current (unlimited) value.
 
+### Bug Fixes
+
+* (store) [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) `LoadLatestVersion` and `LoadLatestVersionAndUpgrade` now discard IAVL versions left behind by a commit that was killed mid-write (nodes on disk, root missing). Such a store previously loaded fine and then panicked with `version does not exist` on every restart until the operator ran `rollback`. Explicit historical loads (`LoadVersion`, `LoadVersionAndUpgrade`) are unchanged. New `iavl.LoadStoreWithOpts` and `iavl.LoadStoreOptions` expose the behavior.
+
 ## [v0.50.x-celestia]
 
 * (baseapp) [#1](https://github.com/01builders/cosmos-sdk/pull/1) `SetProtocolVersion` has been renamed to `SetAppVersion`. It now updates the consensus params in baseapp's `ParamStore`.

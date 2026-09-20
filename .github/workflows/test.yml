@@ -202,7 +202,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v4
         with:
-          go-version: "1.20"
+          go-version-file: core/go.mod
           check-latest: true
           cache: true
           cache-dependency-path: core/go.sum
@@ -233,7 +233,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v4
         with:
-          go-version: "1.20"
+          go-version-file: depinject/go.mod
           check-latest: true
           cache: true
           cache-dependency-path: depinject/go.sum
@@ -262,7 +262,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v4
         with:
-          go-version: "1.20"
+          go-version-file: errors/go.mod
           check-latest: true
           cache: true
           cache-dependency-path: errors/go.sum
@@ -293,7 +293,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v4
         with:
-          go-version: "1.20"
+          go-version-file: math/go.mod
           check-latest: true
           cache: true
           cache-dependency-path: math/go.sum
@@ -471,7 +471,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v4
         with:
-          go-version: "1.20"
+          go-version-file: log/go.mod
           check-latest: true
           cache: true
           cache-dependency-path: log/go.sum

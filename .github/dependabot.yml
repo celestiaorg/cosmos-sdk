@@ -9,10 +9,18 @@ updates:
       interval: weekly
 
   - package-ecosystem: gomod
-    directory: "/"
+    directories:
+      - "**/*"
     schedule:
       interval: weekly
-    ignore:
-      - dependency-name: "github.com/cosmos/cosmos-sdk/*"
-      - dependency-name: "github.com/cosmos/*"
-      - dependency-name: "cosmossdk.io/*"
+    groups:
+      cosmos-security:
+        applies-to: security-updates
+        patterns:
+          - "cosmossdk.io/*"
+          - "github.com/cometbft/*"
+          - "github.com/cosmos/*"
+      go-security:
+        applies-to: security-updates
+        patterns:
+          - "*"

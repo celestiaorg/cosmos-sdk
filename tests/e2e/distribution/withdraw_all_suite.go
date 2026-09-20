@@ -3,6 +3,7 @@ package distribution
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/stretchr/testify/suite"
 
@@ -17,6 +18,7 @@ import (
 	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"
 	"github.com/cosmos/cosmos-sdk/testutil/network"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 	"github.com/cosmos/cosmos-sdk/x/distribution/client/cli"
 	stakingcli "github.com/cosmos/cosmos-sdk/x/staking/client/cli"
 )
@@ -62,7 +64,7 @@ func (s *WithdrawAllTestSuite) TestNewWithdrawAllRewardsGenerateOnly() {
 	require.NoError(err)
 
 	newAddr := sdk.AccAddress(pubkey.Address())
-	_, err = clitestutil.MsgSendExec(
+	out, err := clitestutil.MsgSendExec(
 		val.ClientCtx,
 		val.Address,
 		newAddr,
@@ -71,7 +73,10 @@ func (s *WithdrawAllTestSuite) TestNewWithdrawAllRewardsGenerateOnly() {
 		fmt.Sprintf("--%s=%s", flags.FlagFees, sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, math.NewInt(10))).String()),
 	)
 	require.NoError(err)
-	require.NoError(s.network.WaitForNextBlock())
+	// Every tx below is broadcast in sync mode, which only guarantees mempool
+	// acceptance. Confirm each one actually landed before signing the next,
+	// instead of assuming a single block is enough.
+	require.NoError(s.confirmTxCommitted(out))
 
 	// delegate 500 tokens to validator1
 	args := []string{
@@ -83,9 +88,9 @@ func (s *WithdrawAllTestSuite) TestNewWithdrawAllRewardsGenerateOnly() {
 		fmt.Sprintf("--%s=%s", flags.FlagFees, sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, math.NewInt(10))).String()),
 	}
 	cmd := stakingcli.NewDelegateCmd(clientCtx.InterfaceRegistry.SigningContext().ValidatorAddressCodec(), clientCtx.InterfaceRegistry.SigningContext().AddressCodec())
-	_, err = clitestutil.ExecTestCLICmd(clientCtx, cmd, args)
+	out, err = clitestutil.ExecTestCLICmd(clientCtx, cmd, args)
 	require.NoError(err)
-	require.NoError(s.network.WaitForNextBlock())
+	require.NoError(s.confirmTxCommitted(out))
 
 	// delegate 500 tokens to validator2
 	args = []string{
@@ -96,11 +101,15 @@ func (s *WithdrawAllTestSuite) TestNewWithdrawAllRewardsGenerateOnly() {
 		fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastSync),
 		fmt.Sprintf("--%s=%s", flags.FlagFees, sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, math.NewInt(10))).String()),
 	}
-	_, err = clitestutil.ExecTestCLICmd(clientCtx, cmd, args)
+	out, err = clitestutil.ExecTestCLICmd(clientCtx, cmd, args)
 	require.NoError(err)
+	require.NoError(s.confirmTxCommitted(out))
 
-	var out testutil.BufferWriter
-	err = s.network.RetryForBlocks(func() error {
+	// withdraw-all-rewards emits one message per delegation the delegator
+	// has, so both delegations must be visible to the query. Retry until
+	// they are rather than racing a fixed block count - a genuine bug still
+	// surfaces via the timeout.
+	err = s.network.RetryWithTimeout(func() error {
 		args = []string{
 			fmt.Sprintf("--%s=%s", flags.FlagFrom, newAddr.String()),
 			fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
@@ -121,7 +130,7 @@ func (s *WithdrawAllTestSuite) TestNewWithdrawAllRewardsGenerateOnly() {
 			return fmt.Errorf("expected 2 transactions in the generated file, got %d", txLen)
 		}
 		return nil
-	}, 3)
+	}, 30*time.Second, 500*time.Millisecond)
 	require.NoError(err)
 
 	args = []string{
@@ -137,4 +146,29 @@ func (s *WithdrawAllTestSuite) TestNewWithdrawAllRewardsGenerateOnly() {
 	require.NoError(err)
 	// expect 1 transaction in the generated file when --max-msgs in a tx set 2, since there are only delegations.
 	s.Require().Equal(1, len(strings.Split(strings.Trim(out.String(), "\n"), "\n")))
+}
+
+// confirmTxCommitted parses a sync-broadcast tx response and polls until the
+// tx is committed with code 0, or the timeout elapses.
+func (s *WithdrawAllTestSuite) confirmTxCommitted(out testutil.BufferWriter) error {
+	clientCtx := s.network.Validators[0].ClientCtx
+
+	var txRes sdk.TxResponse
+	if err := clientCtx.Codec.UnmarshalJSON(out.Bytes(), &txRes); err != nil {
+		return fmt.Errorf("failed to unmarshal tx response %q: %w", out.String(), err)
+	}
+	if txRes.Code != 0 {
+		return fmt.Errorf("tx rejected on broadcast with code %d: %s", txRes.Code, txRes.RawLog)
+	}
+
+	return s.network.RetryWithTimeout(func() error {
+		res, err := authtx.QueryTx(clientCtx, txRes.TxHash)
+		if err != nil {
+			return err
+		}
+		if res.Code != 0 {
+			return fmt.Errorf("tx %s committed with code %d: %s", txRes.TxHash, res.Code, res.RawLog)
+		}
+		return nil
+	}, 30*time.Second, 500*time.Millisecond)
 }

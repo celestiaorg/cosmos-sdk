@@ -141,9 +141,10 @@ mocks: $(MOCKS_DIR)
 .PHONY: mocks
 
 
+GOVULNCHECK_VERSION ?= v1.7.0
 vulncheck: $(BUILDDIR)/
-	GOBIN=$(BUILDDIR) go install golang.org/x/vuln/cmd/govulncheck@latest
-	$(BUILDDIR)/govulncheck ./...
+	GOBIN=$(BUILDDIR) go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+	@./scripts/govulncheck-all.sh $(BUILDDIR)/govulncheck .github/govulncheck-allowlist.txt $(SUB_MODULES)
 
 $(MOCKS_DIR):
 	mkdir -p $(MOCKS_DIR)
@@ -458,4 +459,3 @@ proto-update-deps:
 	$(DOCKER) run --rm -v $(CURDIR)/proto:/workspace --workdir /workspace $(protoImageName) buf mod update
 
 .PHONY: proto-all proto-gen proto-swagger-gen proto-format proto-lint proto-check-breaking proto-update-deps
-

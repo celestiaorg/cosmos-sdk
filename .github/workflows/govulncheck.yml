@@ -2,6 +2,9 @@ name: Check for Go vulnerabilities
 on:
   pull_request:
   merge_group:
+  schedule:
+    - cron: '17 8 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -11,16 +14,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Checkout Repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
       - name: "Dependency Review"
-        uses: actions/dependency-review-action@v3
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        uses: actions/dependency-review-action@v4
         with:
           base-ref: ${{ github.event.pull_request.base.sha || 'release/v0.52.x-celestia' }}
           head-ref: ${{ github.event.pull_request.head.sha || github.ref }}
-          fail-on-severity: high # otherwise we fail on ourselves due to https://github.com/advisories/GHSA-qfc5-6r3j-jj22, https://github.com/advisories/GHSA-w44m-8mv2-v78h TODO(@julienrbrt) submit a PR to the action to ignore packages
+          fail-on-severity: high
+          # These low-severity x/crisis advisories have no patched release.
+          allow-ghsas: GHSA-qfc5-6r3j-jj22, GHSA-w5w5-2882-47pc
       - name: "Dependency audit"
         run: ./scripts/dep-assert.sh
       - name: "Go vulnerability check"

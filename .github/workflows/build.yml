@@ -48,9 +48,6 @@ jobs:
         ###################
         ## Build Tooling ##
         ###################
-      - name: Build Cosmovisor
-        if: env.GIT_DIFF
-        run: GOARCH=${{ matrix.go-arch }} make cosmovisor
       - name: Build Confix
         if: env.GIT_DIFF
         run: GOARCH=${{ matrix.go-arch }} make confix

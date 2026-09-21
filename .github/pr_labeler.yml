@@ -41,8 +41,6 @@
   - x/tx/**/*
 "C:collections":
   - collections/**/*
-"C:Cosmovisor":
-  - tools/cosmovisor/**/*
 "C:Confix":
   - tools/confix/**/*
 "C:Hubl":

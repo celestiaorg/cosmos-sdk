@@ -510,19 +510,27 @@ func New(l Logger, baseDir string, cfg Config) (*Network, error) {
 	return network, nil
 }
 
-// LatestHeight returns the latest height of the network or an error if the
+// LatestHeight returns the latest height committed by the application or an error if the
 // query fails or no validators exist.
 func (n *Network) LatestHeight() (int64, error) {
 	if len(n.Validators) == 0 {
 		return 0, errors.New("no validators available")
 	}
 
-	status, err := n.Validators[0].RPCClient.Status(context.Background())
+	return latestCommittedHeight(n.Validators[0])
+}
+
+// latestCommittedHeight returns the last height committed by the application.
+// It uses ABCI Info instead of the RPC status because Tendermint saves a block
+// to its block store before the application commits it, so the status height
+// can be one block ahead of the state that queries are served from.
+func latestCommittedHeight(val *Validator) (int64, error) {
+	info, err := val.RPCClient.ABCIInfo(context.Background())
 	if err != nil {
 		return 0, err
 	}
 
-	return status.SyncInfo.LatestBlockHeight, nil
+	return info.Response.LastBlockHeight, nil
 }
 
 // WaitForHeight performs a blocking check where it waits for a block to be
@@ -553,9 +561,9 @@ func (n *Network) WaitForHeightWithTimeout(h int64, t time.Duration) (int64, err
 		case <-timeout.C:
 			return latestHeight, errors.New("timeout exceeded waiting for block")
 		case <-ticker.C:
-			status, err := val.RPCClient.Status(context.Background())
-			if err == nil && status != nil {
-				latestHeight = status.SyncInfo.LatestBlockHeight
+			height, err := latestCommittedHeight(val)
+			if err == nil {
+				latestHeight = height
 				if latestHeight >= h {
 					return latestHeight, nil
 				}

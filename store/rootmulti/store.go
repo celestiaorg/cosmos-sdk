@@ -181,27 +181,34 @@ func (rs *Store) StoreKeysByName() map[string]types.StoreKey {
 
 // LoadLatestVersionAndUpgrade implements CommitMultiStore
 func (rs *Store) LoadLatestVersionAndUpgrade(upgrades *types.StoreUpgrades) error {
-	ver := GetLatestVersion(rs.db)
-	return rs.loadVersion(ver, upgrades)
+	return rs.loadLatestVersion(upgrades)
 }
 
 // LoadVersionAndUpgrade allows us to rename substores while loading an older version
 func (rs *Store) LoadVersionAndUpgrade(ver int64, upgrades *types.StoreUpgrades) error {
-	return rs.loadVersion(ver, upgrades)
+	return rs.loadVersion(ver, upgrades, iavl.LoadStoreOptions{})
 }
 
 // LoadLatestVersion implements CommitMultiStore.
 func (rs *Store) LoadLatestVersion() error {
-	ver := GetLatestVersion(rs.db)
-	return rs.loadVersion(ver, nil)
+	return rs.loadLatestVersion(nil)
 }
 
 // LoadVersion implements CommitMultiStore.
 func (rs *Store) LoadVersion(ver int64) error {
-	return rs.loadVersion(ver, nil)
+	return rs.loadVersion(ver, nil, iavl.LoadStoreOptions{})
 }
 
-func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
+// loadLatestVersion loads the latest multistore version. It also removes newer,
+// incomplete IAVL versions left by an interrupted commit. Loading a specific
+// version does not remove newer state.
+func (rs *Store) loadLatestVersion(upgrades *types.StoreUpgrades) error {
+	ver := GetLatestVersion(rs.db)
+	return rs.loadVersion(ver, upgrades, iavl.LoadStoreOptions{DiscardVersionsAboveTarget: true})
+}
+
+// loadVersion loads every mounted store at ver.
+func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades, opts iavl.LoadStoreOptions) error {
 	infos := make(map[string]types.StoreInfo)
 
 	rs.logger.Trace("loadVersion", "ver", ver)
@@ -251,7 +258,7 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 			return fmt.Errorf("version of store %s mismatch root store's version; expected %d got %d; new stores should be added using StoreUpgrades", key.Name(), ver, commitID.Version)
 		}
 
-		store, err := rs.loadCommitStoreFromParams(key, commitID, storeParams)
+		store, err := rs.loadCommitStoreFromParams(key, commitID, storeParams, opts)
 		if err != nil {
 			return errorsmod.Wrap(err, "failed to load store")
 		}
@@ -271,7 +278,7 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 			oldParams := newStoreParams(oldKey, storeParams.db, storeParams.typ, 0)
 
 			// load from the old name
-			oldStore, err := rs.loadCommitStoreFromParams(oldKey, rs.getCommitID(infos, oldName), oldParams)
+			oldStore, err := rs.loadCommitStoreFromParams(oldKey, rs.getCommitID(infos, oldName), oldParams, opts)
 			if err != nil {
 				return errorsmod.Wrapf(err, "failed to load old store %s", oldName)
 			}
@@ -1016,7 +1023,7 @@ loop:
 	return snapshotItem, rs.LoadLatestVersion()
 }
 
-func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID, params storeParams) (types.CommitKVStore, error) {
+func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID, params storeParams, opts iavl.LoadStoreOptions) (types.CommitKVStore, error) {
 	var db dbm.DB
 
 	if params.db != nil {
@@ -1031,15 +1038,8 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 		panic("recursive MultiStores not yet supported")
 
 	case types.StoreTypeIAVL:
-		var store types.CommitKVStore
-		var err error
-
-		if params.initialVersion == 0 {
-			store, err = iavl.LoadStore(db, rs.logger, key, id, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.metrics)
-		} else {
-			store, err = iavl.LoadStoreWithInitialVersion(db, rs.logger, key, id, params.initialVersion, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.metrics)
-		}
-
+		opts.InitialVersion = params.initialVersion
+		store, err := iavl.LoadStore(db, rs.logger, key, id, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.metrics, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -1051,7 +1051,7 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 			store = rs.interBlockCache.GetStoreCache(key, store)
 		}
 
-		return store, err
+		return store, nil
 
 	case types.StoreTypeDB:
 		return commitDBStoreAdapter{Store: dbadapter.Store{DB: db}}, nil

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	dbm "github.com/cosmos/cosmos-db"
+	iavltree "github.com/cosmos/iavl"
 	"github.com/stretchr/testify/require"
 
 	"cosmossdk.io/errors"
@@ -1035,6 +1036,67 @@ func TestCommitStores(t *testing.T) {
 			}
 			require.Equal(t, version, res.Version)
 			require.Equal(t, tc.exptectCommit, store.Committed)
+		})
+	}
+}
+
+// TestLoadLatestVersionRepairsInterruptedCommit checks that loading the latest
+// version discards a half-written IAVL version, and that loading an explicit
+// version leaves it alone.
+func TestLoadLatestVersionRepairsInterruptedCommit(t *testing.T) {
+	const committed, torn = 1, 2
+	pruning := pruningtypes.NewPruningOptions(pruningtypes.PruningNothing)
+
+	// tearDB commits version 1 through the multistore, then commits version 2 in
+	// store1 only and deletes its root node. The multistore stays at version 1.
+	tearDB := func(t *testing.T) dbm.DB {
+		t.Helper()
+		db := dbm.NewMemDB()
+		ms := newMultiStoreWithMounts(db, pruning)
+		require.NoError(t, ms.LoadLatestVersion())
+
+		store1 := ms.GetCommitKVStore(testStoreKey1)
+		store1.Set([]byte("k"), []byte("v"))
+		require.Equal(t, int64(committed), ms.Commit().Version)
+
+		store1.Set([]byte("torn"), []byte("torn"))
+		require.Equal(t, int64(torn), store1.Commit().Version)
+
+		// store1's data lives under "s/k:store1/"; IAVL node keys start with 's'.
+		store1DB := dbm.NewPrefixDB(db, []byte("s/k:store1/"))
+		require.NoError(t, store1DB.Delete(append([]byte{'s'}, iavltree.GetRootKey(torn)...)))
+		return db
+	}
+
+	upgrades := &types.StoreUpgrades{}
+	testCases := []struct {
+		name    string
+		load    func(ms *Store) error
+		repairs bool
+	}{
+		{"LoadLatestVersion", func(ms *Store) error { return ms.LoadLatestVersion() }, true},
+		{"LoadLatestVersionAndUpgrade", func(ms *Store) error { return ms.LoadLatestVersionAndUpgrade(upgrades) }, true},
+		{"LoadVersion", func(ms *Store) error { return ms.LoadVersion(committed) }, false},
+		{"LoadVersionAndUpgrade", func(ms *Store) error { return ms.LoadVersionAndUpgrade(committed, upgrades) }, false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ms := newMultiStoreWithMounts(tearDB(t), pruning)
+			require.NoError(t, tc.load(ms))
+			require.Equal(t, int64(committed), ms.LastCommitID().Version)
+
+			store1 := ms.GetCommitKVStore(testStoreKey1).(*iavl.Store)
+			require.Equal(t, !tc.repairs, store1.VersionExists(torn), "latest loads discard the torn version, explicit loads keep it")
+			if !tc.repairs {
+				return
+			}
+
+			// Replaying the torn version now commits instead of panicking.
+			store1.Set([]byte("torn"), []byte("torn"))
+			var cid types.CommitID
+			require.NotPanics(t, func() { cid = ms.Commit() })
+			require.Equal(t, int64(torn), cid.Version)
 		})
 	}
 }

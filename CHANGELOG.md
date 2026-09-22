@@ -46,6 +46,13 @@ Ref: https://keepachangelog.com/en/1.0.0/
     * Each message uses the context produced by its transaction's ante handler. Context-carried values, such as consensus parameters, are therefore captured during the ante phase.
     * Block gas is no longer consumed or enforced. Transactions remain subject to their individual gas limits. Celestia configures `block.max_gas = -1` to keep block gas unlimited.
 
+### Bug Fixes
+
+* (store) [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) Recover automatically from an IAVL commit that was interrupted mid-write. A node killed while committing block N (SIGKILL, OOM, power loss) could be left with an IAVL store that has some of version N's nodes on disk but no root node. The node then started, replayed block N, and panicked with `version does not exist` on every restart until the operator ran `rollback`.
+    * `LoadLatestVersion` and `LoadLatestVersionAndUpgrade` now detect a version whose root is missing and discard it before replay, which is what `rollback` did by hand. A complete version above the committed height is kept and recommitted as a no-op. `LoadVersion` and `LoadVersionAndUpgrade` are unchanged and never delete newer state.
+    * The repair can trigger a fast node index rebuild for the affected store on that start, logged at info level.
+    * API breaking: `iavl.LoadStore` now takes a `LoadStoreOptions` argument carrying `InitialVersion` and `DiscardVersionsAboveTarget`. `iavl.LoadStoreWithInitialVersion` is removed.
+
 ## [v0.50.x-celestia]
 
 * (baseapp) [#1](https://github.com/01builders/cosmos-sdk/pull/1) `SetProtocolVersion` has been renamed to `SetAppVersion`. It now updates the consensus params in baseapp's `ParamStore`.

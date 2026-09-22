@@ -186,9 +186,10 @@ func (s *E2ETestSuite) TestCmdRevokeAuthorizations() {
 
 	grantee := s.grantee[0]
 	twoHours := time.Now().Add(time.Minute * time.Duration(120)).Unix()
+	var response sdk.TxResponse
 
 	// send-authorization
-	_, err := authzclitestutil.CreateGrant(
+	out, err := authzclitestutil.CreateGrant(
 		val.ClientCtx,
 		[]string{
 			grantee.String(),
@@ -202,10 +203,11 @@ func (s *E2ETestSuite) TestCmdRevokeAuthorizations() {
 		},
 	)
 	s.Require().NoError(err)
-	s.Require().NoError(s.network.WaitForNextBlock())
+	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &response), out.String())
+	s.Require().NoError(clitestutil.CheckTxCode(s.network, val.ClientCtx, response.TxHash, 0))
 
 	// generic-authorization
-	_, err = authzclitestutil.CreateGrant(
+	out, err = authzclitestutil.CreateGrant(
 		val.ClientCtx,
 		[]string{
 			grantee.String(),
@@ -219,10 +221,11 @@ func (s *E2ETestSuite) TestCmdRevokeAuthorizations() {
 		},
 	)
 	s.Require().NoError(err)
-	s.Require().NoError(s.network.WaitForNextBlock())
+	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &response), out.String())
+	s.Require().NoError(clitestutil.CheckTxCode(s.network, val.ClientCtx, response.TxHash, 0))
 
 	// generic-authorization used for amino testing
-	_, err = authzclitestutil.CreateGrant(
+	out, err = authzclitestutil.CreateGrant(
 		val.ClientCtx,
 		[]string{
 			grantee.String(),
@@ -237,7 +240,8 @@ func (s *E2ETestSuite) TestCmdRevokeAuthorizations() {
 		},
 	)
 	s.Require().NoError(err)
-	s.Require().NoError(s.network.WaitForNextBlock())
+	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &response), out.String())
+	s.Require().NoError(clitestutil.CheckTxCode(s.network, val.ClientCtx, response.TxHash, 0))
 
 	testCases := []struct {
 		name         string

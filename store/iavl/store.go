@@ -40,19 +40,33 @@ type Store struct {
 	metrics metrics.StoreMetrics
 }
 
-// LoadStore returns an IAVL Store as a CommitKVStore. Internally, it will load the
-// store's version (id) from the provided DB. An error is returned if the version
-// fails to load, or if called with a positive version on an empty tree.
-func LoadStore(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, cacheSize int, disableFastNode bool, metrics metrics.StoreMetrics) (types.CommitKVStore, error) {
-	return LoadStoreWithInitialVersion(db, logger, key, id, 0, cacheSize, disableFastNode, metrics)
+// LoadStoreOptions controls how a store is loaded. Which version is loaded is
+// always id.Version. Most callers pass LoadStoreOptions{}.
+type LoadStoreOptions struct {
+	// InitialVersion numbers the first save of an empty tree. Zero means 1.
+	// Set it when an upgrade adds a new store mid-chain.
+	InitialVersion uint64
+
+	// DiscardVersionsAboveTarget deletes a half-written version above id.Version,
+	// left by a commit killed mid-write. Set it on normal startup only. Leave it
+	// unset when loading an older version, where newer versions are real state.
+	DiscardVersionsAboveTarget bool
 }
 
-// LoadStoreWithInitialVersion returns an IAVL Store as a CommitKVStore setting its initialVersion
-// to the one given. Internally, it will load the store's version (id) from the
-// provided DB. An error is returned if the version fails to load, or if called with a positive
-// version on an empty tree.
+// LoadStore opens the store's IAVL tree at id.Version with default options.
+func LoadStore(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, cacheSize int, disableFastNode bool, metrics metrics.StoreMetrics) (types.CommitKVStore, error) {
+	return LoadStoreWithOpts(db, logger, key, id, cacheSize, disableFastNode, metrics, LoadStoreOptions{})
+}
+
+// LoadStoreWithInitialVersion is LoadStore with LoadStoreOptions.InitialVersion set.
 func LoadStoreWithInitialVersion(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, initialVersion uint64, cacheSize int, disableFastNode bool, metrics metrics.StoreMetrics) (types.CommitKVStore, error) {
-	tree := iavl.NewMutableTree(wrapper.NewDBWrapper(db), cacheSize, disableFastNode, logger, iavl.InitialVersionOption(initialVersion))
+	return LoadStoreWithOpts(db, logger, key, id, cacheSize, disableFastNode, metrics, LoadStoreOptions{InitialVersion: initialVersion})
+}
+
+// LoadStoreWithOpts opens the store's IAVL tree at id.Version. Version 0 means
+// the newest on disk, or an empty tree if there is none.
+func LoadStoreWithOpts(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, cacheSize int, disableFastNode bool, metrics metrics.StoreMetrics, opts LoadStoreOptions) (types.CommitKVStore, error) {
+	tree := iavl.NewMutableTree(wrapper.NewDBWrapper(db), cacheSize, disableFastNode, logger, iavl.InitialVersionOption(opts.InitialVersion))
 
 	isUpgradeable, err := tree.IsUpgradeable()
 	if err != nil {
@@ -63,14 +77,21 @@ func LoadStoreWithInitialVersion(db dbm.DB, logger log.Logger, key types.StoreKe
 		logger.Debug(
 			"Upgrading IAVL storage for faster queries + execution on live state. This may take a while",
 			"store_key", key.String(),
-			"version", initialVersion,
+			"version", opts.InitialVersion,
 			"commit", fmt.Sprintf("%X", id),
 		)
 	}
 
-	_, err = tree.LoadVersion(id.Version)
+	// IAVL derives latest from node keys, which may belong to an incomplete version.
+	latest, err := tree.LoadVersion(id.Version)
 	if err != nil {
 		return nil, err
+	}
+
+	if opts.DiscardVersionsAboveTarget && id.Version > 0 && latest > id.Version {
+		if err := discardVersionsAboveTarget(tree, logger, key, id.Version, latest); err != nil {
+			return nil, err
+		}
 	}
 
 	if logger != nil {
@@ -82,6 +103,41 @@ func LoadStoreWithInitialVersion(db dbm.DB, logger log.Logger, key types.StoreKe
 		logger:  logger,
 		metrics: metrics,
 	}, nil
+}
+
+// discardVersionsAboveTarget removes versions newer than target when latest is
+// incomplete. IAVL writes the root node last, so a missing root means the last
+// commit was interrupted. A complete latest version is preserved.
+func discardVersionsAboveTarget(tree *iavl.MutableTree, logger log.Logger, key types.StoreKey, target, latest int64) error {
+	_, err := tree.GetImmutable(latest)
+	if err == nil {
+		// The IAVL store committed before the multistore did. Replay can commit
+		// this version again without changing it.
+		if logger != nil {
+			logger.Debug(
+				"IAVL tree is ahead of the committed version; keeping it",
+				"store_key", key.Name(),
+				"committed_version", target,
+				"tree_version", latest,
+			)
+		}
+		return nil
+	}
+	if !errors.Is(err, iavl.ErrVersionDoesNotExist) {
+		return err
+	}
+
+	if logger != nil {
+		logger.Info(
+			"discarding IAVL versions left by an interrupted commit; this may rebuild the fast node index and take a while",
+			"store_key", key.Name(),
+			"committed_version", target,
+			"tree_version", latest,
+		)
+	}
+
+	// Reload target and remove every later version, as the rollback command does.
+	return tree.LoadVersionForOverwriting(target)
 }
 
 // UnsafeNewStore returns a reference to a new IAVL Store with a given mutable

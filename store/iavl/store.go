@@ -53,9 +53,19 @@ type LoadStoreOptions struct {
 	DiscardVersionsAboveTarget bool
 }
 
-// LoadStore opens the store's IAVL tree at id.Version. Version 0 means the
-// newest on disk, or an empty tree if there is none.
-func LoadStore(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, cacheSize int, disableFastNode bool, metrics metrics.StoreMetrics, opts LoadStoreOptions) (types.CommitKVStore, error) {
+// LoadStore opens the store's IAVL tree at id.Version with default options.
+func LoadStore(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, cacheSize int, disableFastNode bool, metrics metrics.StoreMetrics) (types.CommitKVStore, error) {
+	return LoadStoreWithOpts(db, logger, key, id, cacheSize, disableFastNode, metrics, LoadStoreOptions{})
+}
+
+// LoadStoreWithInitialVersion is LoadStore with LoadStoreOptions.InitialVersion set.
+func LoadStoreWithInitialVersion(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, initialVersion uint64, cacheSize int, disableFastNode bool, metrics metrics.StoreMetrics) (types.CommitKVStore, error) {
+	return LoadStoreWithOpts(db, logger, key, id, cacheSize, disableFastNode, metrics, LoadStoreOptions{InitialVersion: initialVersion})
+}
+
+// LoadStoreWithOpts opens the store's IAVL tree at id.Version. Version 0 means
+// the newest on disk, or an empty tree if there is none.
+func LoadStoreWithOpts(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, cacheSize int, disableFastNode bool, metrics metrics.StoreMetrics, opts LoadStoreOptions) (types.CommitKVStore, error) {
 	tree := iavl.NewMutableTree(wrapper.NewDBWrapper(db), cacheSize, disableFastNode, logger, iavl.InitialVersionOption(opts.InitialVersion))
 
 	isUpgradeable, err := tree.IsUpgradeable()

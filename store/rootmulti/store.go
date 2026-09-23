@@ -1039,7 +1039,7 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 
 	case types.StoreTypeIAVL:
 		opts.InitialVersion = params.initialVersion
-		store, err := iavl.LoadStore(db, rs.logger, key, id, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.metrics, opts)
+		store, err := iavl.LoadStoreWithOpts(db, rs.logger, key, id, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.metrics, opts)
 		if err != nil {
 			return nil, err
 		}

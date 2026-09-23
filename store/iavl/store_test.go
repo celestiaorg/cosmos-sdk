@@ -105,17 +105,17 @@ func TestLoadStore(t *testing.T) {
 	require.Equal(t, string(hcStore.Get([]byte("hello"))), "ciao")
 
 	// Querying a new store at some previous non-pruned height H
-	newHStore, err := LoadStore(db, log.NewNopLogger(), types.NewKVStoreKey("test"), cIDH, DefaultIAVLCacheSize, false, metrics.NewNoOpMetrics(), LoadStoreOptions{})
+	newHStore, err := LoadStore(db, log.NewNopLogger(), types.NewKVStoreKey("test"), cIDH, DefaultIAVLCacheSize, false, metrics.NewNoOpMetrics())
 	require.NoError(t, err)
 	require.Equal(t, string(newHStore.Get([]byte("hello"))), "hallo")
 
 	// Querying a new store at some previous pruned height Hp
-	newHpStore, err := LoadStore(db, log.NewNopLogger(), types.NewKVStoreKey("test"), cIDHp, DefaultIAVLCacheSize, false, metrics.NewNoOpMetrics(), LoadStoreOptions{})
+	newHpStore, err := LoadStore(db, log.NewNopLogger(), types.NewKVStoreKey("test"), cIDHp, DefaultIAVLCacheSize, false, metrics.NewNoOpMetrics())
 	require.NoError(t, err)
 	require.Equal(t, string(newHpStore.Get([]byte("hello"))), "hola")
 
 	// Querying a new store at current height H
-	newHcStore, err := LoadStore(db, log.NewNopLogger(), types.NewKVStoreKey("test"), cIDHc, DefaultIAVLCacheSize, false, metrics.NewNoOpMetrics(), LoadStoreOptions{})
+	newHcStore, err := LoadStore(db, log.NewNopLogger(), types.NewKVStoreKey("test"), cIDHc, DefaultIAVLCacheSize, false, metrics.NewNoOpMetrics())
 	require.NoError(t, err)
 	require.Equal(t, string(newHcStore.Get([]byte("hello"))), "ciao")
 }
@@ -733,7 +733,7 @@ func tearNextVersion(t *testing.T, db dbm.DB, tree *iavl.MutableTree) types.Comm
 
 func loadStore(t *testing.T, db dbm.DB, id types.CommitID, opts LoadStoreOptions) *Store {
 	t.Helper()
-	store, err := LoadStore(db, log.NewNopLogger(), types.NewKVStoreKey("test"), id, DefaultIAVLCacheSize, false, metrics.NewNoOpMetrics(), opts)
+	store, err := LoadStoreWithOpts(db, log.NewNopLogger(), types.NewKVStoreKey("test"), id, DefaultIAVLCacheSize, false, metrics.NewNoOpMetrics(), opts)
 	require.NoError(t, err)
 	require.Equal(t, id, store.LastCommitID())
 	return store.(*Store)

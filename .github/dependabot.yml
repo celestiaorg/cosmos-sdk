@@ -9,10 +9,14 @@ updates:
       interval: weekly
 
   - package-ecosystem: gomod
+    cooldown:
+      default-days: 7
     directories:
       - "**/*"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       cosmos-security:
         applies-to: security-updates

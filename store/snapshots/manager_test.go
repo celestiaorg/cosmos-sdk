@@ -2,9 +2,14 @@ package snapshots_test
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	db "github.com/cosmos/cosmos-db"
+	protoio "github.com/cosmos/gogoproto/io"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -35,8 +40,6 @@ func TestManager_List(t *testing.T) {
 	list, err := manager.List()
 	require.NoError(t, err)
 	assert.Equal(t, []*types.Snapshot{}, list)
-
-	require.NoError(t, manager.Close())
 }
 
 func TestManager_LoadChunk(t *testing.T) {
@@ -255,4 +258,263 @@ func TestManager_TakeError(t *testing.T) {
 
 	_, err = manager.Create(1)
 	require.Error(t, err)
+}
+
+func TestManager_CloseIdempotent(t *testing.T) {
+	store, err := snapshots.NewStore(db.NewMemDB(), t.TempDir())
+	require.NoError(t, err)
+	manager := snapshots.NewManager(store, opts, &mockSnapshotter{}, nil, log.NewNopLogger())
+	require.NoError(t, manager.Close())
+	require.NoError(t, manager.Close())
+}
+
+// TestManager_CloseAbortsPreWriteBlockingSnapshotter covers shutdown while Snapshot
+// is blocked before any WriteMsg. The snapshotter observes abortCh (injected by
+// NewManager) and returns, so Close does not hang.
+func TestManager_CloseAbortsPreWriteBlockingSnapshotter(t *testing.T) {
+	store, err := snapshots.NewStore(db.NewMemDB(), t.TempDir())
+	require.NoError(t, err)
+
+	blocker := &preWriteBlockingSnapshotter{entered: make(chan struct{})}
+	manager := snapshots.NewManager(store, opts, blocker, nil, log.NewNopLogger())
+	require.NotNil(t, blocker.abort, "NewManager must inject abort channel")
+
+	createErr := make(chan error, 1)
+	go func() {
+		_, err := manager.Create(1)
+		createErr <- err
+	}()
+
+	select {
+	case <-blocker.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Snapshot to block before WriteMsg")
+	}
+
+	require.NoError(t, manager.Close())
+
+	select {
+	case err := <-createErr:
+		require.ErrorIs(t, err, snapshots.ErrAborted)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Create to abort — pre-write block did not observe abortCh")
+	}
+}
+
+// preWriteBlockingSnapshotter blocks before WriteMsg until the manager abort channel
+// is closed (SetSnapshotAbortCh).
+type preWriteBlockingSnapshotter struct {
+	entered chan struct{}
+	abort   <-chan struct{}
+}
+
+func (p *preWriteBlockingSnapshotter) SetSnapshotAbortCh(abort <-chan struct{}) {
+	p.abort = abort
+}
+
+func (p *preWriteBlockingSnapshotter) Snapshot(height uint64, protoWriter protoio.Writer) error {
+	close(p.entered)
+	<-p.abort
+	return snapshots.ErrAborted
+}
+
+func (p *preWriteBlockingSnapshotter) PruneSnapshotHeight(height int64)            {}
+func (p *preWriteBlockingSnapshotter) SetSnapshotInterval(snapshotInterval uint64) {}
+func (p *preWriteBlockingSnapshotter) Restore(height uint64, format uint32, protoReader protoio.Reader) (types.SnapshotItem, error) {
+	panic("not implemented")
+}
+
+// TestManager_ConcurrentCloseWaitsForCompletion ensures a second Close does not
+// return while the first is still waiting for in-flight snapshot work. Both
+// callers share completion and receive the same result.
+func TestManager_ConcurrentCloseWaitsForCompletion(t *testing.T) {
+	store, err := snapshots.NewStore(db.NewMemDB(), t.TempDir())
+	require.NoError(t, err)
+
+	gate := &gatedSnapshotter{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	manager := snapshots.NewManager(store, opts, gate, nil, log.NewNopLogger())
+
+	createErr := make(chan error, 1)
+	go func() {
+		_, err := manager.Create(1)
+		createErr <- err
+	}()
+
+	select {
+	case <-gate.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Snapshot to start")
+	}
+
+	closeErr1 := make(chan error, 1)
+	closeErr2 := make(chan error, 1)
+	go func() { closeErr1 <- manager.Close() }()
+	go func() { closeErr2 <- manager.Close() }()
+
+	// While Snapshot is still blocked, neither Close may return.
+	time.Sleep(100 * time.Millisecond)
+	select {
+	case err := <-closeErr1:
+		t.Fatalf("first Close returned early while snapshot still running: %v", err)
+	default:
+	}
+	select {
+	case err := <-closeErr2:
+		t.Fatalf("second Close returned early while snapshot still running: %v", err)
+	default:
+	}
+
+	close(gate.release)
+
+	select {
+	case err := <-closeErr1:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for first Close")
+	}
+	select {
+	case err := <-closeErr2:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for second Close")
+	}
+
+	select {
+	case err := <-createErr:
+		require.Error(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Create after Close")
+	}
+}
+
+// gatedSnapshotter blocks in Snapshot until release is closed, without WriteMsg.
+// Used to hold an opSnapshot open while testing concurrent Close.
+type gatedSnapshotter struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (g *gatedSnapshotter) Snapshot(height uint64, protoWriter protoio.Writer) error {
+	close(g.entered)
+	<-g.release
+	return snapshots.ErrAborted
+}
+func (g *gatedSnapshotter) PruneSnapshotHeight(height int64)            {}
+func (g *gatedSnapshotter) SetSnapshotInterval(snapshotInterval uint64) {}
+func (g *gatedSnapshotter) Restore(height uint64, format uint32, protoReader protoio.Reader) (types.SnapshotItem, error) {
+	panic("not implemented")
+}
+
+// TestManager_CloseAfterRestoreSetupFailure ensures Restore rolls back opRestore when
+// snapshot directory creation fails, so Close does not hang waiting for opNone.
+func TestManager_CloseAfterRestoreSetupFailure(t *testing.T) {
+	dir := t.TempDir()
+	store, err := snapshots.NewStore(db.NewMemDB(), dir)
+	require.NoError(t, err)
+	manager := snapshots.NewManager(store, opts, &mockSnapshotter{prunedHeights: map[int64]struct{}{}}, nil, log.NewNopLogger())
+
+	// pathSnapshot is dir/<height>/<format>; place a file at dir/<height> so MkdirAll fails.
+	height := uint64(3)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "3"), []byte("not-a-directory"), 0o600))
+
+	err = manager.Restore(types.Snapshot{
+		Height:   height,
+		Format:   types.CurrentFormat,
+		Hash:     []byte{1},
+		Chunks:   1,
+		Metadata: types.Metadata{ChunkHashes: [][]byte{{1}}},
+	})
+	require.Error(t, err)
+
+	// A subsequent operation must be allowed (opRestore was rolled back).
+	_, err = manager.Prune(1)
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- manager.Close()
+	}()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close hung after Restore setup failure — opRestore likely not rolled back")
+	}
+}
+
+// writingSnapshotter keeps writing until the stream writer fails (e.g. aborted by Close).
+type writingSnapshotter struct {
+	started       chan struct{}
+	once          sync.Once
+	prunedHeights map[int64]struct{}
+}
+
+func (w *writingSnapshotter) Snapshot(height uint64, protoWriter protoio.Writer) error {
+	w.once.Do(func() { close(w.started) })
+	for {
+		err := protoWriter.WriteMsg(&types.SnapshotItem{
+			Item: &types.SnapshotItem_Store{
+				Store: &types.SnapshotStoreItem{Name: "busy"},
+			},
+		})
+		if err != nil {
+			return err
+		}
+	}
+}
+
+func (w *writingSnapshotter) PruneSnapshotHeight(height int64) {
+	if w.prunedHeights == nil {
+		w.prunedHeights = make(map[int64]struct{})
+	}
+	w.prunedHeights[height] = struct{}{}
+}
+func (w *writingSnapshotter) SetSnapshotInterval(snapshotInterval uint64) {}
+func (w *writingSnapshotter) Restore(height uint64, format uint32, protoReader protoio.Reader) (types.SnapshotItem, error) {
+	panic("not implemented")
+}
+
+func TestManager_CloseAbortsWritingSnapshot(t *testing.T) {
+	store, err := snapshots.NewStore(db.NewMemDB(), t.TempDir())
+	require.NoError(t, err)
+
+	writer := &writingSnapshotter{
+		started:       make(chan struct{}),
+		prunedHeights: make(map[int64]struct{}),
+	}
+	manager := snapshots.NewManager(store, opts, writer, nil, log.NewNopLogger())
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := manager.Create(1)
+		errCh <- err
+	}()
+
+	select {
+	case <-writer.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for writing snapshot to start")
+	}
+
+	require.NoError(t, manager.Close())
+
+	select {
+	case err := <-errCh:
+		require.ErrorIs(t, err, snapshots.ErrAborted)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Create to abort")
+	}
+
+	_, didPruneHeight := writer.prunedHeights[1]
+	require.False(t, didPruneHeight, "aborted snapshots should not prune snapshot heights")
+
+	// Further snapshot attempts should fail fast.
+	_, err = manager.Create(2)
+	require.ErrorIs(t, err, snapshots.ErrAborted)
+
+	manager.SnapshotIfApplicable(int64(opts.Interval)) // must not panic or hang
 }

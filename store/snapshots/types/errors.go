@@ -16,4 +16,7 @@ var (
 
 	// ErrInvalidSnapshotVersion is returned when the snapshot version is invalid
 	ErrInvalidSnapshotVersion = errors.New("invalid snapshot version")
+
+	// ErrAborted is returned when a snapshot operation is canceled because the manager is closing.
+	ErrAborted = errors.New("snapshot aborted")
 )

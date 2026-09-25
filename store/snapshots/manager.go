@@ -11,6 +11,8 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/cosmos/gogoproto/proto"
+
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/log"
 	"cosmossdk.io/store/snapshots/types"
@@ -40,7 +42,12 @@ type Manager struct {
 	logger     log.Logger
 
 	mtx               sync.Mutex
+	idle              *sync.Cond
 	operation         operation
+	closed            bool
+	abortCh           chan struct{}
+	closeCh           chan struct{} // non-nil once Close starts; closed when Close fully finishes
+	closeErr          error         // result of Close; stable after closeCh is closed
 	chRestore         chan<- uint32
 	chRestoreDone     <-chan restoreDone
 	restoreSnapshot   *types.Snapshot
@@ -68,20 +75,36 @@ const (
 	snapshotMaxItemSize = int(64e6) // SDK has no key/value size limit, so we set an arbitrary limit
 )
 
-var ErrOptsZeroSnapshotInterval = errors.New("snaphot-interval must not be 0")
+var (
+	ErrOptsZeroSnapshotInterval = errors.New("snaphot-interval must not be 0")
+	// ErrAborted is returned when a snapshot operation is canceled because the manager is closing.
+	ErrAborted = types.ErrAborted
+)
+
+// snapshotAbortAware is optionally implemented by snapshotters that can observe
+// manager shutdown before or between WriteMsg calls (e.g. rootmulti during IAVL export).
+type snapshotAbortAware interface {
+	SetSnapshotAbortCh(abort <-chan struct{})
+}
 
 // NewManager creates a new manager.
 func NewManager(store *Store, opts types.SnapshotOptions, multistore types.Snapshotter, extensions map[string]types.ExtensionSnapshotter, logger log.Logger) *Manager {
 	if extensions == nil {
 		extensions = map[string]types.ExtensionSnapshotter{}
 	}
-	return &Manager{
+	m := &Manager{
 		store:      store,
 		opts:       opts,
 		multistore: multistore,
 		extensions: extensions,
 		logger:     logger,
+		abortCh:    make(chan struct{}),
 	}
+	m.idle = sync.NewCond(&m.mtx)
+	if a, ok := multistore.(snapshotAbortAware); ok {
+		a.SetSnapshotAbortCh(m.abortCh)
+	}
+	return m
 }
 
 // RegisterExtensions register extension snapshotters to manager
@@ -114,6 +137,9 @@ func (m *Manager) beginLocked(op operation) error {
 	if op == opNone {
 		return errorsmod.Wrap(storetypes.ErrLogic, "can't begin a none operation")
 	}
+	if m.closed {
+		return errorsmod.Wrap(ErrAborted, "snapshot manager is closed")
+	}
 	if m.operation != opNone {
 		return errorsmod.Wrapf(storetypes.ErrConflict, "a %v operation is in progress", m.operation)
 	}
@@ -138,6 +164,13 @@ func (m *Manager) endLocked() {
 	m.chRestoreDone = nil
 	m.restoreSnapshot = nil
 	m.restoreChunkIndex = 0
+	m.idle.Broadcast()
+}
+
+func (m *Manager) isClosed() bool {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
+	return m.closed
 }
 
 // GetInterval returns snapshot interval represented in heights.
@@ -164,7 +197,13 @@ func (m *Manager) Create(height uint64) (*types.Snapshot, error) {
 		return nil, errorsmod.Wrap(storetypes.ErrLogic, "no snapshot store configured")
 	}
 
-	defer m.multistore.PruneSnapshotHeight(int64(height))
+	// PruneSnapshotHeight runs for both success and failure paths (historical behavior),
+	// but is skipped when the manager is closing to avoid writes against a closing app DB.
+	defer func() {
+		if !m.isClosed() {
+			m.multistore.PruneSnapshotHeight(int64(height))
+		}
+	}()
 
 	err := m.begin(opSnapshot)
 	if err != nil {
@@ -201,14 +240,27 @@ func (m *Manager) createSnapshot(height uint64, ch chan<- io.ReadCloser) {
 		}
 	}()
 
-	if err := m.multistore.Snapshot(height, streamWriter); err != nil {
+	m.mtx.Lock()
+	closed := m.closed
+	abortCh := m.abortCh
+	m.mtx.Unlock()
+	if closed {
+		streamWriter.CloseWithError(ErrAborted)
+		return
+	}
+
+	// Honor manager abort on every WriteMsg so Close need not wait for zlib/bufio
+	// buffers (snapshotBufferSize) to fill before the export observes shutdown.
+	out := &abortAwareWriter{StreamWriter: streamWriter, abortCh: abortCh}
+
+	if err := m.multistore.Snapshot(height, out); err != nil {
 		streamWriter.CloseWithError(err)
 		return
 	}
 	for _, name := range m.sortedExtensionNames() {
 		extension := m.extensions[name]
 		// write extension metadata
-		err := streamWriter.WriteMsg(&types.SnapshotItem{
+		err := out.WriteMsg(&types.SnapshotItem{
 			Item: &types.SnapshotItem_Extension{
 				Extension: &types.SnapshotExtensionMeta{
 					Name:   name,
@@ -221,13 +273,29 @@ func (m *Manager) createSnapshot(height uint64, ch chan<- io.ReadCloser) {
 			return
 		}
 		payloadWriter := func(payload []byte) error {
-			return types.WriteExtensionPayload(streamWriter, payload)
+			return types.WriteExtensionPayload(out, payload)
 		}
 		if err := extension.SnapshotExtension(height, payloadWriter); err != nil {
 			streamWriter.CloseWithError(err)
 			return
 		}
 	}
+}
+
+// abortAwareWriter fails WriteMsg immediately once the manager abort channel is closed,
+// without waiting for compression buffers to flush into ChunkWriter.
+type abortAwareWriter struct {
+	*StreamWriter
+	abortCh <-chan struct{}
+}
+
+func (w *abortAwareWriter) WriteMsg(msg proto.Message) error {
+	select {
+	case <-w.abortCh:
+		return ErrAborted
+	default:
+	}
+	return w.StreamWriter.WriteMsg(msg)
 }
 
 // List lists snapshots, mirroring ABCI ListSnapshots. It can be concurrent with other operations.
@@ -297,6 +365,8 @@ func (m *Manager) Restore(snapshot types.Snapshot) error {
 
 	dir := m.store.pathSnapshot(snapshot.Height, snapshot.Format)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
+		// Roll back the operation so Close is not left waiting on opRestore forever.
+		m.endLocked()
 		return errorsmod.Wrapf(err, "failed to create snapshot directory %q", dir)
 	}
 
@@ -401,8 +471,14 @@ func (m *Manager) doRestoreSnapshot(snapshot types.Snapshot, chChunks <-chan io.
 func (m *Manager) RestoreChunk(chunk []byte) (bool, error) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
+	if m.closed {
+		return false, errorsmod.Wrap(ErrAborted, "snapshot manager is closed")
+	}
 	if m.operation != opRestore {
 		return false, errorsmod.Wrap(storetypes.ErrLogic, "no restore operation in progress")
+	}
+	if m.chRestore == nil {
+		return false, errorsmod.Wrap(ErrAborted, "snapshot restore was aborted")
 	}
 
 	if int(m.restoreChunkIndex) >= len(m.restoreSnapshot.Metadata.ChunkHashes) {
@@ -510,6 +586,9 @@ func (m *Manager) SnapshotIfApplicable(height int64) {
 	if m == nil {
 		return
 	}
+	if m.isClosed() {
+		return
+	}
 	if !m.shouldTakeSnapshot(height) {
 		m.logger.Debug("snapshot is skipped", "height", height)
 		return
@@ -533,6 +612,10 @@ func (m *Manager) snapshot(height int64) {
 
 	snapshot, err := m.Create(uint64(height))
 	if err != nil {
+		if errors.Is(err, ErrAborted) || m.isClosed() {
+			m.logger.Info("state snapshot aborted", "height", height, "err", err)
+			return
+		}
 		m.logger.Error("failed to create state snapshot", "height", height, "err", err)
 		return
 	}
@@ -552,7 +635,74 @@ func (m *Manager) snapshot(height int64) {
 	}
 }
 
-// Close the snapshot database.
+// Close aborts in-flight snapshot/restore work, waits until it stops touching
+// application state, then closes the snapshot metadata database.
+//
+// It cancels work rather than waiting for a full snapshot to finish, but still
+// waits until Snapshot() (or restore) returns so application.db is not closed
+// under a live export. Abort is observed via abortAwareWriter on WriteMsg and
+// via SetSnapshotAbortCh (rootmulti). Snapshotters that ignore abort and never
+// return can delay Close; returning earlier would reintroduce #7252 panics.
+//
+// Concurrent Close callers share completion so a second Close cannot return and
+// let BaseApp close application.db while export work is still running.
 func (m *Manager) Close() error {
-	return m.store.db.Close()
+	if m == nil {
+		return nil
+	}
+
+	// Followers wait for the leader's shutdown to finish (same result).
+	m.mtx.Lock()
+	if m.closeCh != nil {
+		ch := m.closeCh
+		m.mtx.Unlock()
+		<-ch
+		return m.closeErr
+	}
+	closeCh := make(chan struct{})
+	m.closeCh = closeCh
+
+	// Reject new work and wake exporters that observe abortCh.
+	m.closed = true
+	close(m.abortCh)
+
+	// Detach restore channels under the lock. RestoreChunk may already have
+	// closed chRestore on the final chunk; nil both fields so Close owns the
+	// local copies and we do not double-close.
+	chRestore := m.chRestore
+	chRestoreDone := m.chRestoreDone
+	m.chRestore = nil
+	m.chRestoreDone = nil
+	m.mtx.Unlock()
+
+	// Unblock an in-flight async restore, then clear opRestore once its goroutine
+	// exits. Do not hold mtx while waiting: RestoreChunk can hold mtx on the same
+	// done channel. The restore goroutine does not call endLocked itself — only
+	// RestoreChunk or Close does — so Close must end the op after <-chRestoreDone.
+	if chRestore != nil {
+		close(chRestore)
+	}
+	if chRestoreDone != nil {
+		<-chRestoreDone
+		m.mtx.Lock()
+		if m.operation == opRestore {
+			m.endLocked()
+		}
+		m.mtx.Unlock()
+	}
+
+	// Wait for any remaining operation (Create / Prune / RestoreLocalSnapshot).
+	m.mtx.Lock()
+	for m.operation != opNone {
+		m.idle.Wait()
+	}
+	m.mtx.Unlock()
+
+	err := m.store.db.Close()
+
+	m.mtx.Lock()
+	m.closeErr = err
+	close(closeCh)
+	m.mtx.Unlock()
+	return err
 }

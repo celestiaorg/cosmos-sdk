@@ -104,6 +104,12 @@ func (k msgServer) CreateValidator(ctx context.Context, msg *types.MsgCreateVali
 		}
 	}
 
+	// Reject consensus keys that must never join the validator set, alongside
+	// the key-type check above and before any state is written.
+	if err := types.ValidateConsensusPubKey(pk); err != nil {
+		return nil, err
+	}
+
 	validator, err := types.NewValidator(msg.ValidatorAddress, pk, msg.Description)
 	if err != nil {
 		return nil, err

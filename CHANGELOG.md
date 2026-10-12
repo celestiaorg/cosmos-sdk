@@ -44,6 +44,8 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### State Machine Breaking
 
+* (x/staking) [#779](https://github.com/celestiaorg/cosmos-sdk/pull/779) `MsgCreateValidator` and a fresh genesis now reject an Ed25519 consensus key that is not a canonical encoding of a point in the prime-order subgroup. Keys already in the validator set are never re-validated, and an exported genesis is not re-checked, so an in-place upgrade or a restart cannot evict a seated validator. For the v11 breaking release; do not backport.
+
 * (baseapp) [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) `FinalizeBlock` now executes transactions in two phases. Ante handlers run first for all transactions in block order, followed by message execution for every transaction whose ante handler succeeded. Compared with sequential execution:
     * Fees, sequence increments, and other ante writes are committed before any messages execute. A transaction can no longer pay its fee using funds received from an earlier transaction in the same block.
     * Each message observes the ante writes of all transactions, including later transactions in the block. For example, an account balance reflects fees deducted by later transactions before any message reads or modifies it.

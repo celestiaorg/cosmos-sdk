@@ -141,18 +141,21 @@ func ConvertAddrsToValAddrs(addrs []sdk.AccAddress) []sdk.ValAddress {
 	return valAddrs
 }
 
-// CreateTestPubKeys returns a total of numPubKeys public keys in ascending order.
+// CreateTestPubKeys returns a total of numPubKeys public keys, deterministically
+// derived so repeated calls agree.
+//
+// They are derived rather than assembled from constant bytes because an
+// arbitrary 32 bytes is usually not a valid consensus key: most are not even
+// points on the curve, and most of the rest carry a torsion component. Staking
+// rejects both at CreateValidator, so fabricated bytes would make every test
+// that seats a validator fail.
 func CreateTestPubKeys(numPubKeys int) []cryptotypes.PubKey {
-	var publicKeys []cryptotypes.PubKey
-	var buffer bytes.Buffer
+	publicKeys := make([]cryptotypes.PubKey, 0, numPubKeys)
 
-	// start at 10 to avoid changing 1 to 01, 2 to 02, etc
+	// start at 100 so the decimal suffix is always three digits, which keeps
+	// the generated keys stable if a caller asks for more of them
 	for i := 100; i < (numPubKeys + 100); i++ {
-		numString := strconv.Itoa(i)
-		buffer.WriteString("0B485CFC0EECC619440448436F8FC9DF40566F2369E72400281454CB552AF") // base pubkey string
-		buffer.WriteString(numString)                                                       // adding on final two digits to make pubkeys unique
-		publicKeys = append(publicKeys, NewPubKeyFromHex(buffer.String()))
-		buffer.Reset()
+		publicKeys = append(publicKeys, ed25519.GenPrivKeyFromSecret([]byte(strconv.Itoa(i))).PubKey())
 	}
 
 	return publicKeys

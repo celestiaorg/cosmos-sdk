@@ -1,7 +1,6 @@
 package keeper_test
 
 import (
-	"encoding/hex"
 	"fmt"
 	"testing"
 	"time"
@@ -1096,11 +1095,9 @@ func populateValidators(t assert.TestingT, f *fixture) {
 	}
 }
 
-func newPubKey(pk string) (res cryptotypes.PubKey) {
-	pkBytes, err := hex.DecodeString(pk)
-	if err != nil {
-		panic(err)
-	}
-	pubkey := &ed25519.PubKey{Key: pkBytes}
-	return pubkey
+// newPubKey derives a deterministic consensus key from seed. It derives rather
+// than hex-decoding because staking rejects a consensus key that is not a
+// canonical encoding of a prime-order point, and arbitrary bytes rarely are.
+func newPubKey(seed string) (res cryptotypes.PubKey) {
+	return ed25519.GenPrivKeyFromSecret([]byte(seed)).PubKey()
 }

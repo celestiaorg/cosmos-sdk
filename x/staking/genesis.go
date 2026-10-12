@@ -61,6 +61,12 @@ func validateGenesisStateValidators(validators []types.Validator) error {
 			return err
 		}
 
+		// The same rule CreateValidator applies, so a genesis file or a gentx
+		// cannot seat a key a transaction could not register.
+		if err := types.ValidateConsensusPubKey(consPk); err != nil {
+			return err
+		}
+
 		strKey := string(consPk.Bytes())
 
 		if _, ok := addrMap[strKey]; ok {

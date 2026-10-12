@@ -39,6 +39,20 @@ func (k Keeper) InitGenesis(ctx context.Context, data *types.GenesisState) (res 
 	}
 
 	for _, validator := range data.Validators {
+		// A fresh genesis must not seat a consensus key a transaction could not
+		// register. An exported genesis is not re-checked: its validators are
+		// already in the set, and rejecting one here would halt the chain on
+		// restart rather than prevent anything.
+		if !data.Exported {
+			consPk, err := validator.ConsPubKey()
+			if err != nil {
+				panic(err)
+			}
+			if err := types.ValidateConsensusPubKey(consPk); err != nil {
+				panic(err)
+			}
+		}
+
 		if err := k.SetValidator(ctx, validator); err != nil {
 			panic(err)
 		}

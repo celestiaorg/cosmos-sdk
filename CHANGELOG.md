@@ -38,6 +38,10 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## [Unreleased]
 
+### Improvements
+
+* (x/auth) [#781](https://github.com/celestiaorg/cosmos-sdk/pull/781) `NewSigVerificationDecorator` accepts options, and `WithSignatureVerifier` replaces how a single signature is verified. The default is unchanged, so existing call sites are unaffected. Lets an app cache or batch the curve operation without copying `AnteHandle`.
+
 ### State Machine Breaking
 
 * (baseapp) [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) `FinalizeBlock` now executes transactions in two phases. Ante handlers run first for all transactions in block order, followed by message execution for every transaction whose ante handler succeeded. Compared with sequential execution:

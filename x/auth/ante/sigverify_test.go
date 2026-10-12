@@ -1,6 +1,7 @@
 package ante_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	storetypes "cosmossdk.io/store/types"
+	txsigning "cosmossdk.io/x/tx/signing"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
@@ -18,6 +20,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/types/multisig"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	"github.com/cosmos/cosmos-sdk/x/auth/migrations/legacytx"
@@ -358,4 +361,154 @@ func TestIncrementSequenceDecorator(t *testing.T) {
 		require.NoError(t, err, "unexpected error; tc #%d, %v", i, tc)
 		require.Equal(t, tc.expectedSeq, suite.accountKeeper.GetAccount(suite.ctx, addr).GetSequence())
 	}
+}
+
+// TestSigVerificationWithSignatureVerifier checks that the decorator routes
+// every signature through the configured verifier with the same inputs the
+// default would get, and reports its outcome through the unchanged error paths.
+func TestSigVerificationWithSignatureVerifier(t *testing.T) {
+	suite := SetupTestSuite(t, true)
+	suite.ctx = suite.ctx.WithBlockHeight(1).WithIsSigverifyTx(true)
+
+	priv1, _, addr1 := testdata.KeyTestPubAddr()
+	priv2, _, addr2 := testdata.KeyTestPubAddr()
+	addrs := []sdk.AccAddress{addr1, addr2}
+	privs := []cryptotypes.PrivKey{priv1, priv2}
+
+	msgs := make([]sdk.Msg, len(addrs))
+	accNums := make([]uint64, len(addrs))
+	for i, addr := range addrs {
+		acc := suite.accountKeeper.NewAccountWithAddress(suite.ctx, addr)
+		require.NoError(t, acc.SetAccountNumber(uint64(i)+1000))
+		suite.accountKeeper.SetAccount(suite.ctx, acc)
+		msgs[i] = testdata.NewTestMsg(addr)
+		accNums[i] = acc.GetAccountNumber()
+	}
+	accSeqs := []uint64{0, 0}
+
+	signModeHandler := suite.clientCtx.TxConfig.SignModeHandler()
+
+	// buildTx signs with signMode. corrupt replaces the first signature with one
+	// over an unrelated message, which the default verifier rejects.
+	buildTx := func(t *testing.T, signMode signing.SignMode, corrupt bool) authsign.Tx {
+		t.Helper()
+		suite.txBuilder = suite.clientCtx.TxConfig.NewTxBuilder()
+		require.NoError(t, suite.txBuilder.SetMsgs(msgs...))
+		suite.txBuilder.SetFeeAmount(testdata.NewTestFeeAmount())
+		suite.txBuilder.SetGasLimit(testdata.NewTestGasLimit())
+
+		tx, err := suite.CreateTestTx(suite.ctx, privs, accNums, accSeqs, suite.ctx.ChainID(), signMode)
+		require.NoError(t, err)
+		if !corrupt {
+			return tx
+		}
+
+		txSigs, err := tx.GetSignaturesV2()
+		require.NoError(t, err)
+		badSig, err := privs[0].Sign([]byte("unrelated message"))
+		require.NoError(t, err)
+		txSigs[0] = signing.SignatureV2{
+			PubKey:   privs[0].PubKey(),
+			Data:     &signing.SingleSignatureData{SignMode: signMode, Signature: badSig},
+			Sequence: accSeqs[0],
+		}
+		require.NoError(t, suite.txBuilder.SetSignatures(txSigs...))
+		return suite.txBuilder.GetTx()
+	}
+
+	run := func(t *testing.T, verifier ante.SignatureVerifier, tx authsign.Tx) error {
+		t.Helper()
+		svd := ante.NewSigVerificationDecorator(suite.accountKeeper, signModeHandler, ante.WithSignatureVerifier(verifier))
+		antehandler := sdk.ChainAnteDecorators(ante.NewSetPubKeyDecorator(suite.accountKeeper), svd)
+		_, err := antehandler(suite.ctx, tx, false)
+		return err
+	}
+
+	t.Run("verifier receives the default inputs and is called once per signature", func(t *testing.T) {
+		type call struct {
+			pubKey     cryptotypes.PubKey
+			signerData txsigning.SignerData
+			handler    *txsigning.HandlerMap
+			txData     txsigning.TxData
+		}
+		var calls []call
+		verifier := func(
+			ctx context.Context,
+			pubKey cryptotypes.PubKey,
+			signerData txsigning.SignerData,
+			sigData signing.SignatureData,
+			handler *txsigning.HandlerMap,
+			txData txsigning.TxData,
+		) error {
+			calls = append(calls, call{pubKey, signerData, handler, txData})
+			return authsign.VerifySignature(ctx, pubKey, signerData, sigData, handler, txData)
+		}
+
+		require.NoError(t, run(t, verifier, buildTx(t, signing.SignMode_SIGN_MODE_DIRECT, false)))
+		require.Len(t, calls, len(privs))
+
+		for i, c := range calls {
+			require.Equal(t, privs[i].PubKey(), c.pubKey, "signature %d", i)
+			require.Equal(t, addrs[i].String(), c.signerData.Address, "signature %d", i)
+			require.Equal(t, suite.ctx.ChainID(), c.signerData.ChainID, "signature %d", i)
+			require.Equal(t, accNums[i], c.signerData.AccountNumber, "signature %d", i)
+			require.Equal(t, accSeqs[i], c.signerData.Sequence, "signature %d", i)
+			require.NotNil(t, c.signerData.PubKey, "signature %d", i)
+			// The handler the decorator was constructed with, so a verifier can
+			// produce sign bytes itself.
+			require.Same(t, signModeHandler, c.handler, "signature %d", i)
+			require.NotEmpty(t, c.txData.BodyBytes, "signature %d", i)
+			require.NotEmpty(t, c.txData.AuthInfoBytes, "signature %d", i)
+		}
+	})
+
+	t.Run("verifier accepting a signature the default would reject", func(t *testing.T) {
+		// What a cache relies on: a hit returns nil without touching the curve.
+		corrupt := buildTx(t, signing.SignMode_SIGN_MODE_DIRECT, true)
+
+		require.Error(t, run(t, nil, corrupt), "a nil verifier must keep the default, which rejects this tx")
+
+		accept := func(context.Context, cryptotypes.PubKey, txsigning.SignerData, signing.SignatureData, *txsigning.HandlerMap, txsigning.TxData) error {
+			return nil
+		}
+		require.NoError(t, run(t, accept, corrupt))
+	})
+
+	t.Run("verifier error reaches the general error branch", func(t *testing.T) {
+		reject := func(context.Context, cryptotypes.PubKey, txsigning.SignerData, signing.SignatureData, *txsigning.HandlerMap, txsigning.TxData) error {
+			return fmt.Errorf("verifier rejected")
+		}
+		err := run(t, reject, buildTx(t, signing.SignMode_SIGN_MODE_DIRECT, false))
+		require.ErrorIs(t, err, sdkerrors.ErrUnauthorized)
+		require.ErrorContains(t, err, "signature verification failed; please verify account number")
+		// The general branch quotes the verifier's error.
+		require.ErrorContains(t, err, "verifier rejected")
+	})
+
+	t.Run("verifier error reaches the legacy amino error branch", func(t *testing.T) {
+		reject := func(context.Context, cryptotypes.PubKey, txsigning.SignerData, signing.SignatureData, *txsigning.HandlerMap, txsigning.TxData) error {
+			return fmt.Errorf("verifier rejected")
+		}
+		err := run(t, reject, buildTx(t, signing.SignMode_SIGN_MODE_LEGACY_AMINO_JSON, false))
+		require.ErrorIs(t, err, sdkerrors.ErrUnauthorized)
+		// The amino branch names the sequence instead of quoting the error.
+		require.ErrorContains(t, err, "sequence")
+		require.NotContains(t, err.Error(), "verifier rejected")
+	})
+
+	t.Run("verifier is not called on recheck", func(t *testing.T) {
+		called := false
+		verifier := func(context.Context, cryptotypes.PubKey, txsigning.SignerData, signing.SignatureData, *txsigning.HandlerMap, txsigning.TxData) error {
+			called = true
+			return nil
+		}
+		tx := buildTx(t, signing.SignMode_SIGN_MODE_DIRECT, false)
+
+		recheckCtx := suite.ctx
+		suite.ctx = suite.ctx.WithIsReCheckTx(true)
+		defer func() { suite.ctx = recheckCtx }()
+
+		require.NoError(t, run(t, verifier, tx))
+		require.False(t, called, "the recheck skip must short-circuit before the verifier")
+	})
 }

@@ -2,6 +2,7 @@ package ante
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -220,13 +221,59 @@ func (sgcd SigGasConsumeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simula
 type SigVerificationDecorator struct {
 	ak              AccountKeeper
 	signModeHandler *txsigning.HandlerMap
+	verifySignature SignatureVerifier
 }
 
-func NewSigVerificationDecorator(ak AccountKeeper, signModeHandler *txsigning.HandlerMap) SigVerificationDecorator {
-	return SigVerificationDecorator{
+// SignatureVerifier verifies the signatures of one signer. It is the signature
+// of authsigning.VerifySignature, the default. For a multisig signer, sigData
+// is the whole MultiSignatureData tree, so one call can cover many curve
+// operations.
+//
+// CONTRACT: every node must reach the same verdict for the same signer,
+// signature and tx, whatever node-local state (a cache, a batch) the
+// implementation keeps. ctx carries node-local state such as exec mode, block
+// height and the store, so the verdict must not depend on it.
+// CONTRACT: consumes no gas. Gas for signature verification is charged by
+// SigGasConsumeDecorator, which is unchanged; gas charged here would vary with
+// node-local state and break consensus.
+// CONTRACT: safe for concurrent use. CheckTx and FinalizeBlock call it from
+// different goroutines.
+type SignatureVerifier func(
+	ctx context.Context,
+	pubKey cryptotypes.PubKey,
+	signerData txsigning.SignerData,
+	sigData signing.SignatureData,
+	handler *txsigning.HandlerMap,
+	txData txsigning.TxData,
+) error
+
+// SigVerificationDecoratorOption customizes a SigVerificationDecorator.
+type SigVerificationDecoratorOption func(*SigVerificationDecorator)
+
+// WithSignatureVerifier replaces how a signer's signatures are verified, so an
+// app can cache or batch the curve operation without copying AnteHandle. The
+// verifier must respect the SignatureVerifier contracts. A nil verifier is
+// ignored, leaving the default in place.
+func WithSignatureVerifier(verifier SignatureVerifier) SigVerificationDecoratorOption {
+	return func(svd *SigVerificationDecorator) {
+		if verifier != nil {
+			svd.verifySignature = verifier
+		}
+	}
+}
+
+func NewSigVerificationDecorator(ak AccountKeeper, signModeHandler *txsigning.HandlerMap, opts ...SigVerificationDecoratorOption) SigVerificationDecorator {
+	svd := SigVerificationDecorator{
 		ak:              ak,
 		signModeHandler: signModeHandler,
+		verifySignature: authsigning.VerifySignature,
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&svd)
+		}
+	}
+	return svd
 }
 
 // OnlyLegacyAminoSigners checks SignatureData to see if all
@@ -320,7 +367,7 @@ func (svd SigVerificationDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simul
 				return ctx, fmt.Errorf("expected tx to implement V2AdaptableTx, got %T", tx)
 			}
 			txData := adaptableTx.GetSigningTxData()
-			err = authsigning.VerifySignature(ctx, pubKey, signerData, sig.Data, svd.signModeHandler, txData)
+			err = svd.verifySignature(ctx, pubKey, signerData, sig.Data, svd.signModeHandler, txData)
 			if err != nil {
 				var errMsg string
 				if OnlyLegacyAminoSigners(sig.Data) {

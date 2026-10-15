@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is Celestia's fork of Cosmos SDK v0.50.x (`github.com/cosmos/cosmos-sdk`). CometBFT is replaced with `celestiaorg/celestia-core`. The main upstream remote is `upstream` (celestiaorg/cosmos-sdk), and the primary branch is `release/v0.52.x-celestia`.
+This is Celestia's standalone Cosmos SDK repository (`celestiaorg/cosmos-sdk`), derived from `cosmos/cosmos-sdk` v0.52.x and consumed by celestia-app through a `replace` directive. CometBFT is replaced with `celestiaorg/celestia-core`. The `origin` remote is this repository, upstream Cosmos SDK is `cosmos/cosmos-sdk`, and the primary branch is `release/v0.52.x-celestia`. Pull requests opened before October 2026 live in `celestiaorg/cosmos-sdk-archive`.
 
 Key Celestia-specific changes: lazy migrations for x/staking and x/slashing, CIP-30 support, BlockAPI exposure through app gRPC server, distribution rewards are not auto-claimed, default ABCI gRPC port changed to 36658, default keyring backend changed to `test`.
 

@@ -18,7 +18,7 @@ jobs:
   split-test-files:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
@@ -51,7 +51,7 @@ jobs:
       matrix:
         part: ["00", "01", "02", "03"]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
@@ -71,7 +71,7 @@ jobs:
   test-integration:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
@@ -88,7 +88,7 @@ jobs:
   test-e2e:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
@@ -109,7 +109,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with:
           name: "${{ github.sha }}-00-coverage"
@@ -147,7 +147,7 @@ jobs:
   test-sim-nondeterminism:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
@@ -179,7 +179,7 @@ jobs:
   test-clientv2:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
@@ -209,7 +209,7 @@ jobs:
   test-core:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v4
         with:
           go-version-file: core/go.mod
@@ -240,7 +240,7 @@ jobs:
   test-depinject:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v4
         with:
           go-version-file: depinject/go.mod
@@ -269,7 +269,7 @@ jobs:
   test-errors:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v4
         with:
           go-version-file: errors/go.mod
@@ -300,7 +300,7 @@ jobs:
   test-math:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v4
         with:
           go-version-file: math/go.mod
@@ -331,7 +331,7 @@ jobs:
   test-simapp:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
@@ -358,7 +358,7 @@ jobs:
   test-collections:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
@@ -388,7 +388,7 @@ jobs:
   test-confix:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
@@ -418,7 +418,7 @@ jobs:
   test-hubl:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
@@ -448,7 +448,7 @@ jobs:
   test-store:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
@@ -478,7 +478,7 @@ jobs:
   test-log:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v4
         with:
           go-version-file: log/go.mod
@@ -516,7 +516,7 @@ jobs:
   test-x-tx:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
@@ -546,7 +546,7 @@ jobs:
   test-x-nft:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
@@ -576,7 +576,7 @@ jobs:
   test-x-circuit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
@@ -606,7 +606,7 @@ jobs:
   test-x-feegrant:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
@@ -636,7 +636,7 @@ jobs:
   test-x-evidence:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
@@ -665,7 +665,7 @@ jobs:
   test-x-upgrade:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'

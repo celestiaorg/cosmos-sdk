@@ -20,7 +20,7 @@ jobs:
           go-version-file: 'go.mod'
       - name: "Dependency Review"
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@v5
         with:
           base-ref: ${{ github.event.pull_request.base.sha || 'release/v0.52.x-celestia' }}
           head-ref: ${{ github.event.pull_request.head.sha || github.ref }}

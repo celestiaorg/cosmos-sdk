@@ -40,11 +40,11 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### Improvements
 
-* (x/auth) [#781](https://github.com/celestiaorg/cosmos-sdk/pull/781) `NewSigVerificationDecorator` accepts options, and `WithSignatureVerifier` replaces how a single signature is verified. The default is unchanged, so existing call sites are unaffected. Lets an app cache or batch the curve operation without copying `AnteHandle`.
+* (x/auth) [#781](https://github.com/celestiaorg/cosmos-sdk-archive/pull/781) `NewSigVerificationDecorator` accepts options, and `WithSignatureVerifier` replaces how a single signature is verified. The default is unchanged, so existing call sites are unaffected. Lets an app cache or batch the curve operation without copying `AnteHandle`.
 
 ### State Machine Breaking
 
-* (x/staking) [#779](https://github.com/celestiaorg/cosmos-sdk/pull/779) `MsgCreateValidator` and a fresh genesis now reject an Ed25519 consensus key that is not a canonical encoding of a point in the prime-order subgroup. Keys already in the validator set are never re-validated, and an exported genesis is not re-checked, so an in-place upgrade or a restart cannot evict a seated validator. For the v11 breaking release; do not backport.
+* (x/staking) [#779](https://github.com/celestiaorg/cosmos-sdk-archive/pull/779) `MsgCreateValidator` and a fresh genesis now reject an Ed25519 consensus key that is not a canonical encoding of a point in the prime-order subgroup. Keys already in the validator set are never re-validated, and an exported genesis is not re-checked, so an in-place upgrade or a restart cannot evict a seated validator. For the v11 breaking release; do not backport.
 
 * (baseapp) [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) `FinalizeBlock` now executes transactions in two phases. Ante handlers run first for all transactions in block order, followed by message execution for every transaction whose ante handler succeeded. Compared with sequential execution:
     * Fees, sequence increments, and other ante writes are committed before any messages execute. A transaction can no longer pay its fee using funds received from an earlier transaction in the same block.
@@ -70,16 +70,16 @@ Ref: https://keepachangelog.com/en/1.0.0/
 * (x/auth) [#7](https://github.com/01builders/cosmos-sdk/pull/7) Support legacy global AccountNumber.
 * (crypto/keyring) [#8](https://github.com/01builders/cosmos-sdk/pull/8) Fix error wrapping in pkg crypto/keyring. Removed `cockroachdb/errors` in favour of `errorsmod.Wrap`.
 * (x/consensus) [#9](https://github.com/01builders/cosmos-sdk/pull/9) Address bug where sending `MsgUpdateParams` to `x/consensus` would overwrite `AppVersion` with zero value. Always use existing `AppVersion` param.
-* (client) [#435](https://github.com/celestiaorg/cosmos-sdk/pull/435) Extend the `CometRPC` interface with cometbft `rpcclient.MempoolClient`.
-* (baseapp) [#432](https://github.com/celestiaorg/cosmos-sdk/pull/432) Extend the `sdk.EndBlock` type with `TimeoutInfo` to be propagated to `ResponseFinalizeBlock`.
-* (auth/tx) [#432](https://github.com/celestiaorg/cosmos-sdk/pull/432) Set the `prove` flag to `false` for tx queries.
-* (x/authz) [#442](https://github.com/celestiaorg/cosmos-sdk/pull/442) Added a limit of 200 grants pruned per `BeginBlock` and the `PruneExpiredGrants` message that prunes 75 expired grants on every run.
-* (x/staking) [#443](https://github.com/celestiaorg/cosmos-sdk/pull/443) Added a limit of 1000 to delegation keys migration. A further 10000 keys are migrated per `BeginBlock`, tracked by `NextMigrateDelegationsByValidatorIndexKey`.
-* (x/distribution) [#437](https://github.com/celestiaorg/cosmos-sdk/pull/437) Implement [CIP-30](https://github.com/celestiaorg/CIPs/blob/main/cips/cip-030.md).
-* (x/staking) [#444](https://github.com/celestiaorg/cosmos-sdk/pull/443) Added a limit of 1000 to historical info key migration. A further 1000 keys are migrated per `BeginBlock`, tracked by `NextMigrateHistoricalInfoKey`.
-* (x/slashing) [#447](https://github.com/celestiaorg/cosmos-sdk/pull/447) Updates the x/slashing key prefix for validator missed block bitarray from `0x02` to `0x12` and modifies the x/slashing v4 migration handler to be deletion of old keys, only. The migration is now done lazily via `BeginBlocker`.
-* (server) [#455](https://github.com/celestiaorg/cosmos-sdk/pull/455) Added celestia-core `BlockAPI` to app grpc server. When running in standalone mode the app uses a `BlockAPI` proxy service to maintain support through same the app grpc port.
-* (server) [#576](https://github.com/celestiaorg/cosmos-sdk/pull/576) Updated the default listen address for remote ABCI connections over grpc from `tcp://127.0.0.1:26658` to `tcp://127.0.0.1:36658`.
+* (client) [#435](https://github.com/celestiaorg/cosmos-sdk-archive/pull/435) Extend the `CometRPC` interface with cometbft `rpcclient.MempoolClient`.
+* (baseapp) [#432](https://github.com/celestiaorg/cosmos-sdk-archive/pull/432) Extend the `sdk.EndBlock` type with `TimeoutInfo` to be propagated to `ResponseFinalizeBlock`.
+* (auth/tx) [#432](https://github.com/celestiaorg/cosmos-sdk-archive/pull/432) Set the `prove` flag to `false` for tx queries.
+* (x/authz) [#442](https://github.com/celestiaorg/cosmos-sdk-archive/pull/442) Added a limit of 200 grants pruned per `BeginBlock` and the `PruneExpiredGrants` message that prunes 75 expired grants on every run.
+* (x/staking) [#443](https://github.com/celestiaorg/cosmos-sdk-archive/pull/443) Added a limit of 1000 to delegation keys migration. A further 10000 keys are migrated per `BeginBlock`, tracked by `NextMigrateDelegationsByValidatorIndexKey`.
+* (x/distribution) [#437](https://github.com/celestiaorg/cosmos-sdk-archive/pull/437) Implement [CIP-30](https://github.com/celestiaorg/CIPs/blob/main/cips/cip-030.md).
+* (x/staking) [#444](https://github.com/celestiaorg/cosmos-sdk-archive/pull/443) Added a limit of 1000 to historical info key migration. A further 1000 keys are migrated per `BeginBlock`, tracked by `NextMigrateHistoricalInfoKey`.
+* (x/slashing) [#447](https://github.com/celestiaorg/cosmos-sdk-archive/pull/447) Updates the x/slashing key prefix for validator missed block bitarray from `0x02` to `0x12` and modifies the x/slashing v4 migration handler to be deletion of old keys, only. The migration is now done lazily via `BeginBlocker`.
+* (server) [#455](https://github.com/celestiaorg/cosmos-sdk-archive/pull/455) Added celestia-core `BlockAPI` to app grpc server. When running in standalone mode the app uses a `BlockAPI` proxy service to maintain support through same the app grpc port.
+* (server) [#576](https://github.com/celestiaorg/cosmos-sdk-archive/pull/576) Updated the default listen address for remote ABCI connections over grpc from `tcp://127.0.0.1:26658` to `tcp://127.0.0.1:36658`.
 
 ## [Unreleased-Cosmos-SDK]
 

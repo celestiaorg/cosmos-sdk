@@ -2,8 +2,7 @@
 
 This is Celestia's independent Cosmos SDK repository. [Historical pull requests](https://github.com/celestiaorg/cosmos-sdk-archive/pulls) remain in the original fork. See the [repository migration guide and issue/comment maps](docs/repository-migration/README.md).
 
-Fork of Cosmos SDK v0.50.x for Celestia App.
-The fork include the following changes compared to upstream:
+It tracks Cosmos SDK v0.52.x and carries the following changes compared to upstream `cosmos/cosmos-sdk`:
 
 * Store app version in consensus param store
 * Modify continuous vesting account to add start time

@@ -1,0 +1,1090 @@
+[
+  {
+    "old_number": 1,
+    "new_number": 6,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/1",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/1",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/6",
+    "title": "Base PoS functionality"
+  },
+  {
+    "old_number": 2,
+    "new_number": 7,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/2",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/2",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/7",
+    "title": "Switch to lazyledger-core instead of tendermint"
+  },
+  {
+    "old_number": 3,
+    "new_number": 8,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/3",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/3",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/8",
+    "title": "Find a better name for this repository"
+  },
+  {
+    "old_number": 4,
+    "new_number": 9,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/4",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/4",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/9",
+    "title": "Add PayForMessage Tx type"
+  },
+  {
+    "old_number": 5,
+    "new_number": 10,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/5",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/5",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/10",
+    "title": "Use preprocess step to decouple Tx and Messages before proposing a block"
+  },
+  {
+    "old_number": 6,
+    "new_number": 11,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/6",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/6",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/11",
+    "title": "Replace IAVL+ with SMT"
+  },
+  {
+    "old_number": 7,
+    "new_number": 13,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/7",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/7",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/13",
+    "title": "Fold the validator roots into the state tree"
+  },
+  {
+    "old_number": 8,
+    "new_number": 12,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/8",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/8",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/12",
+    "title": "Keep track of and return intermediate state roots to be included in the block"
+  },
+  {
+    "old_number": 9,
+    "new_number": 14,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/9",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/9",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/14",
+    "title": "Add possibility to generate state fraud proofs"
+  },
+  {
+    "old_number": 14,
+    "new_number": 15,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/14",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/14",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/15",
+    "title": "Liveness Test fails in Github Actions"
+  },
+  {
+    "old_number": 16,
+    "new_number": 16,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/16",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/16",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/16",
+    "title": "Update to Cosmos SDK v0.40.1"
+  },
+  {
+    "old_number": 17,
+    "new_number": 19,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/17",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/17",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/19",
+    "title": "Allow to use Optimint instead of Tendermint"
+  },
+  {
+    "old_number": 18,
+    "new_number": 34,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/18",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/18",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/34",
+    "title": "Merge changes from upstream 0.41.x"
+  },
+  {
+    "old_number": 22,
+    "new_number": 17,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/22",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/22",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/17",
+    "title": "Mirror the linting of the upstream sdk"
+  },
+  {
+    "old_number": 26,
+    "new_number": 21,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/26",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/26",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/21",
+    "title": "Adjust imports to reflect rebrand"
+  },
+  {
+    "old_number": 27,
+    "new_number": 35,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/27",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/27",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/35",
+    "title": "Update from upstream"
+  },
+  {
+    "old_number": 30,
+    "new_number": 38,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/30",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/30",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/38",
+    "title": "Fraud provable staking"
+  },
+  {
+    "old_number": 31,
+    "new_number": 18,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/31",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/31",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/18",
+    "title": "Update optimint-master branch"
+  },
+  {
+    "old_number": 36,
+    "new_number": 40,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/36",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/36",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/40",
+    "title": "Invalid address format when using the same config multiple times"
+  },
+  {
+    "old_number": 40,
+    "new_number": 20,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/40",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/40",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/20",
+    "title": "Create optimint feature branches"
+  },
+  {
+    "old_number": 42,
+    "new_number": 42,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/42",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/42",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/42",
+    "title": "Pull changes from upstream"
+  },
+  {
+    "old_number": 66,
+    "new_number": 44,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/66",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/66",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/44",
+    "title": "Get TestIntegrationTestSuite passing w/ Optimint"
+  },
+  {
+    "old_number": 67,
+    "new_number": 23,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/67",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/67",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/23",
+    "title": "Optimint: use PrivValidatorKey indead of NodeKey"
+  },
+  {
+    "old_number": 81,
+    "new_number": 47,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/81",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/81",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/47",
+    "title": "Investigate protobuf CI failure"
+  },
+  {
+    "old_number": 93,
+    "new_number": 51,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/93",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/93",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/51",
+    "title": "Change CI to work on pushes to default branch instead of master"
+  },
+  {
+    "old_number": 108,
+    "new_number": 52,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/108",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/108",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/52",
+    "title": "Re-add Rosetta support"
+  },
+  {
+    "old_number": 110,
+    "new_number": 22,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/110",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/110",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/22",
+    "title": "Update astria/v0.45.2 branch with CI changes from release/v0.44.x-celestia"
+  },
+  {
+    "old_number": 111,
+    "new_number": 55,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/111",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/111",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/55",
+    "title": "Utilize SMT store in cosmos-sdk app"
+  },
+  {
+    "old_number": 114,
+    "new_number": 59,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/114",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/114",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/59",
+    "title": "Add checks/tests to the newly added orchestrator/Ethereum addresses to the staking module"
+  },
+  {
+    "old_number": 119,
+    "new_number": 24,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/119",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/119",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/24",
+    "title": "Missing library in the liveness test"
+  },
+  {
+    "old_number": 123,
+    "new_number": 63,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/123",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/123",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/63",
+    "title": "Astria: Validate fraud proofs in light clients"
+  },
+  {
+    "old_number": 125,
+    "new_number": 26,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/125",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/125",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/26",
+    "title": "Bot that notifies about tags/releases from upstream"
+  },
+  {
+    "old_number": 127,
+    "new_number": 25,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/127",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/127",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/25",
+    "title": "Cevmos: Generate ISRs for all state transitions"
+  },
+  {
+    "old_number": 129,
+    "new_number": 65,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/129",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/129",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/65",
+    "title": "Improve staking.validator queries for the new QGB added fields"
+  },
+  {
+    "old_number": 130,
+    "new_number": 27,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/130",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/130",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/27",
+    "title": "Upgrade the celestia branch to v0.46.0-beta2 of the cosmos-sdk"
+  },
+  {
+    "old_number": 131,
+    "new_number": 28,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/131",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/131",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/28",
+    "title": "Initialize State Store using Fraud Proof"
+  },
+  {
+    "old_number": 132,
+    "new_number": 68,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/132",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/132",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/68",
+    "title": "Execute single state transition given by Fraud Proof"
+  },
+  {
+    "old_number": 136,
+    "new_number": 29,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/136",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/136",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/29",
+    "title": "Decide on a naming convention for the Ethereum/Orchestrator address in the validator struct "
+  },
+  {
+    "old_number": 142,
+    "new_number": 31,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/142",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/142",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/31",
+    "title": "Enable automatic deletion of head branches"
+  },
+  {
+    "old_number": 143,
+    "new_number": 30,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/143",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/143",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/30",
+    "title": "Replace EthAddress with Geth implementation of the Ethereum address for validator "
+  },
+  {
+    "old_number": 144,
+    "new_number": 71,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/144",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/144",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/71",
+    "title": "Create validator Ethereum address during simulation tests in a correct way"
+  },
+  {
+    "old_number": 151,
+    "new_number": 33,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/151",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/151",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/33",
+    "title": "Move default configuration settings to the app"
+  },
+  {
+    "old_number": 189,
+    "new_number": 73,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/189",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/189",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/73",
+    "title": "Initialize the test network's client context with a grpc connection"
+  },
+  {
+    "old_number": 191,
+    "new_number": 32,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/191",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/191",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/32",
+    "title": "Gas is not reported "
+  },
+  {
+    "old_number": 195,
+    "new_number": 76,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/195",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/195",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/76",
+    "title": "Add ability to generate block fraud proofs"
+  },
+  {
+    "old_number": 196,
+    "new_number": 37,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/196",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/196",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/37",
+    "title": "Initialize state store using state witnesses in a block fraud proof"
+  },
+  {
+    "old_number": 219,
+    "new_number": 79,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/219",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/219",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/79",
+    "title": "Get rid of dependabot for this fork"
+  },
+  {
+    "old_number": 220,
+    "new_number": 39,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/220",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/220",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/39",
+    "title": "QGB update the qgb branch to have latest cosmos-sdk changes"
+  },
+  {
+    "old_number": 231,
+    "new_number": 82,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/231",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/231",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/82",
+    "title": "Import all SMT files into cosmos-sdk without any build errors"
+  },
+  {
+    "old_number": 245,
+    "new_number": 36,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/245",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/245",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/36",
+    "title": "Implement a Single Round Fraudproof as a minimal integration test"
+  },
+  {
+    "old_number": 249,
+    "new_number": 84,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/249",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/249",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/84",
+    "title": "Implement fraudproof generation mode in cosmos-sdk"
+  },
+  {
+    "old_number": 251,
+    "new_number": 43,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/251",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/251",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/43",
+    "title": "Document the different branches and their workflows"
+  },
+  {
+    "old_number": 252,
+    "new_number": 86,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/252",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/252",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/86",
+    "title": "Test stateless execution for cosmos-sdk baseapp using SMT-based fraudproofs "
+  },
+  {
+    "old_number": 253,
+    "new_number": 41,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/253",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/253",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/41",
+    "title": "Add fraudproof verification on a store level"
+  },
+  {
+    "old_number": 255,
+    "new_number": 88,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/255",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/255",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/88",
+    "title": "Add fraudproof verification on a substore level"
+  },
+  {
+    "old_number": 257,
+    "new_number": 45,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/257",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/257",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/45",
+    "title": "Export minimal pre-execution state from a fraudulent block instead of a post-execution state"
+  },
+  {
+    "old_number": 258,
+    "new_number": 90,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/258",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/258",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/90",
+    "title": "Implement domain-specific trace writers for SMT multistore"
+  },
+  {
+    "old_number": 259,
+    "new_number": 46,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/259",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/259",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/46",
+    "title": "Optimize state reversion in a SMT multistore"
+  },
+  {
+    "old_number": 263,
+    "new_number": 48,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/263",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/263",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/48",
+    "title": "Tracking Issue for v0.46-with-smt branch"
+  },
+  {
+    "old_number": 265,
+    "new_number": 49,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/265",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/265",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/49",
+    "title": "Transition fraud proof prototype from block fraud proofs to fraud proof with ISRs"
+  },
+  {
+    "old_number": 266,
+    "new_number": 50,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/266",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/266",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/50",
+    "title": "Initialize the new app with a deep SMT instead of populating the empty SMT"
+  },
+  {
+    "old_number": 269,
+    "new_number": 54,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/269",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/269",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/54",
+    "title": "Downgrade tendermint version to 0.34.21 since Tendermint v0.35 got dropped"
+  },
+  {
+    "old_number": 271,
+    "new_number": 53,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/271",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/271",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/53",
+    "title": "Add new ABCI methods needed for Fraud Proof Generation"
+  },
+  {
+    "old_number": 273,
+    "new_number": 92,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/273",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/273",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/92",
+    "title": "Add ABCI method needed for Fraud Proof Verification"
+  },
+  {
+    "old_number": 279,
+    "new_number": 95,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/279",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/279",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/95",
+    "title": "Update buf version to upstream"
+  },
+  {
+    "old_number": 283,
+    "new_number": 56,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/283",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/283",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/56",
+    "title": "Move default changes to the application"
+  },
+  {
+    "old_number": 287,
+    "new_number": 57,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/287",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/287",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/57",
+    "title": "Pull changes from cosmos-sdk `v0.46.6`"
+  },
+  {
+    "old_number": 291,
+    "new_number": 97,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/291",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/291",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/97",
+    "title": "Reenable the proof flag for `Tx` and `TxSearch` once solved"
+  },
+  {
+    "old_number": 292,
+    "new_number": 60,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/292",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/292",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/60",
+    "title": "Bump to v0.46.7"
+  },
+  {
+    "old_number": 298,
+    "new_number": 62,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/298",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/298",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/62",
+    "title": "Expose EVM address flag when editing validator"
+  },
+  {
+    "old_number": 299,
+    "new_number": 58,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/299",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/299",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/58",
+    "title": "Remove the orchestrator address from the validator"
+  },
+  {
+    "old_number": 305,
+    "new_number": 61,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/305",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/305",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/61",
+    "title": "Pull upstream changes from cosmos-sdk v0.46.11"
+  },
+  {
+    "old_number": 306,
+    "new_number": 99,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/306",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/306",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/99",
+    "title": "Document rationale for fork and notable differences from upstream"
+  },
+  {
+    "old_number": 310,
+    "new_number": 66,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/310",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/310",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/66",
+    "title": "Pull upstream changes from v0.46.13"
+  },
+  {
+    "old_number": 313,
+    "new_number": 69,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/313",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/313",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/69",
+    "title": "Add support for the validator by EVM address query to staking module"
+  },
+  {
+    "old_number": 319,
+    "new_number": 72,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/319",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/319",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/72",
+    "title": "Upgrade gogoproto"
+  },
+  {
+    "old_number": 323,
+    "new_number": 64,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/323",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/323",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/64",
+    "title": "`make lint` results in errors"
+  },
+  {
+    "old_number": 325,
+    "new_number": 75,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/325",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/325",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/75",
+    "title": "Fix Prepare/Process Proposal state access"
+  },
+  {
+    "old_number": 328,
+    "new_number": 78,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/328",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/328",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/78",
+    "title": "Revert access to the chain-id from baseapp"
+  },
+  {
+    "old_number": 332,
+    "new_number": 67,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/332",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/332",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/67",
+    "title": "Unit test operators used by celestia-core"
+  },
+  {
+    "old_number": 338,
+    "new_number": 70,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/338",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/338",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/70",
+    "title": "Revert changes to the staking module reletive to upstream v0.46"
+  },
+  {
+    "old_number": 341,
+    "new_number": 74,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/341",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/341",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/74",
+    "title": "Add the ability to creating a vesting account that begins vesting in the future"
+  },
+  {
+    "old_number": 353,
+    "new_number": 77,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/353",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/353",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/77",
+    "title": "Upgrade to cosmos-sdk v0.46.16"
+  },
+  {
+    "old_number": 354,
+    "new_number": 101,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/354",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/354",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/101",
+    "title": "Investigate upgrading to cosmos-sdk v0.47.x"
+  },
+  {
+    "old_number": 355,
+    "new_number": 81,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/355",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/355",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/81",
+    "title": "Add branch protection rules for `main`"
+  },
+  {
+    "old_number": 359,
+    "new_number": 80,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/359",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/359",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/80",
+    "title": "Deprecate main branch"
+  },
+  {
+    "old_number": 362,
+    "new_number": 83,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/362",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/362",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/83",
+    "title": "Remove modifications that may be revertable"
+  },
+  {
+    "old_number": 397,
+    "new_number": 117,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/397",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/397",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/117",
+    "title": "Log module hashes if an app hash mismatch is encountered"
+  },
+  {
+    "old_number": 398,
+    "new_number": 85,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/398",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/398",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/85",
+    "title": "Dump state and block data upon app hash or last results mismatch and create script to replay"
+  },
+  {
+    "old_number": 400,
+    "new_number": 119,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/400",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/400",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/119",
+    "title": "Update Prometheus Client"
+  },
+  {
+    "old_number": 417,
+    "new_number": 104,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/417",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/417",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/104",
+    "title": "Implement `ctx.IsPrepareProposal` and `ctx.IsProcessProposal`"
+  },
+  {
+    "old_number": 423,
+    "new_number": 106,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/423",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/423",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/106",
+    "title": "Upgrade to ledger-cosmos-go v0.14.0"
+  },
+  {
+    "old_number": 429,
+    "new_number": 107,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/429",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/429",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/107",
+    "title": "Add a version gate around unpack any depth change"
+  },
+  {
+    "old_number": 434,
+    "new_number": 87,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/434",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/434",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/87",
+    "title": "Linting for v0.51 release branch"
+  },
+  {
+    "old_number": 436,
+    "new_number": 121,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/436",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/436",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/121",
+    "title": "Update codeowners on v0.50.x-celestia"
+  },
+  {
+    "old_number": 441,
+    "new_number": 108,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/441",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/441",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/108",
+    "title": "Fix or remove liveness test"
+  },
+  {
+    "old_number": 451,
+    "new_number": 123,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/451",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/451",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/123",
+    "title": "fix the `with-tendermint` flag"
+  },
+  {
+    "old_number": 460,
+    "new_number": 125,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/460",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/460",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/125",
+    "title": "Update default branch to release/v0.50.x-celestia"
+  },
+  {
+    "old_number": 589,
+    "new_number": 127,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/589",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/589",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/127",
+    "title": "Fix failing CI workflows"
+  },
+  {
+    "old_number": 590,
+    "new_number": 89,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/590",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/590",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/89",
+    "title": "CI workflow to run go vulncheck"
+  },
+  {
+    "old_number": 591,
+    "new_number": 109,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/591",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/591",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/109",
+    "title": "Disable Dependabot for Cosmos SDK dependencies"
+  },
+  {
+    "old_number": 636,
+    "new_number": 110,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/636",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/636",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/110",
+    "title": "Set the default keyring to test"
+  },
+  {
+    "old_number": 637,
+    "new_number": 129,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/637",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/637",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/129",
+    "title": "Improve help docs for `--address` flag"
+  },
+  {
+    "old_number": 639,
+    "new_number": 111,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/639",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/639",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/111",
+    "title": "`FlagGRPC` should clarify that it is for the CosmosSDK GRPC server endpoint"
+  },
+  {
+    "old_number": 645,
+    "new_number": 112,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/645",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/645",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/112",
+    "title": "Potential non-determinism with the staking module migrations"
+  },
+  {
+    "old_number": 646,
+    "new_number": 131,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/646",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/646",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/131",
+    "title": "non-determinism test is failing"
+  },
+  {
+    "old_number": 657,
+    "new_number": 113,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/657",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/657",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/113",
+    "title": "release/v0.50.x-celestia is missing the type `VestingData` which exists upstream"
+  },
+  {
+    "old_number": 660,
+    "new_number": 114,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/660",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/660",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/114",
+    "title": "fix the integration test"
+  },
+  {
+    "old_number": 665,
+    "new_number": 91,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/665",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/665",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/91",
+    "title": "Ability to backport PRs"
+  },
+  {
+    "old_number": 669,
+    "new_number": 115,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/669",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/669",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/115",
+    "title": "Investigate why CAT breaks e2e tests"
+  },
+  {
+    "old_number": 671,
+    "new_number": 93,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/671",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/671",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/93",
+    "title": "WithdrawDelegationRewards is complex and error prone"
+  },
+  {
+    "old_number": 676,
+    "new_number": 133,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/676",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/676",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/133",
+    "title": "Tx error logging should go into Debug"
+  },
+  {
+    "old_number": 687,
+    "new_number": 116,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/687",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/687",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/116",
+    "title": "Fix linter"
+  },
+  {
+    "old_number": 688,
+    "new_number": 135,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/688",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/688",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/135",
+    "title": "Fix the broken CI and bump all the required versions "
+  },
+  {
+    "old_number": 690,
+    "new_number": 118,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/690",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/690",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/118",
+    "title": "Fix integration test on v0.50.x"
+  },
+  {
+    "old_number": 691,
+    "new_number": 137,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/691",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/691",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/137",
+    "title": "Add CI check that fails if `make proto-gen` makes a git diff"
+  },
+  {
+    "old_number": 692,
+    "new_number": 94,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/692",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/692",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/94",
+    "title": "Update the README to include extended `signers` field in `TxResponse` "
+  },
+  {
+    "old_number": 699,
+    "new_number": 120,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/699",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/699",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/120",
+    "title": "Remove block data pruning restrictions"
+  },
+  {
+    "old_number": 706,
+    "new_number": 138,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/706",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/706",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/138",
+    "title": "SDK v0.50.x is EOL March 31, 2026"
+  },
+  {
+    "old_number": 713,
+    "new_number": 96,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/713",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/713",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/96",
+    "title": "Create a `SECURITY.md` with a link to our bug bounty"
+  },
+  {
+    "old_number": 720,
+    "new_number": 122,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/720",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/720",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/122",
+    "title": "ci: dependency-review failing due to Go stdlib and x/net vulnerabilities"
+  },
+  {
+    "old_number": 721,
+    "new_number": 139,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/721",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/721",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/139",
+    "title": "ci: test-e2e flaky failure in TestE2ETestSuite (auth)"
+  },
+  {
+    "old_number": 725,
+    "new_number": 98,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/725",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/725",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/98",
+    "title": "fix: data race between Simulate and Commit in IAVL tree"
+  },
+  {
+    "old_number": 728,
+    "new_number": 100,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/728",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/728",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/100",
+    "title": "perf: convert hot-path sync.Mutex to sync.RWMutex for concurrent read throughput"
+  },
+  {
+    "old_number": 729,
+    "new_number": 124,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/729",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/729",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/124",
+    "title": "fix: data race in signing.Context.makeGetSignersFunc closure"
+  },
+  {
+    "old_number": 732,
+    "new_number": 126,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/732",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/732",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/126",
+    "title": "Data race in BaseApp.LastBlockHeight and BaseApp.LastCommitID"
+  },
+  {
+    "old_number": 739,
+    "new_number": 140,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/739",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/739",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/140",
+    "title": "Data race between workingHash (FinalizeBlock) and Simulate on the IAVL tree"
+  },
+  {
+    "old_number": 743,
+    "new_number": 102,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/743",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/743",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/102",
+    "title": "Block gas should never become enforced"
+  },
+  {
+    "old_number": 744,
+    "new_number": 128,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/744",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/744",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/128",
+    "title": "Fix govuln"
+  },
+  {
+    "old_number": 758,
+    "new_number": 103,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/758",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/758",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/103",
+    "title": "ci: liveness-test fails because docker-compose v1 is gone from GitHub runners"
+  },
+  {
+    "old_number": 759,
+    "new_number": 130,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/759",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/759",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/130",
+    "title": "flaky: TestIntegrationTestSuite in x/group/client/testutil and client"
+  },
+  {
+    "old_number": 764,
+    "new_number": 105,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/764",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/764",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/105",
+    "title": "cosmovisor: TestLaunchProcessWithDownloads fails deterministically; the diff gate has been hiding it"
+  },
+  {
+    "old_number": 765,
+    "new_number": 132,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/765",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/765",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/132",
+    "title": "flaky: TestNewWithdrawAllRewardsGenerateOnly in tests/e2e/distribution"
+  },
+  {
+    "old_number": 766,
+    "new_number": 141,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/766",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/766",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/141",
+    "title": "cosmovisor: TestLaunchProcessWithDownloads fetches fixtures from mutable upstream URLs; checksums have drifted"
+  },
+  {
+    "old_number": 771,
+    "new_number": 134,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/771",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/771",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/134",
+    "title": "flaky: TestCmdRevokeAuthorizations/Valid_tx_with_amino in tests/e2e/authz"
+  },
+  {
+    "old_number": 777,
+    "new_number": 136,
+    "original_url": "https://github.com/celestiaorg/cosmos-sdk/issues/777",
+    "archive_lookup_url": "https://github.com/celestiaorg/cosmos-sdk-archive/issues/777",
+    "current_url": "https://github.com/celestiaorg/cosmos-sdk/issues/136",
+    "title": "fix(staking)!: reject weak Ed25519 validator keys in v11"
+  }
+]

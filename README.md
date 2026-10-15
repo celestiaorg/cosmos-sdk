@@ -1,4 +1,6 @@
-# Cosmos SDK Fork
+# Cosmos SDK for Celestia
+
+This is Celestia's independent Cosmos SDK repository. [Historical pull requests](https://github.com/celestiaorg/cosmos-sdk-archive/pulls) remain in the original fork. See the [repository migration guide and issue/comment maps](docs/repository-migration/README.md).
 
 Fork of Cosmos SDK v0.50.x for Celestia App.
 The fork include the following changes compared to upstream:

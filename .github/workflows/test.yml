@@ -26,19 +26,19 @@ jobs:
         run: go list ./... > pkgs.txt
       - name: Split pkgs into 4 files
         run: split -d -n l/4 pkgs.txt pkgs.txt.part.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: "${{ github.sha }}-00"
           path: ./pkgs.txt.part.00
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: "${{ github.sha }}-01"
           path: ./pkgs.txt.part.01
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: "${{ github.sha }}-02"
           path: ./pkgs.txt.part.02
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: "${{ github.sha }}-03"
           path: ./pkgs.txt.part.03
@@ -63,7 +63,7 @@ jobs:
       - name: test & coverage report creation
         run: |
           cat pkgs.txt.part.${{ matrix.part }} | xargs go test -mod=readonly -race -timeout 30m -coverprofile=${{ matrix.part }}profile.out -covermode=atomic -tags='ledger test_ledger_mock'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: "${{ github.sha }}-${{ matrix.part }}-coverage"
           path: ./${{ matrix.part }}profile.out
@@ -80,7 +80,7 @@ jobs:
       - name: integration tests
         run: |
           make test-integration-cov
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: "${{ github.sha }}-integration-coverage"
           path: ./tests/integration-profile.out
@@ -97,7 +97,7 @@ jobs:
       - name: e2e tests
         run: |
           make test-e2e-cov
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: "${{ github.sha }}-e2e-coverage"
           path: ./tests/e2e-profile.out

@@ -9,8 +9,8 @@ updates:
       interval: weekly
 
   - package-ecosystem: gomod
-    cooldown:
-      default-days: 7
+    # Update Go modules manually to preserve Cosmos SDK compatibility.
+    open-pull-requests-limit: 0
     directories:
       - "**/*"
     schedule:

@@ -5,14 +5,29 @@ version: 2
 updates:
   - package-ecosystem: github-actions
     directory: "/"
+    commit-message:
+      prefix: "chore(deps): [medium] "
     schedule:
       interval: weekly
 
+  # Production modules: dependency changes can affect the state machine.
   - package-ecosystem: gomod
     # Update Go modules manually to preserve Cosmos SDK compatibility.
     open-pull-requests-limit: 0
     directories:
-      - "**/*"
+      - "/"
+      - "/api"
+      - "/client/v2"
+      - "/collections"
+      - "/core"
+      - "/depinject"
+      - "/errors"
+      - "/log"
+      - "/math"
+      - "/store"
+      - "/x/*"
+    commit-message:
+      prefix: "chore(deps): [high] "
     schedule:
       interval: weekly
     cooldown:
@@ -25,6 +40,32 @@ updates:
           - "github.com/cometbft/*"
           - "github.com/cosmos/*"
       go-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  # Test and tooling modules.
+  - package-ecosystem: gomod
+    # Update Go modules manually to preserve Cosmos SDK compatibility.
+    open-pull-requests-limit: 0
+    directories:
+      - "/simapp"
+      - "/tests"
+      - "/tools/*"
+    commit-message:
+      prefix: "chore(deps): [medium] "
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      cosmos-security-test:
+        applies-to: security-updates
+        patterns:
+          - "cosmossdk.io/*"
+          - "github.com/cometbft/*"
+          - "github.com/cosmos/*"
+      go-security-test:
         applies-to: security-updates
         patterns:
           - "*"

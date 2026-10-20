@@ -9,6 +9,7 @@ import (
 	"time"
 
 	dbm "github.com/cosmos/cosmos-db"
+	gogotypes "github.com/cosmos/gogoproto/types"
 	iavltree "github.com/cosmos/iavl"
 	"github.com/stretchr/testify/require"
 
@@ -1098,5 +1099,206 @@ func TestLoadLatestVersionRepairsInterruptedCommit(t *testing.T) {
 			require.NotPanics(t, func() { cid = ms.Commit() })
 			require.Equal(t, int64(torn), cid.Version)
 		})
+	}
+}
+
+// newRollbackTestStore commits versions 1..n to every store.
+func newRollbackTestStore(t *testing.T, db dbm.DB, n int64) *Store {
+	t.Helper()
+	ms := newMultiStoreWithMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+	require.NoError(t, ms.LoadLatestVersion())
+	for v := int64(1); v <= n; v++ {
+		for _, key := range []types.StoreKey{testStoreKey1, testStoreKey2, testStoreKey3} {
+			ms.GetKVStore(key).Set([]byte(fmt.Sprintf("k%d", v)), []byte("v"))
+		}
+		ms.Commit()
+	}
+	return ms
+}
+
+// interruptRollback simulates a rollback to target killed after cutting store1.
+func interruptRollback(t *testing.T, ms *Store, target int64) {
+	t.Helper()
+	bz, err := gogotypes.StdInt64Marshal(target)
+	require.NoError(t, err)
+	require.NoError(t, ms.db.SetSync([]byte(rollbackKey), bz))
+	require.NoError(t, ms.GetCommitKVStore(testStoreKey1).(*iavl.Store).LoadVersionForOverwriting(target))
+}
+
+// dumpDB returns all keys and values in db.
+func dumpDB(t *testing.T, db dbm.DB) map[string]string {
+	t.Helper()
+	itr, err := db.Iterator(nil, nil)
+	require.NoError(t, err)
+	defer itr.Close()
+	m := make(map[string]string)
+	for ; itr.Valid(); itr.Next() {
+		m[string(itr.Key())] = string(itr.Value())
+	}
+	return m
+}
+
+func TestCheckRollbackToVersionErrors(t *testing.T) {
+	testCases := []struct {
+		name    string
+		target  int64
+		prepare func(t *testing.T, ms *Store)
+		errMsg  string
+	}{
+		{"invalid target", 0, func(*testing.T, *Store) {}, "invalid rollback height target: 0"},
+		{"no commit info", 6, func(*testing.T, *Store) {}, "commit info at version 6"},
+		{"missing version", 2, func(t *testing.T, ms *Store) {
+			require.NoError(t, ms.GetCommitKVStore(testStoreKey2).(*iavl.Store).DeleteVersionsTo(2))
+		}, "store store2 has no version 2"},
+		{"missing root", 3, func(t *testing.T, ms *Store) {
+			store2DB := dbm.NewPrefixDB(ms.db, []byte("s/k:store2/"))
+			require.NoError(t, store2DB.Delete(append([]byte{'s'}, iavltree.GetRootKey(3)...)))
+		}, "store store2 at version 3"},
+		{"hash mismatch", 3, func(t *testing.T, ms *Store) {
+			cInfo, err := ms.GetCommitInfo(3)
+			require.NoError(t, err)
+			require.Equal(t, "store2", cInfo.StoreInfos[1].Name)
+			cInfo.StoreInfos[1].CommitId.Hash = []byte("bad")
+			bz, err := cInfo.Marshal()
+			require.NoError(t, err)
+			require.NoError(t, ms.db.Set([]byte(fmt.Sprintf(commitInfoKeyFmt, 3)), bz))
+		}, "store store2 hash at version 3 does not match commit info"},
+		{"store not committed", 3, func(_ *testing.T, ms *Store) {
+			ms.MountStoreWithDB(types.NewKVStoreKey("store4"), types.StoreTypeIAVL, nil)
+		}, "store store4 not in commit info at version 3"},
+		{"store not mounted", 3, func(_ *testing.T, ms *Store) {
+			unmountStore(ms, "store3")
+		}, "store store3 not mounted"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := dbm.NewMemDB()
+			ms := newRollbackTestStore(t, db, 5)
+			tc.prepare(t, ms)
+			before := dumpDB(t, db)
+
+			_, err := ms.CheckRollbackToVersion(tc.target)
+			require.ErrorContains(t, err, tc.errMsg)
+			require.Equal(t, before, dumpDB(t, db))
+		})
+	}
+}
+
+func TestLoadLatestVersionRefusesPendingRollback(t *testing.T) {
+	db := dbm.NewMemDB()
+	interruptRollback(t, newRollbackTestStore(t, db, 5), 3)
+	before := dumpDB(t, db)
+
+	ms := newMultiStoreWithMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+	err := ms.LoadLatestVersion()
+	var pendingErr ErrRollbackInProgress
+	require.ErrorAs(t, err, &pendingErr)
+	require.Equal(t, int64(3), pendingErr.Target)
+	require.ErrorContains(t, err, "run the rollback command again with --height 3")
+	require.Equal(t, before, dumpDB(t, db))
+}
+
+func TestRollbackToVersionInterruptedCompletes(t *testing.T) {
+	db := dbm.NewMemDB()
+	ms := newRollbackTestStore(t, db, 5)
+	want, err := ms.GetCommitInfo(3)
+	require.NoError(t, err)
+	interruptRollback(t, ms, 3)
+
+	ms = newMultiStoreWithMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+	ms.SetAllowPendingRollback(true)
+	require.NoError(t, ms.LoadLatestVersion())
+	require.Equal(t, int64(3), ms.LastCommitID().Version)
+	target, pending, err := ms.PendingRollback()
+	require.NoError(t, err)
+	require.True(t, pending)
+	require.Equal(t, int64(3), target)
+
+	require.NoError(t, ms.RollbackToVersion(3))
+	_, pending, err = ms.PendingRollback()
+	require.NoError(t, err)
+	require.False(t, pending)
+	require.Equal(t, want.CommitID(), ms.LastCommitID())
+	require.False(t, ms.GetCommitKVStore(testStoreKey2).(*iavl.Store).VersionExists(4))
+
+	ms = newMultiStoreWithMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+	require.NoError(t, ms.LoadLatestVersion())
+	require.Equal(t, want.CommitID(), ms.LastCommitID())
+}
+
+func TestRollbackToVersionPendingDifferentTarget(t *testing.T) {
+	db := dbm.NewMemDB()
+	interruptRollback(t, newRollbackTestStore(t, db, 5), 3)
+
+	ms := newMultiStoreWithMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+	ms.SetAllowPendingRollback(true)
+	require.NoError(t, ms.LoadLatestVersion())
+	before := dumpDB(t, db)
+
+	require.ErrorContains(t, ms.RollbackToVersion(2), "finish the interrupted rollback to 3 first")
+	target, pending, err := ms.PendingRollback()
+	require.NoError(t, err)
+	require.True(t, pending)
+	require.Equal(t, int64(3), target)
+	require.Equal(t, before, dumpDB(t, db))
+}
+
+func TestRollbackToVersionRerunNoop(t *testing.T) {
+	db := dbm.NewMemDB()
+	ms := newRollbackTestStore(t, db, 5)
+	want, err := ms.GetCommitInfo(3)
+	require.NoError(t, err)
+
+	hash, err := ms.CheckRollbackToVersion(3)
+	require.NoError(t, err)
+	require.Equal(t, want.CommitID().Hash, hash)
+
+	require.NoError(t, ms.RollbackToVersion(3))
+	require.Equal(t, want.CommitID(), ms.LastCommitID())
+	for _, key := range []types.StoreKey{testStoreKey1, testStoreKey2, testStoreKey3} {
+		store := ms.GetCommitKVStore(key).(*iavl.Store)
+		require.True(t, store.VersionExists(3))
+		require.False(t, store.VersionExists(4))
+	}
+
+	before := dumpDB(t, db)
+	require.NoError(t, ms.RollbackToVersion(3))
+	require.Equal(t, want.CommitID(), ms.LastCommitID())
+	_, pending, err := ms.PendingRollback()
+	require.NoError(t, err)
+	require.False(t, pending)
+	require.Equal(t, before, dumpDB(t, db))
+}
+
+func TestLoadLatestVersionCorruptRollbackMarker(t *testing.T) {
+	// 0xff does not decode; 0x08 0x00 decodes to target 0.
+	for _, marker := range [][]byte{{0xff}, {0x08, 0x00}} {
+		db := dbm.NewMemDB()
+		newRollbackTestStore(t, db, 5)
+		require.NoError(t, db.Set([]byte(rollbackKey), marker))
+
+		for _, allow := range []bool{false, true} {
+			ms := newMultiStoreWithMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+			ms.SetAllowPendingRollback(allow)
+			var err error
+			require.NotPanics(t, func() { err = ms.LoadLatestVersion() })
+			require.ErrorContains(t, err, "failed to read rollback marker")
+		}
+	}
+}
+
+func TestLoadLatestVersionNoMarkerUnchanged(t *testing.T) {
+	db := dbm.NewMemDB()
+	want := newRollbackTestStore(t, db, 5).LastCommitID()
+
+	for _, allow := range []bool{false, true} {
+		ms := newMultiStoreWithMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+		ms.SetAllowPendingRollback(allow)
+		require.NoError(t, ms.LoadLatestVersion())
+		require.Equal(t, want, ms.LastCommitID())
+		_, pending, err := ms.PendingRollback()
+		require.NoError(t, err)
+		require.False(t, pending)
 	}
 }

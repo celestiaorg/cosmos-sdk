@@ -327,6 +327,16 @@ func TestRollbackCmdDepthNeedsForce(t *testing.T) {
 	f.requireHeights(t, 2, 1, 1)
 }
 
+func TestRollbackCmdDryRun(t *testing.T) {
+	const n = cmtcmd.MaxRollbackDepth + 3
+	f := newRollbackFixture(t, n, fixtureOpts{})
+	require.NoError(t, f.run(t, "--height", "102", "--dry-run"))
+	f.requireHeights(t, n, n, n)
+
+	require.ErrorContains(t, f.run(t, "--height", "1", "--dry-run"), "exceeds")
+	f.requireHeights(t, n, n, n)
+}
+
 func TestRollbackCmdRefusesAcrossUpgrade(t *testing.T) {
 	f := newRollbackFixture(t, 10, fixtureOpts{appVersionChangeAt: 6})
 	require.ErrorContains(t, f.run(t, "--height", "5"), "across an upgrade")

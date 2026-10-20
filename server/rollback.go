@@ -27,6 +27,7 @@ func NewRollbackCmd(appCreator types.AppCreator, defaultNodeHome string) *cobra.
 		height      int64
 		removeBlock bool
 		force       bool
+		dryRun      bool
 	)
 
 	cmd := &cobra.Command{
@@ -91,6 +92,10 @@ An interrupted app rollback of 2+ heights may need a backup or state sync.
 			if !bytes.Equal(hash, info.TargetAppHash) {
 				return fmt.Errorf("app hash at height %d is %X; CometBFT expects %X", target, hash, info.TargetAppHash)
 			}
+			if dryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "dry run: rollback to height %d is possible\n", target)
+				return nil
+			}
 
 			h, coreHash, err := cmtcmd.RollbackStateToHeight(cfg, target, removeBlock)
 			if err != nil {
@@ -112,6 +117,7 @@ An interrupted app rollback of 2+ heights may need a backup or state sync.
 	cmd.Flags().Int64Var(&height, "height", 0, "height to roll back to (0 = current height - 1)")
 	cmd.Flags().BoolVar(&removeBlock, "hard", false, "also delete block --height+1; one height only")
 	cmd.Flags().BoolVar(&force, "force", false, fmt.Sprintf("allow rolling back more than %d heights", cmtcmd.MaxRollbackDepth))
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "run all checks without writing")
 	return cmd
 }
 

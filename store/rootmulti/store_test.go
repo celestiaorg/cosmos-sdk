@@ -1236,7 +1236,11 @@ func TestRollbackToVersionPendingDifferentTarget(t *testing.T) {
 	require.NoError(t, ms.LoadLatestVersion())
 	before := dumpDB(t, db)
 
-	require.ErrorContains(t, ms.RollbackToVersion(2), "finish the interrupted rollback to 3 first")
+	_, err := ms.CheckRollbackToVersion(2)
+	require.ErrorIs(t, err, ErrRollbackInProgress{Target: 3})
+	require.ErrorIs(t, ms.RollbackToVersion(2), ErrRollbackInProgress{Target: 3})
+	_, err = ms.CheckRollbackToVersion(3)
+	require.NoError(t, err)
 	target, pending, err := ms.PendingRollback()
 	require.NoError(t, err)
 	require.True(t, pending)

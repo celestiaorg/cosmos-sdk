@@ -1137,6 +1137,14 @@ func (rs *Store) CheckRollbackToVersion(target int64) ([]byte, error) {
 		return nil, fmt.Errorf("invalid rollback height target: %d", target)
 	}
 
+	pendingTarget, pending, err := getPendingRollback(rs.db)
+	if err != nil {
+		return nil, err
+	}
+	if pending && pendingTarget != target {
+		return nil, ErrRollbackInProgress{Target: pendingTarget}
+	}
+
 	cInfo, err := rs.GetCommitInfo(target)
 	if err != nil {
 		return nil, fmt.Errorf("commit info at version %d: %w", target, err)
@@ -1194,14 +1202,6 @@ func (rs *Store) PendingRollback() (int64, bool, error) {
 // RollbackToVersion delete the versions after `target` and update the latest version.
 // A retry with the same target may fail if the call was interrupted while deleting versions.
 func (rs *Store) RollbackToVersion(target int64) error {
-	pendingTarget, pending, err := getPendingRollback(rs.db)
-	if err != nil {
-		return err
-	}
-	if pending && pendingTarget != target {
-		return fmt.Errorf("finish the interrupted rollback to %d first", pendingTarget)
-	}
-
 	if _, err := rs.CheckRollbackToVersion(target); err != nil {
 		return err
 	}

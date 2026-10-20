@@ -86,6 +86,15 @@ func SetIAVLDisableFastNode(disable bool) func(*BaseApp) {
 	return func(bapp *BaseApp) { bapp.cms.SetIAVLDisableFastNode(disable) }
 }
 
+// SetAllowPendingRollback lets the multistore load a DB with an unfinished rollback.
+func SetAllowPendingRollback() func(*BaseApp) {
+	return func(app *BaseApp) {
+		if s, ok := app.cms.(interface{ SetAllowPendingRollback(bool) }); ok {
+			s.SetAllowPendingRollback(true)
+		}
+	}
+}
+
 // SetInterBlockCache provides a BaseApp option function that sets the
 // inter-block cache.
 func SetInterBlockCache(cache storetypes.MultiStorePersistentCache) func(*BaseApp) {

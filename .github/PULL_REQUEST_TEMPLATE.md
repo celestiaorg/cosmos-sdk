@@ -9,6 +9,8 @@ For other templates, add one of the following parameters to the url:
 
 Closes: #XXXX
 
+Review level: [low|medium|high] — <!-- brief reason; must match the tag in the PR title -->
+
 <!-- Add a description of the changes that this PR introduces and the files that
 are the most critical to review. -->
 
@@ -22,6 +24,7 @@ please add links to any relevant follow up issues.*
 I have...
 
 * [ ] included the correct [type prefix](https://github.com/commitizen/conventional-commit-types/blob/v3.0.0/index.json) in the PR title
+* [ ] started the PR title subject with a [review level](https://github.com/celestiaorg/cosmos-sdk#contributing) tag (`[low]`, `[medium]`, or `[high]`)
 * [ ] added `!` to the type prefix if API or client breaking change
 * [ ] targeted the correct branch (see [PR Targeting](https://github.com/cosmos/cosmos-sdk/blob/main/CONTRIBUTING.md#pr-targeting))
 * [ ] provided a link to the relevant issue or specification
@@ -43,6 +46,7 @@ I have...
 
 * [ ] confirmed the correct [type prefix](https://github.com/commitizen/conventional-commit-types/blob/v3.0.0/index.json) in the PR title
 * [ ] confirmed `!` in the type prefix if API or client breaking change
+* [ ] confirmed the review level tag in the PR title
 * [ ] confirmed all author checklist items have been addressed 
 * [ ] reviewed state machine logic
 * [ ] reviewed API design and naming

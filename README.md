@@ -25,6 +25,18 @@ It tracks Cosmos SDK v0.52.x and carries the following changes compared to upstr
 
 Read the [CHANGELOG.md](CHANGELOG.md) for more details.
 
+## Contributing
+
+PR titles must follow [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) (e.g. `fix:`, `feat:`, `chore:`, `docs:`) and include `!` (e.g. `feat!:`) for breaking changes. The subject must start with `[high]`, `[medium]`, or `[low]` to indicate the review thoroughness needed. For example: `fix(x/staking)!: [high] reject weak consensus keys` or `docs: [low] clarify setup instructions`. Include the same tag in the PR description and explain why you chose it.
+
+* `[high]`: Deep review for consensus, state transitions, security, or other changes with significant risk (e.g. `x/` module state machine logic, baseapp/ABCI, store, ante handlers, migrations, consensus-breaking changes).
+* `[medium]`: Standard review for code changes with limited impact and well-understood behavior.
+* `[low]`: Focused review for straightforward docs, tests, or tooling changes with low risk.
+
+Choose the higher level when unsure. A small diff can still need deep review. CI checks the title format; reviewers should confirm the chosen level.
+
+Dependabot defaults to `[high]` for production Go module dependencies (security updates only) and `[medium]` for GitHub Actions and test or tooling modules. Maintainers should confirm the level and add it to the PR description with a brief explanation.
+
 ## Audits
 
 | Date       | Auditor                                       | Version                                                                                              | Report                              |

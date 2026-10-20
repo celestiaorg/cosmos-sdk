@@ -110,6 +110,12 @@ github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core v0.39.11
 
 - Keep godoc comments short and easy to understand: one or two plain-language sentences saying what the thing does. Avoid big blocks of text — they are hard to read and reason about.
 
+## Pull Requests
+
+- PR titles: `type(scope)!: [level] subject` — conventional commit, with the subject starting with exactly one of `[low]`, `[medium]`, `[high]` (e.g. `docs: [low] clarify setup`, `fix(x/staking)!: [high] reject weak keys`). See [README.md#contributing](README.md#contributing) for the levels.
+- `[high]` covers `x/` module state machine logic, baseapp/ABCI, store, ante handlers, migrations, and consensus-breaking changes. Use the higher level when unsure.
+- Include the tag in the description with a brief reason, e.g. `Review level: [low] — documentation only.`
+
 ## Security PRs
 
 - For PRs that resolve Hacken bug bounty reports, do not include details about the bug in the PR description. Instead, link to a Linear issue that contains more details on the bug and the link to the Hacken bug bounty report.

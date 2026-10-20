@@ -37,7 +37,7 @@ func NewRollbackCmd(appCreator types.AppCreator, defaultNodeHome string) *cobra.
 Blocks above --height+1 are deleted. --hard also deletes block --height+1.
 Re-executed blocks must reproduce the committed app hashes; a bad app hash
 committed by the network needs surgery or a new chain.
-An interrupted app rollback of 2+ heights may need a backup or state sync.
+An interrupted app rollback of 2+ heights may need state sync or a snapshot.
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := GetServerContextFromCmd(cmd)

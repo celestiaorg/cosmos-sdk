@@ -1199,9 +1199,9 @@ func (rs *Store) PendingRollback() (int64, bool, error) {
 	return getPendingRollback(rs.db)
 }
 
-// RollbackToVersion delete the versions after `target` and update the latest version.
-// A retry with the same target may fail if the call was interrupted while deleting versions.
-func (rs *Store) RollbackToVersion(target int64) error {
+// BeginRollback checks target and writes the pending-rollback marker.
+// A normal load then refuses until RollbackToVersion finishes; repeating the same target is safe.
+func (rs *Store) BeginRollback(target int64) error {
 	if _, err := rs.CheckRollbackToVersion(target); err != nil {
 		return err
 	}
@@ -1212,6 +1212,15 @@ func (rs *Store) RollbackToVersion(target int64) error {
 	}
 	if err := rs.db.SetSync([]byte(rollbackKey), bz); err != nil {
 		return errorsmod.Wrap(err, "failed to write rollback marker")
+	}
+	return nil
+}
+
+// RollbackToVersion delete the versions after `target` and update the latest version.
+// A retry with the same target may fail if the call was interrupted while deleting versions.
+func (rs *Store) RollbackToVersion(target int64) error {
+	if err := rs.BeginRollback(target); err != nil {
+		return err
 	}
 
 	for key, store := range rs.stores {

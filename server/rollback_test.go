@@ -375,6 +375,30 @@ func TestRollbackCmdResumeAfterCoreOnly(t *testing.T) {
 	f.requireHeights(t, 8, 7, 7)
 }
 
+func TestRollbackCmdResumeAfterMarkerAndCore(t *testing.T) {
+	f := newRollbackFixture(t, 10, fixtureOpts{})
+
+	// Stop the command right after the CometBFT rollback.
+	restore := server.SetRollbackCometState(func(cfg *cmtcfg.Config, target int64, removeBlock bool) (int64, []byte, error) {
+		if _, _, err := cmtcmd.RollbackStateToHeight(cfg, target, removeBlock); err != nil {
+			return 0, nil, err
+		}
+		return 0, nil, errors.New("killed")
+	})
+	t.Cleanup(restore)
+	require.ErrorContains(t, f.run(t, "--height", "9"), "killed")
+	restore()
+	f.requireCoreHeights(t, 10, 9)
+
+	// A panicking open leaks its snapshot DB, so it gets its own home.
+	db := f.appDB(t)
+	requirePendingRollbackPanic(t, db, newRollbackViper(t.TempDir()), 9)
+	require.NoError(t, db.Close())
+
+	require.NoError(t, f.run(t, "--height", "9"))
+	f.requireHeights(t, 10, 9, 9)
+}
+
 func TestRollbackCmdResumeHalfRolledApp(t *testing.T) {
 	f := newRollbackFixture(t, 10, fixtureOpts{})
 	_, _, err := cmtcmd.RollbackStateToHeight(f.cfg, 7, false)

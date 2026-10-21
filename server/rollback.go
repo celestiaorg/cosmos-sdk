@@ -21,6 +21,9 @@ const keyAllowPendingRollback = "allow-pending-rollback"
 // allowPendingRollback is the value of keyAllowPendingRollback; config files and env cannot produce it.
 type allowPendingRollback struct{}
 
+// rollbackCometState rolls back CometBFT state; tests replace it to simulate a crash.
+var rollbackCometState = cmtcmd.RollbackStateToHeight
+
 // NewRollbackCmd creates a command to roll back CometBFT and multistore state to a height.
 func NewRollbackCmd(appCreator types.AppCreator, defaultNodeHome string) *cobra.Command {
 	var (
@@ -97,7 +100,11 @@ An interrupted app rollback of 2+ heights may need state sync or a snapshot.
 				return nil
 			}
 
-			h, coreHash, err := cmtcmd.RollbackStateToHeight(cfg, target, removeBlock)
+			// The marker blocks a normal start if we stop after the CometBFT rollback.
+			if err := rs.BeginRollback(target); err != nil {
+				return fmt.Errorf("begin app rollback: %w", err)
+			}
+			h, coreHash, err := rollbackCometState(cfg, target, removeBlock)
 			if err != nil {
 				return fmt.Errorf("rollback CometBFT state: %w", err)
 			}

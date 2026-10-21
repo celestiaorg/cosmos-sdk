@@ -893,7 +893,7 @@ func TestCommitCreateQueryContextRace(t *testing.T) {
 // TestCommitSimulateRace reproduces a data race between Commit() writing to
 // the IAVL tree via SaveVersion() and Simulate() reading the IAVL tree via
 // getContextForTx/GetConsensusParams and subsequent message execution.
-// See https://github.com/celestiaorg/cosmos-sdk/issues/725
+// See https://github.com/celestiaorg/cosmos-sdk/issues/98
 func TestCommitSimulateRace(t *testing.T) {
 	db := dbm.NewMemDB()
 	app := baseapp.NewBaseApp(t.Name(), log.NewTestLogger(t), db, nil)
@@ -954,7 +954,7 @@ func TestCommitSimulateRace(t *testing.T) {
 // the read falls through to the parent IAVL tree on a cache miss. This mirrors
 // the production race observed in celestia-app where the gas estimation gRPC
 // service calls Simulate concurrently with block finalization.
-// See https://github.com/celestiaorg/cosmos-sdk/issues/739
+// See https://github.com/celestiaorg/cosmos-sdk/issues/140
 func TestFinalizeBlockSimulateRace(t *testing.T) {
 	// The writer mutates store state via a PreBlocker rather than via a tx so
 	// that FinalizeBlock does not decode txs / call GetSigners. Combined with a

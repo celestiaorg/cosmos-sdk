@@ -367,6 +367,7 @@ func New(l Logger, baseDir string, cfg Config) (*Network, error) {
 		ctx := server.NewDefaultContext()
 		cmtCfg := ctx.Config
 		cmtCfg.Consensus.TimeoutCommit = cfg.TimeoutCommit
+		cmtCfg.TxIndex.Indexer = "kv"
 
 		// Only allow the first validator to expose an RPC, API and gRPC
 		// server/client due to CometBFT in-process constraints.

@@ -1,6 +1,7 @@
 package rootmulti
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -35,6 +36,7 @@ import (
 const (
 	latestVersionKey = "s/latest"
 	commitInfoKeyFmt = "s/%d" // s/<version>
+	rollbackKey      = "s/rollback"
 )
 
 const iavlDisablefastNodeDefault = false
@@ -75,12 +77,24 @@ type Store struct {
 	listeners           map[types.StoreKey]*types.MemoryListener
 	metrics             metrics.StoreMetrics
 	commitHeader        cmtproto.Header
+
+	// allowPendingRollback allows loading a DB with a pending rollback.
+	allowPendingRollback bool
 }
 
 var (
 	_ types.CommitMultiStore = (*Store)(nil)
 	_ types.Queryable        = (*Store)(nil)
 )
+
+// ErrRollbackInProgress reports an unfinished rollback to Target.
+type ErrRollbackInProgress struct {
+	Target int64
+}
+
+func (e ErrRollbackInProgress) Error() string {
+	return fmt.Sprintf("rollback to height %d is not finished; run the rollback command again with --height %d", e.Target, e.Target)
+}
 
 // NewStore returns a reference to a new Store object with the provided DB. The
 // store will be created with a PruneNothing pruning strategy by default. After
@@ -131,6 +145,11 @@ func (rs *Store) SetIAVLCacheSize(cacheSize int) {
 
 func (rs *Store) SetIAVLDisableFastNode(disableFastNode bool) {
 	rs.iavlDisableFastNode = disableFastNode
+}
+
+// SetAllowPendingRollback allows loading a DB with a pending rollback so RollbackToVersion can finish it.
+func (rs *Store) SetAllowPendingRollback(allow bool) {
+	rs.allowPendingRollback = allow
 }
 
 // GetStoreType implements Store.
@@ -202,7 +221,20 @@ func (rs *Store) LoadVersion(ver int64) error {
 // loadLatestVersion loads the latest multistore version. It also removes newer,
 // incomplete IAVL versions left by an interrupted commit. Loading a specific
 // version does not remove newer state.
+// A pending rollback is refused unless allowed.
 func (rs *Store) loadLatestVersion(upgrades *types.StoreUpgrades) error {
+	target, pending, err := getPendingRollback(rs.db)
+	if err != nil {
+		return err
+	}
+	if pending {
+		if !rs.allowPendingRollback {
+			return ErrRollbackInProgress{Target: target}
+		}
+		// Every store still has target; load it as is.
+		return rs.loadVersion(target, nil, iavl.LoadStoreOptions{})
+	}
+
 	ver := GetLatestVersion(rs.db)
 	return rs.loadVersion(ver, upgrades, iavl.LoadStoreOptions{DiscardVersionsAboveTarget: true})
 }
@@ -1099,10 +1131,87 @@ func (rs *Store) buildCommitInfo(version int64) *types.CommitInfo {
 	}
 }
 
-// RollbackToVersion delete the versions after `target` and update the latest version.
-func (rs *Store) RollbackToVersion(target int64) error {
+// CheckRollbackToVersion checks, without writing, that target can be rolled back to and returns its commit info hash.
+func (rs *Store) CheckRollbackToVersion(target int64) ([]byte, error) {
 	if target <= 0 {
-		return fmt.Errorf("invalid rollback height target: %d", target)
+		return nil, fmt.Errorf("invalid rollback height target: %d", target)
+	}
+
+	pendingTarget, pending, err := getPendingRollback(rs.db)
+	if err != nil {
+		return nil, err
+	}
+	if pending && pendingTarget != target {
+		return nil, ErrRollbackInProgress{Target: pendingTarget}
+	}
+
+	cInfo, err := rs.GetCommitInfo(target)
+	if err != nil {
+		return nil, fmt.Errorf("commit info at version %d: %w", target, err)
+	}
+
+	committed := make(map[string][]byte, len(cInfo.StoreInfos))
+	for _, si := range cInfo.StoreInfos {
+		committed[si.Name] = si.CommitId.Hash
+	}
+
+	mounted := make(map[string]bool, len(rs.storesParams))
+	for _, key := range keysFromStoreKeyMap(rs.storesParams) {
+		typ := rs.storesParams[key].typ
+		if typ == types.StoreTypeTransient || typ == types.StoreTypeMemory {
+			continue
+		}
+		mounted[key.Name()] = true
+		hash, ok := committed[key.Name()]
+		if !ok {
+			return nil, fmt.Errorf("store %s not in commit info at version %d", key.Name(), target)
+		}
+		if typ != types.StoreTypeIAVL {
+			continue
+		}
+		store, ok := rs.GetCommitKVStore(key).(*iavl.Store)
+		if !ok {
+			return nil, fmt.Errorf("store %s not loaded", key.Name())
+		}
+		if !store.VersionExists(target) {
+			return nil, fmt.Errorf("store %s has no version %d", key.Name(), target)
+		}
+		tree, err := store.GetImmutable(target)
+		if err != nil {
+			return nil, fmt.Errorf("store %s at version %d: %w", key.Name(), target, err)
+		}
+		if !bytes.Equal(tree.LastCommitID().Hash, hash) {
+			return nil, fmt.Errorf("store %s hash at version %d does not match commit info", key.Name(), target)
+		}
+	}
+
+	for _, si := range cInfo.StoreInfos {
+		if !mounted[si.Name] {
+			return nil, fmt.Errorf("store %s not mounted", si.Name)
+		}
+	}
+
+	return cInfo.CommitID().Hash, nil
+}
+
+// PendingRollback returns the target of a pending rollback, if any.
+func (rs *Store) PendingRollback() (int64, bool, error) {
+	return getPendingRollback(rs.db)
+}
+
+// RollbackToVersion delete the versions after `target` and update the latest version.
+// A retry with the same target may fail if the call was interrupted while deleting versions.
+func (rs *Store) RollbackToVersion(target int64) error {
+	if _, err := rs.CheckRollbackToVersion(target); err != nil {
+		return err
+	}
+
+	bz, err := gogotypes.StdInt64Marshal(target)
+	if err != nil {
+		return err
+	}
+	if err := rs.db.SetSync([]byte(rollbackKey), bz); err != nil {
+		return errorsmod.Wrap(err, "failed to write rollback marker")
 	}
 
 	for key, store := range rs.stores {
@@ -1117,7 +1226,18 @@ func (rs *Store) RollbackToVersion(target int64) error {
 		}
 	}
 
-	rs.flushMetadata(rs.db, target, rs.buildCommitInfo(target))
+	batch := rs.db.NewBatch()
+	defer func() {
+		_ = batch.Close()
+	}()
+	flushCommitInfo(batch, target, rs.buildCommitInfo(target))
+	flushLatestVersion(batch, target)
+	if err := batch.Delete([]byte(rollbackKey)); err != nil {
+		return err
+	}
+	if err := batch.WriteSync(); err != nil {
+		return errorsmod.Wrap(err, "failed to write rollback metadata")
+	}
 
 	return rs.LoadLatestVersion()
 }
@@ -1167,6 +1287,24 @@ func (rs *Store) flushMetadata(db dbm.DB, version int64, cInfo *types.CommitInfo
 		panic(fmt.Errorf("error on batch write %w", err))
 	}
 	rs.logger.Trace("flushing metadata finished", "height", version)
+}
+
+// getPendingRollback reads the rollback marker.
+func getPendingRollback(db dbm.DB) (int64, bool, error) {
+	bz, err := db.Get([]byte(rollbackKey))
+	if err != nil || bz == nil {
+		return 0, false, err
+	}
+
+	var target int64
+	if err := gogotypes.StdInt64Unmarshal(&target, bz); err != nil {
+		return 0, false, errorsmod.Wrap(err, "failed to read rollback marker")
+	}
+	if target <= 0 {
+		return 0, false, fmt.Errorf("failed to read rollback marker: invalid target %d", target)
+	}
+
+	return target, true, nil
 }
 
 type storeParams struct {

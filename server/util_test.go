@@ -16,6 +16,8 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 
+	"cosmossdk.io/log"
+
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/server"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
@@ -421,3 +423,22 @@ func (m mapGetter) Get(key string) interface{} {
 }
 
 var _ servertypes.AppOptions = mapGetter{}
+
+func TestDefaultBaseappOptionsPendingRollbackIgnoresConfig(t *testing.T) {
+	appDB := db.NewMemDB()
+	app := newRollbackTestApp(log.NewNopLogger(), appDB, nil, newRollbackViper(t.TempDir()))
+	runRollbackChain(t, app, 3)
+	require.NoError(t, app.Close())
+	writeRollbackMarker(t, appDB, 2)
+
+	// A panicking open leaks its snapshot DB, so every open gets its own home.
+	requirePendingRollbackPanic(t, appDB, newRollbackViper(t.TempDir()), 2)
+
+	v := newRollbackViper(t.TempDir())
+	v.Set("allow-pending-rollback", true) // config files and env cannot enable it
+	requirePendingRollbackPanic(t, appDB, v, 2)
+
+	v = newRollbackViper(t.TempDir())
+	v.Set("allow-pending-rollback", "true")
+	requirePendingRollbackPanic(t, appDB, v, 2)
+}

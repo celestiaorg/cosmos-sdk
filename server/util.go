@@ -532,9 +532,14 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 		}
 	}
 
-	snapshotStore, err := GetSnapshotStore(appOpts)
-	if err != nil {
-		panic(err)
+	// The rollback command needs no snapshots; skipping them avoids writes before its checks.
+	rollback := appOpts.Get(keyAllowPendingRollback) == (allowPendingRollback{})
+	var snapshotStore *snapshots.Store
+	if !rollback {
+		snapshotStore, err = GetSnapshotStore(appOpts)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	snapshotOptions := snapshottypes.NewSnapshotOptions(
@@ -551,7 +556,7 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 		)
 	}
 
-	return []func(*baseapp.BaseApp){
+	opts := []func(*baseapp.BaseApp){
 		baseapp.SetPruning(pruningOpts),
 		baseapp.SetMinGasPrices(cast.ToString(appOpts.Get(FlagMinGasPrices))),
 		baseapp.SetHaltHeight(cast.ToUint64(appOpts.Get(FlagHaltHeight))),
@@ -567,6 +572,10 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 		baseapp.SetChainID(chainID),
 		baseapp.SetQueryGasLimit(cast.ToUint64(appOpts.Get(FlagQueryGasLimit))),
 	}
+	if rollback {
+		opts = append(opts, baseapp.SetAllowPendingRollback())
+	}
+	return opts
 }
 
 func GetSnapshotStore(appOpts types.AppOptions) (*snapshots.Store, error) {

@@ -1248,6 +1248,39 @@ func TestRollbackToVersionPendingDifferentTarget(t *testing.T) {
 	require.Equal(t, before, dumpDB(t, db))
 }
 
+func TestBeginRollback(t *testing.T) {
+	db := dbm.NewMemDB()
+	ms := newRollbackTestStore(t, db, 5)
+	want, err := ms.GetCommitInfo(3)
+	require.NoError(t, err)
+
+	require.NoError(t, ms.BeginRollback(3))
+	require.NoError(t, ms.BeginRollback(3))
+	target, pending, err := ms.PendingRollback()
+	require.NoError(t, err)
+	require.True(t, pending)
+	require.Equal(t, int64(3), target)
+	require.Equal(t, int64(5), ms.LastCommitID().Version)
+
+	require.ErrorIs(t, ms.BeginRollback(2), ErrRollbackInProgress{Target: 3})
+	target, _, err = ms.PendingRollback()
+	require.NoError(t, err)
+	require.Equal(t, int64(3), target)
+
+	normal := newMultiStoreWithMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+	require.ErrorIs(t, normal.LoadLatestVersion(), ErrRollbackInProgress{Target: 3})
+
+	require.NoError(t, ms.RollbackToVersion(3))
+	_, pending, err = ms.PendingRollback()
+	require.NoError(t, err)
+	require.False(t, pending)
+	require.Equal(t, want.CommitID(), ms.LastCommitID())
+
+	normal = newMultiStoreWithMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+	require.NoError(t, normal.LoadLatestVersion())
+	require.Equal(t, want.CommitID(), normal.LastCommitID())
+}
+
 func TestRollbackToVersionRerunNoop(t *testing.T) {
 	db := dbm.NewMemDB()
 	ms := newRollbackTestStore(t, db, 5)

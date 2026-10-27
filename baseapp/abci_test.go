@@ -2826,7 +2826,8 @@ func TestABCI_PhasedExecution_BlockGasOncePerTx(t *testing.T) {
 }
 
 // TestABCI_PhasedExecution_MalformedTx verifies that a malformed tx gets the
-// decode-error result at its canonical index without disturbing other txs.
+// decode-error result at its canonical index without disturbing other txs,
+// and that each tx is decoded once with signers kept on ante and msg failures.
 func TestABCI_PhasedExecution_MalformedTx(t *testing.T) {
 	anteKey := []byte("ante-key")
 	deliverKey := []byte("deliver-key")
@@ -2835,26 +2836,56 @@ func TestABCI_PhasedExecution_MalformedTx(t *testing.T) {
 	suite := NewBaseAppSuite(t, anteOpt)
 	baseapptestutil.RegisterCounterServer(suite.baseApp.MsgServiceRouter(), CounterServerImpl{t, capKey1, deliverKey})
 
+	decodes := 0
+	decoder := suite.txConfig.TxDecoder()
+	suite.baseApp.SetTxDecoder(func(txBytes []byte) (sdk.Tx, error) {
+		decodes++
+		return decoder(txBytes)
+	})
+
 	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{
 		ConsensusParams: &cmtproto.ConsensusParams{},
 	})
 	require.NoError(t, err)
 
-	tx0Bytes, err := suite.txConfig.TxEncoder()(newTxCounter(t, suite.txConfig, 0, 0))
-	require.NoError(t, err)
-	tx2Bytes, err := suite.txConfig.TxEncoder()(newTxCounter(t, suite.txConfig, 1, 1))
-	require.NoError(t, err)
+	encode := func(tx signing.Tx) []byte {
+		bz, err := suite.txConfig.TxEncoder()(tx)
+		require.NoError(t, err)
+		return bz
+	}
 
-	res, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{
-		Height: 1,
-		Txs:    [][]byte{tx0Bytes, []byte("example vote extension"), tx2Bytes},
-	})
+	// setFailOnHandler drops the signature, so build the msg-failing tx by hand
+	_, _, addr := testdata.KeyTestPubAddr()
+	msgFail := suite.txConfig.NewTxBuilder()
+	require.NoError(t, msgFail.SetMsgs(&baseapptestutil.MsgCounter{Counter: 1, FailOnHandler: true, Signer: addr.String()}))
+	msgFail.SetMemo("counter=1&failOnAnte=false")
+	setTxSignature(t, msgFail, 1)
+
+	tx0 := newTxCounter(t, suite.txConfig, 0, 0)
+	txs := [][]byte{
+		encode(tx0),
+		[]byte("example vote extension"),
+		encode(setFailOnAnte(t, suite.txConfig, newTxCounter(t, suite.txConfig, 1, 1), true)),
+		encode(msgFail.GetTx()),
+	}
+
+	res, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1, Txs: txs})
 	require.NoError(t, err)
-	require.Len(t, res.TxResults, 3)
+	require.Len(t, res.TxResults, 4)
+	require.Equal(t, len(txs), decodes)
 
 	require.True(t, res.TxResults[0].IsOK(), res.TxResults[0].Log)
 	require.EqualValues(t, sdkerrors.ErrTxDecode.ABCICode(), res.TxResults[1].Code)
 	require.EqualValues(t, 0, res.TxResults[1].GasUsed)
 	require.EqualValues(t, 0, res.TxResults[1].GasWanted)
-	require.True(t, res.TxResults[2].IsOK(), res.TxResults[2].Log)
+	require.EqualValues(t, sdkerrors.ErrUnauthorized.ABCICode(), res.TxResults[2].Code, res.TxResults[2].Log)
+	require.EqualValues(t, sdkerrors.ErrInvalidRequest.ABCICode(), res.TxResults[3].Code, res.TxResults[3].Log)
+
+	sigs, err := tx0.GetSignaturesV2()
+	require.NoError(t, err)
+	signer := sdk.AccAddress(sigs[0].PubKey.Address()).String()
+	require.Empty(t, res.TxResults[1].Signers)
+	for _, i := range []int{0, 2, 3} {
+		require.Equal(t, []string{signer}, res.TxResults[i].Signers, "tx #%d", i)
+	}
 }

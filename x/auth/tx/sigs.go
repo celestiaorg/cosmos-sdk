@@ -75,7 +75,7 @@ func ModeInfoAndSigToSignatureData(modeInfo *tx.ModeInfo, sig []byte) (signing.S
 		}
 
 		// only fewer is rejected (it panicked); upstream's exact-count check is
-		// a behaviour change left to a separate, gated decision
+		// a behavior change left to a separate, gated decision
 		if len(multi.ModeInfos) > len(sigs) {
 			return nil, fmt.Errorf("expected %d multisig signatures, got %d", len(multi.ModeInfos), len(sigs))
 		}

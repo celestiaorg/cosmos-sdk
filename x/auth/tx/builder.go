@@ -238,6 +238,10 @@ func (w *wrapper) GetSignaturesV2() ([]signing.SignatureV2, error) {
 				PubKey: pubKeys[i],
 			}
 		} else {
+			if i >= len(sigs) {
+				return nil, errorsmod.Wrapf(sdkerrors.ErrTxDecode,
+					"expected a signature for signer info %d, got %d signatures", i, len(sigs))
+			}
 			var err error
 			sigData, err := ModeInfoAndSigToSignatureData(si.ModeInfo, sigs[i])
 			if err != nil {

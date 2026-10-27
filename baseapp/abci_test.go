@@ -36,11 +36,15 @@ import (
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	baseapptestutil "github.com/cosmos/cosmos-sdk/baseapp/testutil"
 	"github.com/cosmos/cosmos-sdk/baseapp/testutil/mock"
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	sdksecp256k1 "github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/testutil"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/mempool"
+	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
 	"github.com/cosmos/cosmos-sdk/x/auth/signing"
 )
 
@@ -2823,6 +2827,68 @@ func TestABCI_PhasedExecution_BlockGasOncePerTx(t *testing.T) {
 	// block gas = 3 txs * (3 ante + 4 msg), charged exactly once per tx
 	blockGasMeter := getFinalizeBlockStateCtx(suite.baseApp).BlockGasMeter()
 	require.Equal(t, uint64(21), blockGasMeter.GasConsumed())
+}
+
+// TestABCI_PhasedExecution_MalformedSignatureData verifies that a tx that
+// decodes but whose signers cannot be extracted gets a result, not a panic.
+func TestABCI_PhasedExecution_MalformedSignatureData(t *testing.T) {
+	testCases := map[string]func(t *testing.T, raw *txtypes.TxRaw, authInfo *txtypes.AuthInfo){
+		"more signer infos than signatures": func(_ *testing.T, _ *txtypes.TxRaw, authInfo *txtypes.AuthInfo) {
+			authInfo.SignerInfos = append(authInfo.SignerInfos, authInfo.SignerInfos[0])
+		},
+		"mode info without sum": func(_ *testing.T, _ *txtypes.TxRaw, authInfo *txtypes.AuthInfo) {
+			authInfo.SignerInfos[0].ModeInfo = &txtypes.ModeInfo{}
+		},
+		"multisig with fewer sub-signatures": func(t *testing.T, raw *txtypes.TxRaw, authInfo *txtypes.AuthInfo) {
+			single := authInfo.SignerInfos[0].ModeInfo
+			authInfo.SignerInfos[0].ModeInfo = &txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Multi_{
+				Multi: &txtypes.ModeInfo_Multi{ModeInfos: []*txtypes.ModeInfo{single, single}},
+			}}
+			sig, err := (&cryptotypes.MultiSignature{Signatures: [][]byte{raw.Signatures[0]}}).Marshal()
+			require.NoError(t, err)
+			raw.Signatures[0] = sig
+		},
+		"wrong-length public key": func(t *testing.T, _ *txtypes.TxRaw, authInfo *txtypes.AuthInfo) {
+			pk, err := codectypes.NewAnyWithValue(&sdksecp256k1.PubKey{Key: []byte{1, 2, 3}})
+			require.NoError(t, err)
+			authInfo.SignerInfos[0].PublicKey = pk
+		},
+	}
+	for name, mutate := range testCases {
+		t.Run(name, func(t *testing.T) {
+			anteKey := []byte("ante-key")
+			anteOpt := func(bapp *baseapp.BaseApp) { bapp.SetAnteHandler(anteHandlerTxTest(t, capKey1, anteKey)) }
+			suite := NewBaseAppSuite(t, anteOpt)
+			baseapptestutil.RegisterCounterServer(suite.baseApp.MsgServiceRouter(), CounterServerImpl{t, capKey1, []byte("deliver-key")})
+			_, err := suite.baseApp.InitChain(&abci.RequestInitChain{ConsensusParams: &cmtproto.ConsensusParams{}})
+			require.NoError(t, err)
+
+			good, err := suite.txConfig.TxEncoder()(newTxCounter(t, suite.txConfig, 0, 0))
+			require.NoError(t, err)
+			bad, err := suite.txConfig.TxEncoder()(setFailOnAnte(t, suite.txConfig, newTxCounter(t, suite.txConfig, 1, 1), true))
+			require.NoError(t, err)
+
+			var raw txtypes.TxRaw
+			require.NoError(t, raw.Unmarshal(bad))
+			var authInfo txtypes.AuthInfo
+			require.NoError(t, authInfo.Unmarshal(raw.AuthInfoBytes))
+			mutate(t, &raw, &authInfo)
+			raw.AuthInfoBytes, err = authInfo.Marshal()
+			require.NoError(t, err)
+			bad, err = raw.Marshal()
+			require.NoError(t, err)
+			_, err = suite.txConfig.TxDecoder()(bad)
+			require.NoError(t, err, "crafted tx must decode")
+
+			res, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1, Txs: [][]byte{bad, good}})
+			require.NoError(t, err)
+			require.Len(t, res.TxResults, 2)
+			require.EqualValues(t, sdkerrors.ErrUnauthorized.ABCICode(), res.TxResults[0].Code, res.TxResults[0].Log)
+			require.Empty(t, res.TxResults[0].Signers)
+			require.True(t, res.TxResults[1].IsOK(), res.TxResults[1].Log)
+			require.Len(t, res.TxResults[1].Signers, 1)
+		})
+	}
 }
 
 // TestABCI_PhasedExecution_MalformedTx verifies that a malformed tx gets the

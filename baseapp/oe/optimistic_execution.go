@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"math/rand"
+	"runtime/debug"
 	"slices"
 	"sync"
 	"time"
@@ -29,6 +30,8 @@ type OptimisticExecution struct {
 	request     *abci.RequestFinalizeBlock
 	response    *abci.ResponseFinalizeBlock
 	err         error
+	panicVal    any // recovered from the speculative run; re-raised only if served
+	panicStack  []byte
 	cancelFunc  func() // cancel function for the context
 	initialized bool   // A boolean value indicating whether the struct has been initialized
 
@@ -74,6 +77,7 @@ func (oe *OptimisticExecution) Reset() {
 	oe.request = nil
 	oe.response = nil
 	oe.err = nil
+	oe.panicVal, oe.panicStack = nil, nil
 	oe.initialized = false
 }
 
@@ -123,16 +127,26 @@ func (oe *OptimisticExecution) Execute(req *abci.RequestProcessProposal) {
 
 	go func() {
 		start := time.Now()
-		resp, err := oe.finalizeBlockFunc(ctx, oe.request)
+		var (
+			resp *abci.ResponseFinalizeBlock
+			err  error
+		)
+		// A panic here would kill the process; keep it for WaitResult instead.
+		defer func() {
+			r := recover()
+			oe.mtx.Lock()
+			defer oe.mtx.Unlock()
 
-		oe.mtx.Lock()
+			executionTime := time.Since(start)
+			oe.logger.Debug("OE finished", "duration", executionTime.String(), "height", oe.request.Height, "hash", hex.EncodeToString(oe.request.Hash))
+			oe.response, oe.err = resp, err
+			if r != nil {
+				oe.panicVal, oe.panicStack = r, debug.Stack()
+			}
 
-		executionTime := time.Since(start)
-		oe.logger.Debug("OE finished", "duration", executionTime.String(), "height", oe.request.Height, "hash", hex.EncodeToString(oe.request.Hash))
-		oe.response, oe.err = resp, err
-
-		close(oe.stopCh)
-		oe.mtx.Unlock()
+			close(oe.stopCh)
+		}()
+		resp, err = oe.finalizeBlockFunc(ctx, oe.request)
 	}()
 }
 
@@ -191,8 +205,13 @@ func (oe *OptimisticExecution) Abort() {
 	oe.Reset()
 }
 
-// WaitResult waits for the OE to finish and returns the result.
+// WaitResult waits for the OE to finish and returns the result. A panic in the
+// speculative run is re-raised here, so call it only to serve the result.
 func (oe *OptimisticExecution) WaitResult() (*abci.ResponseFinalizeBlock, error) {
 	<-oe.stopCh
+	if oe.panicVal != nil {
+		oe.logger.Error("OE panicked", "panic", oe.panicVal, "stack", string(oe.panicStack))
+		panic(oe.panicVal)
+	}
 	return oe.response, oe.err
 }

@@ -55,6 +55,28 @@ func TestOptimisticExecutionTxsTransform(t *testing.T) {
 	assert.False(t, oe.Initialized())
 }
 
+// A panic in the speculative run is re-raised only when the result is served.
+func TestOptimisticExecutionPanic(t *testing.T) {
+	fn := func(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+		if string(req.Hash) == "bad" {
+			panic("boom")
+		}
+		return &abci.ResponseFinalizeBlock{}, nil
+	}
+	oe := NewOptimisticExecution(log.NewNopLogger(), fn)
+	oe.Execute(&abci.RequestProcessProposal{Hash: []byte("bad")})
+	assert.True(t, oe.AbortIfNeeded([]byte("other"), nil))
+	assert.NotPanics(t, oe.Abort)
+
+	oe.Execute(&abci.RequestProcessProposal{Hash: []byte("ok")})
+	assert.False(t, oe.AbortIfNeeded([]byte("ok"), nil))
+	assert.NotPanics(t, func() { _, _ = oe.WaitResult() })
+
+	oe.Execute(&abci.RequestProcessProposal{Hash: []byte("bad")})
+	assert.False(t, oe.AbortIfNeeded([]byte("bad"), nil))
+	assert.PanicsWithValue(t, "boom", func() { _, _ = oe.WaitResult() })
+}
+
 // Every RequestFinalizeBlock field must be copied from ProcessProposal, so a new
 // field cannot be dropped from the speculative request silently.
 func TestOptimisticExecutionCopiesAllFields(t *testing.T) {

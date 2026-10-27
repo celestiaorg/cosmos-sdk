@@ -2570,6 +2570,46 @@ func TestOptimisticExecutionTxsTransformReused(t *testing.T) {
 	require.Equal(t, uint64(2), preBlocks.Load(), "speculative run was not reused")
 }
 
+// A panic in the speculative FinalizeBlock must reach the FinalizeBlock caller, as
+// it does with OE off, and only when the speculative run is served.
+func TestOptimisticExecutionPanic(t *testing.T) {
+	for name, opts := range map[string][]func(*baseapp.BaseApp){
+		"oe off": nil,
+		"oe on":  {baseapp.SetOptimisticExecution()},
+	} {
+		t.Run(name, func(t *testing.T) {
+			suite := NewBaseAppSuite(t, append(opts, func(app *baseapp.BaseApp) {
+				app.SetPreBlocker(func(_ sdk.Context, req *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
+					if string(req.Hash) == "bad" {
+						panic("preblock panic")
+					}
+					return &sdk.ResponsePreBlock{}, nil
+				})
+			})...)
+			_, err := suite.baseApp.InitChain(&abci.RequestInitChain{ConsensusParams: &cmtproto.ConsensusParams{}})
+			require.NoError(t, err)
+			_, err = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1, Hash: []byte("h1")})
+			require.NoError(t, err)
+			_, err = suite.baseApp.Commit()
+			require.NoError(t, err)
+
+			// Aborted speculative run: its panic is discarded and the block executes normally.
+			_, err = suite.baseApp.ProcessProposal(&abci.RequestProcessProposal{Height: 2, Hash: []byte("bad")})
+			require.NoError(t, err)
+			_, err = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 2, Hash: []byte("h2")})
+			require.NoError(t, err)
+			_, err = suite.baseApp.Commit()
+			require.NoError(t, err)
+
+			_, err = suite.baseApp.ProcessProposal(&abci.RequestProcessProposal{Height: 3, Hash: []byte("bad")})
+			require.NoError(t, err)
+			require.PanicsWithValue(t, "preblock panic", func() {
+				_, _ = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 3, Hash: []byte("bad")})
+			})
+		})
+	}
+}
+
 func TestABCI_Proposal_FailReCheckTx(t *testing.T) {
 	pool := mempool.NewPriorityMempool[int64](mempool.PriorityNonceMempoolConfig[int64]{
 		TxPriority:      mempool.NewDefaultTxPriority(),

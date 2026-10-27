@@ -98,12 +98,9 @@ func (oe *OptimisticExecution) Execute(req *abci.RequestProcessProposal) {
 	oe.mtx.Lock()
 	defer oe.mtx.Unlock()
 
-	txs := req.Txs
-	if oe.txsTransform != nil {
-		var ok bool
-		if txs, ok = oe.transformTxs(req.Txs); !ok {
-			return
-		}
+	txs, ok := oe.transformTxs(req.Txs)
+	if !ok {
+		return
 	}
 
 	oe.stopCh = make(chan struct{})
@@ -142,10 +139,12 @@ func (oe *OptimisticExecution) Execute(req *abci.RequestProcessProposal) {
 // transformTxs runs txsTransform; a panic skips OE for this block instead of
 // rejecting the proposal.
 func (oe *OptimisticExecution) transformTxs(txs [][]byte) (out [][]byte, ok bool) {
+	if oe.txsTransform == nil {
+		return txs, true
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			oe.logger.Error("OE skipped: txs transform panicked", "panic", r)
-			out, ok = nil, false
 		}
 	}()
 	return oe.txsTransform(txs), true

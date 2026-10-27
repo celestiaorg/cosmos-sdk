@@ -2541,6 +2541,35 @@ func TestOptimisticExecutionBadTxsTransform(t *testing.T) {
 	}
 }
 
+// A transform that maps the ProcessProposal txs to exactly FinalizeBlock's txs must
+// let FinalizeBlock reuse the speculative run.
+func TestOptimisticExecutionTxsTransformReused(t *testing.T) {
+	var preBlocks atomic.Uint64
+	strip := func(txs [][]byte) [][]byte { return txs[1:] }
+	suite := NewBaseAppSuite(t, baseapp.SetOptimisticExecution(oe.WithTxsTransform(strip)), func(app *baseapp.BaseApp) {
+		app.SetPreBlocker(func(sdk.Context, *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
+			preBlocks.Add(1)
+			return &sdk.ResponsePreBlock{}, nil
+		})
+	})
+	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{ConsensusParams: &cmtproto.ConsensusParams{}})
+	require.NoError(t, err)
+	_, err = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1, Hash: []byte("h1")})
+	require.NoError(t, err)
+	_, err = suite.baseApp.Commit()
+	require.NoError(t, err)
+
+	txBytes, err := suite.txConfig.TxEncoder()(newTxCounter(t, suite.txConfig, 0, 1))
+	require.NoError(t, err)
+	pp, err := suite.baseApp.ProcessProposal(&abci.RequestProcessProposal{Txs: [][]byte{[]byte("blob"), txBytes}, Height: 2, Hash: []byte("h2")})
+	require.NoError(t, err)
+	require.Equal(t, abci.ResponseProcessProposal_ACCEPT, pp.Status)
+	res, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Txs: [][]byte{txBytes}, Height: 2, Hash: []byte("h2")})
+	require.NoError(t, err)
+	require.Len(t, res.TxResults, 1)
+	require.Equal(t, uint64(2), preBlocks.Load(), "speculative run was not reused")
+}
+
 func TestABCI_Proposal_FailReCheckTx(t *testing.T) {
 	pool := mempool.NewPriorityMempool[int64](mempool.PriorityNonceMempoolConfig[int64]{
 		TxPriority:      mempool.NewDefaultTxPriority(),

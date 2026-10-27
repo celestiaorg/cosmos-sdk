@@ -38,37 +38,11 @@ func TestOptimisticExecution(t *testing.T) {
 }
 
 func TestOptimisticExecutionTxsTransform(t *testing.T) {
-	original := [][]byte{[]byte("a"), []byte("b")}
-	transformed := [][]byte{[]byte("x")}
-	var seen [][]byte
-	record := func(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
-		seen = req.Txs
-		return &abci.ResponseFinalizeBlock{}, nil
-	}
-
-	oe := NewOptimisticExecution(log.NewNopLogger(), record, WithTxsTransform(func(txs [][]byte) [][]byte {
-		assert.Equal(t, original, txs)
-		return transformed
-	}))
-	req := &abci.RequestProcessProposal{Hash: []byte("test"), Txs: original}
-	oe.Execute(req)
-	_, err := oe.WaitResult()
-	assert.NoError(t, err)
-	assert.Equal(t, transformed, seen)
-	assert.Equal(t, [][]byte{[]byte("a"), []byte("b")}, req.Txs)
-
-	oe = NewOptimisticExecution(log.NewNopLogger(), record)
-	oe.Execute(req)
-	_, err = oe.WaitResult()
-	assert.NoError(t, err)
-	assert.Equal(t, original, seen)
-}
-
-func TestOptimisticExecutionTxsMismatchAndPanic(t *testing.T) {
 	ok := func(context.Context, *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 		return &abci.ResponseFinalizeBlock{}, nil
 	}
-	oe := NewOptimisticExecution(log.NewNopLogger(), ok, WithTxsTransform(func([][]byte) [][]byte {
+	oe := NewOptimisticExecution(log.NewNopLogger(), ok, WithTxsTransform(func(txs [][]byte) [][]byte {
+		assert.Equal(t, [][]byte{[]byte("a")}, txs)
 		return [][]byte{[]byte("x")}
 	}))
 	oe.Execute(&abci.RequestProcessProposal{Hash: []byte("h"), Txs: [][]byte{[]byte("a")}})

@@ -1,6 +1,7 @@
 package oe
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"reflect"
@@ -63,10 +64,12 @@ func TestOptimisticExecutionPanic(t *testing.T) {
 		}
 		return &abci.ResponseFinalizeBlock{}, nil
 	}
-	oe := NewOptimisticExecution(log.NewNopLogger(), fn)
+	var logs bytes.Buffer
+	oe := NewOptimisticExecution(log.NewLogger(&logs), fn)
 	oe.Execute(&abci.RequestProcessProposal{Hash: []byte("bad")})
 	assert.True(t, oe.AbortIfNeeded([]byte("other"), nil))
 	assert.NotPanics(t, oe.Abort)
+	assert.Contains(t, logs.String(), "boom") // the discarded panic is still logged
 
 	oe.Execute(&abci.RequestProcessProposal{Hash: []byte("ok")})
 	assert.False(t, oe.AbortIfNeeded([]byte("ok"), nil))

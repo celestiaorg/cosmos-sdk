@@ -30,8 +30,7 @@ type OptimisticExecution struct {
 	request     *abci.RequestFinalizeBlock
 	response    *abci.ResponseFinalizeBlock
 	err         error
-	panicVal    any // recovered from the speculative run; re-raised only if served
-	panicStack  []byte
+	panicVal    any    // recovered from the speculative run; re-raised only if served
 	cancelFunc  func() // cancel function for the context
 	initialized bool   // A boolean value indicating whether the struct has been initialized
 
@@ -77,7 +76,7 @@ func (oe *OptimisticExecution) Reset() {
 	oe.request = nil
 	oe.response = nil
 	oe.err = nil
-	oe.panicVal, oe.panicStack = nil, nil
+	oe.panicVal = nil
 	oe.initialized = false
 }
 
@@ -141,7 +140,9 @@ func (oe *OptimisticExecution) Execute(req *abci.RequestProcessProposal) {
 			oe.logger.Debug("OE finished", "duration", executionTime.String(), "height", oe.request.Height, "hash", hex.EncodeToString(oe.request.Hash))
 			oe.response, oe.err = resp, err
 			if r != nil {
-				oe.panicVal, oe.panicStack = r, debug.Stack()
+				// Logged here so an aborted run's panic, which is discarded, still leaves a trace.
+				oe.logger.Error("OE panicked", "height", oe.request.Height, "hash", hex.EncodeToString(oe.request.Hash), "panic", r, "stack", string(debug.Stack()))
+				oe.panicVal = r
 			}
 
 			close(oe.stopCh)
@@ -210,7 +211,6 @@ func (oe *OptimisticExecution) Abort() {
 func (oe *OptimisticExecution) WaitResult() (*abci.ResponseFinalizeBlock, error) {
 	<-oe.stopCh
 	if oe.panicVal != nil {
-		oe.logger.Error("OE panicked", "panic", oe.panicVal, "stack", string(oe.panicStack))
 		panic(oe.panicVal)
 	}
 	return oe.response, oe.err

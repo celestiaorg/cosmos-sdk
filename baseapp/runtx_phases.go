@@ -29,11 +29,10 @@ type preparedTx struct {
 	priority   int64
 }
 
-// runTxAnte runs the ante phase of a tx: decode, validation, ante handlers
-// (whose writes are committed to state on success), and mempool bookkeeping.
-// The returned preparedTx is never nil, so callers can report gas consumed
-// even on failure.
-func (app *BaseApp) runTxAnte(mode execMode, txBytes []byte) (p *preparedTx, err error) {
+// runTxAnte runs the ante phase of a tx: decode (unless tx, the decode of txBytes,
+// is given), validation, ante handlers (writes committed on success) and mempool
+// bookkeeping. The returned preparedTx is never nil, so gas is reportable on failure.
+func (app *BaseApp) runTxAnte(mode execMode, txBytes []byte, tx sdk.Tx) (p *preparedTx, err error) {
 	ctx := app.getContextForTx(mode, txBytes)
 	ms := ctx.MultiStore()
 
@@ -50,10 +49,12 @@ func (app *BaseApp) runTxAnte(mode execMode, txBytes []byte) (p *preparedTx, err
 		}
 	}()
 
-	tx, err := app.txDecoder(txBytes)
-	if err != nil {
-		return p, err
+	if tx == nil {
+		if tx, err = app.txDecoder(txBytes); err != nil {
+			return p, err
+		}
 	}
+	p.tx = tx
 
 	msgs := tx.GetMsgs()
 	if err := validateBasicTxMsgs(msgs); err != nil {
@@ -66,8 +67,6 @@ func (app *BaseApp) runTxAnte(mode execMode, txBytes []byte) (p *preparedTx, err
 			return p, errorsmod.Wrapf(sdkerrors.ErrUnknownRequest, "no message handler found for %T", msg)
 		}
 	}
-
-	p.tx = tx
 
 	if app.anteHandler != nil {
 		var (
@@ -203,7 +202,8 @@ func (app *BaseApp) phasedTxResult(p *preparedTx, result *sdk.Result, err error)
 		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted")
 	}()
 
-	signers, signerErr := app.extractSigners(p.txBytes)
+	// handlers never modify the decoded tx, so this equals a fresh decode of p.txBytes
+	signers, signerErr := app.extractTxSigners(p.tx)
 	if signerErr != nil {
 		// log but don't fail the tx
 		app.logger.Error("failed to extract signers", "error", signerErr)
@@ -249,7 +249,8 @@ func (app *BaseApp) executeTxsPhased(ctx context.Context, txs [][]byte) ([]*abci
 			return nil, err
 		}
 
-		if _, err := app.txDecoder(rawTx); err != nil {
+		tx, err := app.txDecoder(rawTx)
+		if err != nil {
 			// comet expects a response for every tx in the block, even
 			// malformed ones (e.g. injected vote extensions)
 			execTxResults[i] = sdkerrors.ResponseExecTxResultWithEvents(
@@ -262,7 +263,7 @@ func (app *BaseApp) executeTxsPhased(ctx context.Context, txs [][]byte) ([]*abci
 			continue
 		}
 
-		p, err := app.runTxAnte(execModeFinalize, rawTx)
+		p, err := app.runTxAnte(execModeFinalize, rawTx, tx)
 		if err != nil {
 			execTxResults[i] = app.phasedTxResult(p, nil, err)
 			continue

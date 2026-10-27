@@ -778,7 +778,11 @@ func (app *BaseApp) extractSigners(txBytes []byte) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return app.extractTxSigners(tx)
+}
 
+// extractTxSigners extracts the actual signers of an already decoded tx.
+func (app *BaseApp) extractTxSigners(tx sdk.Tx) ([]string, error) {
 	sigTx, ok := tx.(signing.SigVerifiableTx)
 	if !ok {
 		// If transaction doesn't implement SigVerifiableTx, return empty slice
@@ -892,7 +896,7 @@ func (app *BaseApp) endBlock(_ context.Context) (sdk.EndBlock, error) {
 // delivery (deliverTx), and PrepareProposal/ProcessProposal tx validation,
 // where runMsgs skips message execution so effectively only the antes run.
 func (app *BaseApp) runTx(mode execMode, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
-	p, err := app.runTxAnte(mode, txBytes)
+	p, err := app.runTxAnte(mode, txBytes, nil)
 	if err == nil {
 		result, err = app.runTxMsgs(mode, p)
 	}

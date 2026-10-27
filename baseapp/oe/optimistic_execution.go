@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"math/rand"
+	"slices"
 	"sync"
 	"time"
 
@@ -33,6 +34,8 @@ type OptimisticExecution struct {
 
 	// debugging/testing options
 	abortRate int // number from 0 to 100 that determines the percentage of OE that should be aborted
+
+	txsTransform func(txs [][]byte) [][]byte
 }
 
 // NewOptimisticExecution initializes the Optimistic Execution context but does not start it.
@@ -51,6 +54,15 @@ func NewOptimisticExecution(logger log.Logger, fn FinalizeBlockFunc, opts ...fun
 func WithAbortRate(rate int) func(*OptimisticExecution) {
 	return func(oe *OptimisticExecution) {
 		oe.abortRate = rate
+	}
+}
+
+// WithTxsTransform maps the ProcessProposal txs to the exact txs FinalizeBlock will
+// receive (celestia-core strips blobs in between). It runs on the ProcessProposal
+// goroutine before the speculative run starts and must not modify its input.
+func WithTxsTransform(fn func(txs [][]byte) [][]byte) func(*OptimisticExecution) {
+	return func(oe *OptimisticExecution) {
+		oe.txsTransform = fn
 	}
 }
 
@@ -86,9 +98,14 @@ func (oe *OptimisticExecution) Execute(req *abci.RequestProcessProposal) {
 	oe.mtx.Lock()
 	defer oe.mtx.Unlock()
 
+	txs, ok := oe.transformTxs(req.Txs)
+	if !ok {
+		return
+	}
+
 	oe.stopCh = make(chan struct{})
 	oe.request = &abci.RequestFinalizeBlock{
-		Txs:                req.Txs,
+		Txs:                txs,
 		DecidedLastCommit:  req.ProposedLastCommit,
 		Misbehavior:        req.Misbehavior,
 		Hash:               req.Hash,
@@ -96,6 +113,7 @@ func (oe *OptimisticExecution) Execute(req *abci.RequestProcessProposal) {
 		Time:               req.Time,
 		NextValidatorsHash: req.NextValidatorsHash,
 		ProposerAddress:    req.ProposerAddress,
+		Header:             req.Header,
 	}
 
 	oe.logger.Debug("OE started", "height", req.Height, "hash", hex.EncodeToString(req.Hash), "time", req.Time.String())
@@ -118,9 +136,23 @@ func (oe *OptimisticExecution) Execute(req *abci.RequestProcessProposal) {
 	}()
 }
 
-// AbortIfNeeded aborts the OE if the request hash is not the same as the one in
-// the running OE. Returns true if the OE was aborted.
-func (oe *OptimisticExecution) AbortIfNeeded(reqHash []byte) bool {
+// transformTxs runs txsTransform; a panic skips OE for this block instead of
+// rejecting the proposal.
+func (oe *OptimisticExecution) transformTxs(txs [][]byte) (out [][]byte, ok bool) {
+	if oe.txsTransform == nil {
+		return txs, true
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			oe.logger.Error("OE skipped: txs transform panicked", "panic", r)
+		}
+	}()
+	return oe.txsTransform(txs), true
+}
+
+// AbortIfNeeded aborts the OE if the request hash or txs differ from the running
+// OE's. Returns true if the OE was aborted.
+func (oe *OptimisticExecution) AbortIfNeeded(reqHash []byte, reqTxs [][]byte) bool {
 	if oe == nil {
 		return false
 	}
@@ -130,6 +162,10 @@ func (oe *OptimisticExecution) AbortIfNeeded(reqHash []byte) bool {
 
 	if !bytes.Equal(oe.request.Hash, reqHash) {
 		oe.logger.Error("OE aborted due to hash mismatch", "oe_hash", hex.EncodeToString(oe.request.Hash), "req_hash", hex.EncodeToString(reqHash), "oe_height", oe.request.Height, "req_height", oe.request.Height)
+		oe.cancelFunc()
+		return true
+	} else if !slices.EqualFunc(oe.request.Txs, reqTxs, bytes.Equal) {
+		oe.logger.Error("OE aborted: txs differ from speculative run", "height", oe.request.Height, "oe_txs", len(oe.request.Txs), "req_txs", len(reqTxs))
 		oe.cancelFunc()
 		return true
 	} else if oe.abortRate > 0 && rand.Intn(100) < oe.abortRate {
@@ -143,7 +179,8 @@ func (oe *OptimisticExecution) AbortIfNeeded(reqHash []byte) bool {
 	return false
 }
 
-// Abort aborts the OE unconditionally and waits for it to finish.
+// Abort aborts the OE unconditionally, waits for it to finish and forgets it, so
+// a canceled run can never be served to FinalizeBlock.
 func (oe *OptimisticExecution) Abort() {
 	if oe == nil || oe.cancelFunc == nil {
 		return
@@ -151,6 +188,7 @@ func (oe *OptimisticExecution) Abort() {
 
 	oe.cancelFunc()
 	<-oe.stopCh
+	oe.Reset()
 }
 
 // WaitResult waits for the OE to finish and returns the result.

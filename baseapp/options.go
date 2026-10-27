@@ -128,6 +128,12 @@ func SetOptimisticExecution(opts ...func(*oe.OptimisticExecution)) func(*BaseApp
 	}
 }
 
+// DisableOptimisticExecution turns off optimistic execution (used by benchmarks); it must
+// come after SetOptimisticExecution in the options.
+func DisableOptimisticExecution() func(*BaseApp) {
+	return func(app *BaseApp) { app.optimisticExec = nil }
+}
+
 // DisableBlockGasMeter disables the block gas meter.
 func DisableBlockGasMeter() func(*BaseApp) {
 	return func(app *BaseApp) { app.SetDisableBlockGasMeter(true) }

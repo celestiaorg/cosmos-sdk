@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,6 +35,7 @@ import (
 	storetypes "cosmossdk.io/store/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
+	"github.com/cosmos/cosmos-sdk/baseapp/oe"
 	baseapptestutil "github.com/cosmos/cosmos-sdk/baseapp/testutil"
 	"github.com/cosmos/cosmos-sdk/baseapp/testutil/mock"
 	"github.com/cosmos/cosmos-sdk/testutil"
@@ -2450,6 +2452,122 @@ func TestOptimisticExecution(t *testing.T) {
 	}
 
 	require.Equal(t, int64(50), suite.baseApp.LastBlockHeight())
+}
+
+func TestOptimisticExecutionAbortedByPrepareProposal(t *testing.T) {
+	// The PreBlocker counts its runs in state and records the count it read.
+	var preBlocks, lastRead atomic.Uint64
+	suite := NewBaseAppSuite(t, baseapp.SetOptimisticExecution(), func(app *baseapp.BaseApp) {
+		app.SetPreBlocker(func(ctx sdk.Context, _ *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
+			preBlocks.Add(1)
+			var n uint64
+			if bz := ctx.KVStore(capKey1).Get([]byte("n")); bz != nil {
+				n = binary.BigEndian.Uint64(bz)
+			}
+			lastRead.Store(n)
+			ctx.KVStore(capKey1).Set([]byte("n"), binary.BigEndian.AppendUint64(nil, n+1))
+			return &sdk.ResponsePreBlock{}, nil
+		})
+	})
+
+	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{ConsensusParams: &cmtproto.ConsensusParams{}})
+	require.NoError(t, err)
+
+	// Height 1 never runs optimistically; get past it.
+	_, err = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1, Hash: []byte("h1")})
+	require.NoError(t, err)
+	_, err = suite.baseApp.Commit()
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), preBlocks.Load())
+
+	tx := newTxCounter(t, suite.txConfig, 0, 1)
+	txBytes, err := suite.txConfig.TxEncoder()(tx)
+	require.NoError(t, err)
+	hash := []byte("h2")
+
+	respProcProp, err := suite.baseApp.ProcessProposal(&abci.RequestProcessProposal{Txs: [][]byte{txBytes}, Height: 2, Hash: hash})
+	require.NoError(t, err)
+	require.Equal(t, abci.ResponseProcessProposal_ACCEPT, respProcProp.Status)
+
+	// A new round where this node proposes must discard the speculative run.
+	_, err = suite.baseApp.PrepareProposal(&abci.RequestPrepareProposal{Height: 2, MaxTxBytes: 1000})
+	require.NoError(t, err)
+
+	// Same hash as the discarded run: the block is executed again, on clean state,
+	// instead of serving the canceled result.
+	respFinalize, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Txs: [][]byte{txBytes}, Height: 2, Hash: hash})
+	require.NoError(t, err)
+	require.Len(t, respFinalize.TxResults, 1)
+	require.Equal(t, uint64(3), preBlocks.Load())
+	require.Equal(t, uint64(1), lastRead.Load())
+
+	_, err = suite.baseApp.Commit()
+	require.NoError(t, err)
+}
+
+// A transform that disagrees with FinalizeBlock's txs, or panics, must fall back to
+// normal execution instead of serving the speculative result or rejecting the block.
+func TestOptimisticExecutionBadTxsTransform(t *testing.T) {
+	run := func(opts ...func(*baseapp.BaseApp)) *abci.ResponseFinalizeBlock {
+		suite := NewBaseAppSuite(t, opts...)
+		_, err := suite.baseApp.InitChain(&abci.RequestInitChain{ConsensusParams: &cmtproto.ConsensusParams{}})
+		require.NoError(t, err)
+		_, err = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1, Hash: []byte("h1")})
+		require.NoError(t, err)
+		_, err = suite.baseApp.Commit()
+		require.NoError(t, err)
+
+		txBytes, err := suite.txConfig.TxEncoder()(newTxCounter(t, suite.txConfig, 0, 1))
+		require.NoError(t, err)
+		txs := [][]byte{txBytes}
+		pp, err := suite.baseApp.ProcessProposal(&abci.RequestProcessProposal{Txs: txs, Height: 2, Hash: []byte("h2")})
+		require.NoError(t, err)
+		require.Equal(t, abci.ResponseProcessProposal_ACCEPT, pp.Status)
+		res, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Txs: txs, Height: 2, Hash: []byte("h2")})
+		require.NoError(t, err)
+		return res
+	}
+
+	want := run()
+	for name, fn := range map[string]func([][]byte) [][]byte{
+		"disagrees": func([][]byte) [][]byte { return [][]byte{[]byte("not-the-finalized-tx")} },
+		"panics":    func([][]byte) [][]byte { panic("boom") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := run(baseapp.SetOptimisticExecution(oe.WithTxsTransform(fn)))
+			require.Equal(t, want.TxResults, got.TxResults)
+			require.Equal(t, want.AppHash, got.AppHash)
+		})
+	}
+}
+
+// A transform that maps the ProcessProposal txs to exactly FinalizeBlock's txs must
+// let FinalizeBlock reuse the speculative run.
+func TestOptimisticExecutionTxsTransformReused(t *testing.T) {
+	var preBlocks atomic.Uint64
+	strip := func(txs [][]byte) [][]byte { return txs[1:] }
+	suite := NewBaseAppSuite(t, baseapp.SetOptimisticExecution(oe.WithTxsTransform(strip)), func(app *baseapp.BaseApp) {
+		app.SetPreBlocker(func(sdk.Context, *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
+			preBlocks.Add(1)
+			return &sdk.ResponsePreBlock{}, nil
+		})
+	})
+	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{ConsensusParams: &cmtproto.ConsensusParams{}})
+	require.NoError(t, err)
+	_, err = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1, Hash: []byte("h1")})
+	require.NoError(t, err)
+	_, err = suite.baseApp.Commit()
+	require.NoError(t, err)
+
+	txBytes, err := suite.txConfig.TxEncoder()(newTxCounter(t, suite.txConfig, 0, 1))
+	require.NoError(t, err)
+	pp, err := suite.baseApp.ProcessProposal(&abci.RequestProcessProposal{Txs: [][]byte{[]byte("blob"), txBytes}, Height: 2, Hash: []byte("h2")})
+	require.NoError(t, err)
+	require.Equal(t, abci.ResponseProcessProposal_ACCEPT, pp.Status)
+	res, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Txs: [][]byte{txBytes}, Height: 2, Hash: []byte("h2")})
+	require.NoError(t, err)
+	require.Len(t, res.TxResults, 1)
+	require.Equal(t, uint64(2), preBlocks.Load(), "speculative run was not reused")
 }
 
 func TestABCI_Proposal_FailReCheckTx(t *testing.T) {

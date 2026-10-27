@@ -38,8 +38,13 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## [Unreleased]
 
+### API Breaking
+
+* (baseapp/oe) [#162](https://github.com/celestiaorg/cosmos-sdk/pull/162) `AbortIfNeeded` takes the `FinalizeBlock` txs.
+
 ### Improvements
 
+* (baseapp) [#162](https://github.com/celestiaorg/cosmos-sdk/pull/162) Optimistic execution: `oe.WithTxsTransform` maps the `ProcessProposal` txs to the bytes `FinalizeBlock` will carry (celestia-core strips blobs between the two calls) and `FinalizeBlock` reuses a speculative result only if its txs match, `PrepareProposal` aborts a speculative run from a previous round, the speculative request carries the ProcessProposal `Header`, and `baseapp.DisableOptimisticExecution` turns it back off.
 * (x/auth) [#781](https://github.com/celestiaorg/cosmos-sdk-archive/pull/781) `NewSigVerificationDecorator` accepts options, and `WithSignatureVerifier` replaces how a single signature is verified. The default is unchanged, so existing call sites are unaffected. Lets an app cache or batch the curve operation without copying `AnteHandle`.
 
 ### State Machine Breaking

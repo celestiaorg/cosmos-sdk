@@ -91,6 +91,9 @@ func TestGenesisUserOutstandingRewardsRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, rewards2, got.Rewards)
 	require.Equal(t, gs, distrKeeper2.ExportGenesis(ctx2))
+
+	msg, broken := keeper.ModuleAccountInvariant(distrKeeper2)(ctx2)
+	require.False(t, broken, msg)
 }
 
 func TestInitGenesisInvalidUserOutstandingRewards(t *testing.T) {

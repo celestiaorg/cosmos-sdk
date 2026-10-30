@@ -124,6 +124,9 @@ type StartCmdOptions struct {
 	AddFlags func(cmd *cobra.Command)
 	// StartCommandHanlder can be used to customize the start command handler
 	StartCommandHandler func(svrCtx *Context, clientCtx client.Context, appCreator types.AppCreator, inProcessConsensus bool, opts StartCmdOptions) error
+	// PreNodeStart, if set, is called with the in-process CometBFT node after it
+	// is created and before it starts, e.g. to hand the app the node's mempool.
+	PreNodeStart func(app types.Application, node *node.Node) error
 	// GRPCServerOptions are appended to the default gRPC server options so
 	// applications can register custom interceptors, stats handlers, or other
 	// grpc.ServerOptions.
@@ -329,7 +332,7 @@ func startInProcess(svrCtx *Context, svrCfg serverconfig.Config, clientCtx clien
 		svrCfg.GRPC.Enable = true
 	} else {
 		svrCtx.Logger.Info("starting node with ABCI CometBFT in-process")
-		tmNode, cleanupFn, err := startCmtNode(ctx, cmtCfg, app, svrCtx)
+		tmNode, cleanupFn, err := startCmtNode(ctx, cmtCfg, app, svrCtx, opts.PreNodeStart)
 		if err != nil {
 			return err
 		}
@@ -381,6 +384,7 @@ func startCmtNode(
 	cfg *cmtcfg.Config,
 	app types.Application,
 	svrCtx *Context,
+	preStart func(types.Application, *node.Node) error,
 ) (tmNode *node.Node, cleanupFn func(), err error) {
 	nodeKey, err := p2p.LoadOrGenNodeKey(cfg.NodeKeyFile())
 	if err != nil {
@@ -401,6 +405,12 @@ func startCmtNode(
 	)
 	if err != nil {
 		return tmNode, cleanupFn, err
+	}
+
+	if preStart != nil {
+		if err := preStart(app, tmNode); err != nil {
+			return tmNode, cleanupFn, err
+		}
 	}
 
 	if err := tmNode.Start(); err != nil {

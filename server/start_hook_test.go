@@ -14,6 +14,7 @@ import (
 	cmttypes "github.com/cometbft/cometbft/types"
 	"github.com/cosmos/gogoproto/grpc"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 
 	"cosmossdk.io/log"
 	"cosmossdk.io/store/snapshots"
@@ -89,6 +90,26 @@ func TestStartCmtNodeCallsPreNodeStart(t *testing.T) {
 	require.False(t, n.IsRunning())
 }
 
+// The in-process start command passes StartCmdOptions.PreNodeStart through.
+func TestStartInProcessCallsPreNodeStart(t *testing.T) {
+	cfg := newHookTestConfig(t)
+	abciApp, err := mock.NewApp(cfg.RootDir, log.NewNopLogger())
+	require.NoError(t, err)
+	svrCtx := NewDefaultContext()
+	svrCtx.Config = cfg
+	svrCfg := config.DefaultConfig()
+	svrCfg.API.Enable, svrCfg.GRPC.Enable = false, false
+
+	called := false
+	stop := errors.New("stop after setup")
+	err = startInProcess(svrCtx, *svrCfg, client.Context{}, hookTestApp{abciApp}, nil, StartCmdOptions{
+		PreNodeStart: func(types.Application, *node.Node) error { called = true; return nil },
+		PostSetup:    func(*Context, client.Context, context.Context, *errgroup.Group) error { return stop },
+	})
+	require.ErrorIs(t, err, stop)
+	require.True(t, called)
+}
+
 // newHookTestConfig writes a single-validator genesis with the app state
 // mock.InitChainer expects.
 func newHookTestConfig(t *testing.T) *cmtcfg.Config {
@@ -98,6 +119,7 @@ func newHookTestConfig(t *testing.T) *cmtcfg.Config {
 	cmtcfg.EnsureRoot(dir)
 	cfg.P2P.ListenAddress = "tcp://127.0.0.1:0"
 	cfg.RPC.ListenAddress = "tcp://127.0.0.1:0"
+	cfg.RPC.GRPCListenAddress = ""
 	pv := privval.LoadOrGenFilePV(cfg.PrivValidatorKeyFile(), cfg.PrivValidatorStateFile())
 	pub, err := pv.GetPubKey()
 	require.NoError(t, err)

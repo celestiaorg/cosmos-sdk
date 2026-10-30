@@ -55,6 +55,7 @@ func TestMigrateJSON(t *testing.T) {
 		"withdraw_addr_enabled": true
 	},
 	"previous_proposer": "",
+	"user_outstanding_rewards": [],
 	"validator_accumulated_commissions": [],
 	"validator_current_rewards": [],
 	"validator_historical_rewards": [],

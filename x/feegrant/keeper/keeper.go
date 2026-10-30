@@ -286,6 +286,7 @@ func emitUseGrantEvent(ctx context.Context, granter, grantee string) {
 
 // InitGenesis will initialize the keeper from a *previously validated* GenesisState
 func (k Keeper) InitGenesis(ctx context.Context, data *feegrant.GenesisState) error {
+	now := sdk.UnwrapSDKContext(ctx).BlockTime()
 	for _, f := range data.Allowances {
 		granter, err := k.authKeeper.AddressCodec().StringToBytes(f.Granter)
 		if err != nil {
@@ -299,6 +300,15 @@ func (k Keeper) InitGenesis(ctx context.Context, data *feegrant.GenesisState) er
 		grant, err := f.GetGrant()
 		if err != nil {
 			return err
+		}
+
+		// ignore expired allowances
+		exp, err := grant.ExpiresAt()
+		if err != nil {
+			return err
+		}
+		if exp != nil && exp.Before(now) {
+			continue
 		}
 
 		err = k.GrantAllowance(ctx, granter, grantee, grant)

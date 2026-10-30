@@ -1,10 +1,12 @@
 package types_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"testing"
 
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	cmttypes "github.com/cometbft/cometbft/types"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/golden"
@@ -66,4 +68,32 @@ func TestAppGenesis_ValidGenesis(t *testing.T) {
 	rawAppGenesis, err = json.Marshal(&appGenesis)
 	assert.NilError(t, err)
 	golden.Assert(t, string(rawAppGenesis), "app_genesis.json")
+}
+
+func TestNewConsensusGenesis_KeepsVersionAndABCI(t *testing.T) {
+	params := cmttypes.DefaultConsensusParams().ToProto()
+	params.Version = &cmtproto.VersionParams{App: 7}
+	params.Abci = &cmtproto.ABCIParams{VoteExtensionsEnableHeight: 42}
+
+	genesis := types.AppGenesis{
+		ChainID:   "test",
+		Consensus: types.NewConsensusGenesis(params, nil),
+	}
+	raw, err := json.Marshal(&genesis)
+	assert.NilError(t, err)
+
+	got, err := types.AppGenesisFromReader(bytes.NewReader(raw))
+	assert.NilError(t, err)
+	assert.Equal(t, got.Consensus.Params.Version.App, uint64(7))
+	assert.Equal(t, got.Consensus.Params.ABCI.VoteExtensionsEnableHeight, int64(42))
+}
+
+func TestNewConsensusGenesis_NilVersionAndABCI(t *testing.T) {
+	params := cmttypes.DefaultConsensusParams().ToProto()
+	params.Version = nil
+	params.Abci = nil
+
+	cs := types.NewConsensusGenesis(params, nil)
+	assert.Equal(t, cs.Params.Version.App, uint64(0))
+	assert.Equal(t, cs.Params.ABCI.VoteExtensionsEnableHeight, int64(0))
 }

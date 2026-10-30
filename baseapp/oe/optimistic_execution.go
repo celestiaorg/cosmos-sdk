@@ -68,11 +68,15 @@ func WithTxsTransform(fn func(txs [][]byte) [][]byte) func(*OptimisticExecution)
 	}
 }
 
-// Reset resets the OE context. Must be called whenever we want to invalidate
-// the current OE.
+// Reset forgets a completed OE run. The caller must first join the worker using
+// WaitResult or Abort.
 func (oe *OptimisticExecution) Reset() {
 	oe.mtx.Lock()
 	defer oe.mtx.Unlock()
+	if oe.cancelFunc != nil {
+		oe.cancelFunc()
+	}
+	oe.cancelFunc = nil
 	oe.request = nil
 	oe.response = nil
 	oe.err = nil
@@ -197,12 +201,19 @@ func (oe *OptimisticExecution) AbortIfNeeded(reqHash []byte, reqTxs [][]byte) bo
 // Abort aborts the OE unconditionally, waits for it to finish and forgets it, so
 // a canceled run can never be served to FinalizeBlock.
 func (oe *OptimisticExecution) Abort() {
-	if oe == nil || oe.cancelFunc == nil {
+	if oe == nil {
+		return
+	}
+	// Read under the lock: Close may abort while FinalizeBlock resets.
+	oe.mtx.Lock()
+	cancel, stopCh := oe.cancelFunc, oe.stopCh
+	oe.mtx.Unlock()
+	if cancel == nil {
 		return
 	}
 
-	oe.cancelFunc()
-	<-oe.stopCh
+	cancel()
+	<-stopCh
 	oe.Reset()
 }
 

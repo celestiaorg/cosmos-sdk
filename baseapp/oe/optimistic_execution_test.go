@@ -127,3 +127,21 @@ func TestOptimisticExecutionCopiesAllFields(t *testing.T) {
 		require.Equal(t, want.Interface(), fbv.Field(i).Interface(), f.Name)
 	}
 }
+
+// Reset after a served run releases the run's context and forgets the run.
+func TestOptimisticExecutionResetReleasesRun(t *testing.T) {
+	var runCtx context.Context
+	oe := NewOptimisticExecution(log.NewNopLogger(), func(ctx context.Context, _ *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+		runCtx = ctx
+		return &abci.ResponseFinalizeBlock{}, nil
+	})
+	oe.Execute(&abci.RequestProcessProposal{Hash: []byte("h")})
+	_, err := oe.WaitResult()
+	require.NoError(t, err)
+	require.NoError(t, runCtx.Err())
+
+	oe.Reset()
+	require.ErrorIs(t, runCtx.Err(), context.Canceled)
+	require.False(t, oe.Initialized())
+	oe.Abort() // no-op on a forgotten run
+}

@@ -1055,6 +1055,10 @@ func (app *BaseApp) TxEncode(tx sdk.Tx) ([]byte, error) {
 
 // Close is called in start cmd to gracefully cleanup resources.
 func (app *BaseApp) Close() error {
+	// Consensus may stop after ProcessProposal starts a speculative worker.
+	// Join it before closing any resources it can still be using.
+	app.optimisticExec.Abort()
+
 	var errs []error
 
 	// Close app.db (opened by cosmos-sdk/server/start.go call to openDB)

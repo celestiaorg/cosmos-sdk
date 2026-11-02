@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	dbm "github.com/cosmos/cosmos-db"
@@ -1219,6 +1220,11 @@ func (rs *Store) BeginRollback(target int64) error {
 // RollbackToVersion delete the versions after `target` and update the latest version.
 // A retry with the same target may fail if the call was interrupted while deleting versions.
 func (rs *Store) RollbackToVersion(target int64) error {
+	var timestamp time.Time
+	if cInfo, err := rs.GetCommitInfo(target); err == nil {
+		timestamp = cInfo.Timestamp
+	}
+
 	if err := rs.BeginRollback(target); err != nil {
 		return err
 	}
@@ -1239,7 +1245,9 @@ func (rs *Store) RollbackToVersion(target int64) error {
 	defer func() {
 		_ = batch.Close()
 	}()
-	flushCommitInfo(batch, target, rs.buildCommitInfo(target))
+	cInfo := rs.buildCommitInfo(target)
+	cInfo.Timestamp = timestamp
+	flushCommitInfo(batch, target, cInfo)
 	flushLatestVersion(batch, target)
 	if err := batch.Delete([]byte(rollbackKey)); err != nil {
 		return err

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	dbm "github.com/cosmos/cosmos-db"
 	gogotypes "github.com/cosmos/gogoproto/types"
 	iavltree "github.com/cosmos/iavl"
@@ -1102,6 +1103,11 @@ func TestLoadLatestVersionRepairsInterruptedCommit(t *testing.T) {
 	}
 }
 
+// rollbackTestTime is the block time of version v in newRollbackTestStore.
+func rollbackTestTime(v int64) time.Time {
+	return time.Unix(1_700_000_000+v, 0).UTC()
+}
+
 // newRollbackTestStore commits versions 1..n to every store.
 func newRollbackTestStore(t *testing.T, db dbm.DB, n int64) *Store {
 	t.Helper()
@@ -1111,6 +1117,7 @@ func newRollbackTestStore(t *testing.T, db dbm.DB, n int64) *Store {
 		for _, key := range []types.StoreKey{testStoreKey1, testStoreKey2, testStoreKey3} {
 			ms.GetKVStore(key).Set([]byte(fmt.Sprintf("k%d", v)), []byte("v"))
 		}
+		ms.SetCommitHeader(cmtproto.Header{Height: v, Time: rollbackTestTime(v)})
 		ms.Commit()
 	}
 	return ms
@@ -1225,6 +1232,42 @@ func TestRollbackToVersionInterruptedCompletes(t *testing.T) {
 	ms = newMultiStoreWithMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
 	require.NoError(t, ms.LoadLatestVersion())
 	require.Equal(t, want.CommitID(), ms.LastCommitID())
+	got, err := ms.GetCommitInfo(3)
+	require.NoError(t, err)
+	require.Equal(t, rollbackTestTime(3), got.Timestamp)
+}
+
+func TestRollbackToVersionKeepsTimestamp(t *testing.T) {
+	db := dbm.NewMemDB()
+	ms := newRollbackTestStore(t, db, 5)
+	want, err := ms.GetCommitInfo(3)
+	require.NoError(t, err)
+
+	require.NoError(t, ms.RollbackToVersion(3))
+
+	ms = newMultiStoreWithMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+	require.NoError(t, ms.LoadLatestVersion())
+	require.Equal(t, want.CommitID(), ms.LastCommitID())
+	got, err := ms.GetCommitInfo(3)
+	require.NoError(t, err)
+	require.Equal(t, rollbackTestTime(3), got.Timestamp)
+}
+
+func TestRollbackToVersionZeroTimestamp(t *testing.T) {
+	db := dbm.NewMemDB()
+	ms := newRollbackTestStore(t, db, 5)
+	want, err := ms.GetCommitInfo(3)
+	require.NoError(t, err)
+	want.Timestamp = time.Time{}
+	bz, err := want.Marshal()
+	require.NoError(t, err)
+	require.NoError(t, db.Set([]byte(fmt.Sprintf(commitInfoKeyFmt, 3)), bz))
+
+	require.NoError(t, ms.RollbackToVersion(3))
+	require.Equal(t, want.CommitID(), ms.LastCommitID())
+	got, err := ms.GetCommitInfo(3)
+	require.NoError(t, err)
+	require.True(t, got.Timestamp.IsZero())
 }
 
 func TestRollbackToVersionPendingDifferentTarget(t *testing.T) {

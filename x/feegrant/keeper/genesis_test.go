@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/golang/mock/gomock"
 	"gotest.tools/v3/assert"
@@ -34,6 +35,7 @@ var (
 
 type genesisFixture struct {
 	ctx            sdk.Context
+	key            *storetypes.KVStoreKey
 	feegrantKeeper keeper.Keeper
 	accountKeeper  *feegranttestutil.MockAccountKeeper
 }
@@ -49,6 +51,7 @@ func initFixture(t *testing.T) *genesisFixture {
 
 	return &genesisFixture{
 		ctx:            testCtx.Ctx,
+		key:            key,
 		feegrantKeeper: keeper.NewKeeper(encCfg.Codec, runtime.NewKVStoreService(key), accountKeeper),
 		accountKeeper:  accountKeeper,
 	}
@@ -143,4 +146,56 @@ func TestInitGenesis(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestInitGenesisSkipsExpiredAllowances(t *testing.T) {
+	f := initFixture(t)
+	f.accountKeeper.EXPECT().GetAccount(gomock.Any(), gomock.Any()).Return(authtypes.NewBaseAccountWithAddress(granteeAddr)).AnyTimes()
+
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	ctx := f.ctx.WithBlockTime(now)
+	past := now.Add(-time.Second)
+	future := now.Add(time.Hour)
+	coins := sdk.NewCoins(sdk.NewCoin("foo", math.NewInt(1_000)))
+
+	expired := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+	equal := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+	later := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+	noExpiry := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+
+	var grants []feegrant.Grant
+	for _, tc := range []struct {
+		grantee sdk.AccAddress
+		exp     *time.Time
+	}{
+		{expired, &past},
+		{equal, &now},
+		{later, &future},
+		{noExpiry, nil},
+	} {
+		grant, err := feegrant.NewGrant(granterAddr, tc.grantee, &feegrant.BasicAllowance{SpendLimit: coins, Expiration: tc.exp})
+		assert.NilError(t, err)
+		grants = append(grants, grant)
+	}
+
+	err := f.feegrantKeeper.InitGenesis(ctx, &feegrant.GenesisState{Allowances: grants})
+	assert.NilError(t, err)
+
+	_, err = f.feegrantKeeper.GetAllowance(ctx, granterAddr, expired)
+	assert.ErrorContains(t, err, "not found")
+	for _, grantee := range []sdk.AccAddress{equal, later, noExpiry} {
+		_, err = f.feegrantKeeper.GetAllowance(ctx, granterAddr, grantee)
+		assert.NilError(t, err)
+	}
+
+	// only the equal and future allowances have queue entries
+	store := ctx.KVStore(f.key)
+	assert.Assert(t, !store.Has(feegrant.FeeAllowancePrefixQueue(&past, feegrant.FeeAllowanceKey(granterAddr, expired)[1:])))
+	iter := storetypes.KVStorePrefixIterator(store, feegrant.FeeAllowanceQueueKeyPrefix)
+	defer iter.Close()
+	count := 0
+	for ; iter.Valid(); iter.Next() {
+		count++
+	}
+	assert.Equal(t, count, 2)
 }

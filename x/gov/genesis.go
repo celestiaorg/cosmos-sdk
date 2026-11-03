@@ -79,9 +79,12 @@ func InitGenesis(ctx sdk.Context, ak types.AccountKeeper, bk types.BankKeeper, k
 		ak.SetModuleAccount(ctx, moduleAcc)
 	}
 
-	// check if total deposits equals balance, if it doesn't panic because there were export/import errors
-	if !balance.Equal(totalDeposits) {
+	// The balance can exceed deposits because anyone can send funds to the gov module account.
+	if !balance.IsAllGTE(totalDeposits) {
 		panic(fmt.Sprintf("expected module account was %s but we got %s", balance.String(), totalDeposits.String()))
+	}
+	if surplus, _ := balance.SafeSub(totalDeposits...); !surplus.IsZero() {
+		k.Logger(ctx).Info("gov module account balance exceeds total deposits", "surplus", surplus.String())
 	}
 }
 

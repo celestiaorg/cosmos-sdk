@@ -3,6 +3,8 @@ package keeper
 import (
 	"fmt"
 
+	"cosmossdk.io/collections"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/distribution/types"
 )
@@ -113,6 +115,28 @@ func (k Keeper) InitGenesis(ctx sdk.Context, data types.GenesisState) {
 		if err != nil {
 			panic(err)
 		}
+	}
+
+	if err := types.ValidateUserOutstandingRewards(
+		data.UserOutstandingRewards, k.authKeeper.AddressCodec(), k.stakingKeeper.ValidatorAddressCodec(),
+	); err != nil {
+		panic(err)
+	}
+	for _, rew := range data.UserOutstandingRewards {
+		delegatorAddress, err := k.authKeeper.AddressCodec().StringToBytes(rew.DelegatorAddress)
+		if err != nil {
+			panic(err)
+		}
+		valAddr, err := k.stakingKeeper.ValidatorAddressCodec().StringToBytes(rew.ValidatorAddress)
+		if err != nil {
+			panic(err)
+		}
+		key := collections.Join(sdk.AccAddress(delegatorAddress), sdk.ValAddress(valAddr))
+		err = k.UserOutstandingRewards.Set(ctx, key, types.UserOutstandingRewards{Rewards: rew.Rewards})
+		if err != nil {
+			panic(err)
+		}
+		moduleHoldings = moduleHoldings.Add(sdk.NewDecCoinsFromCoins(rew.Rewards...)...)
 	}
 
 	moduleHoldings = moduleHoldings.Add(data.FeePool.CommunityPool...)
@@ -230,5 +254,22 @@ func (k Keeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
 		},
 	)
 
-	return types.NewGenesisState(params, feePool, dwi, pp, outstanding, acc, his, cur, dels, slashes)
+	userOutstanding := make([]types.UserOutstandingRewardsRecord, 0)
+	err = k.UserOutstandingRewards.Walk(ctx, nil,
+		func(key collections.Pair[sdk.AccAddress, sdk.ValAddress], value types.UserOutstandingRewards) (stop bool, err error) {
+			userOutstanding = append(userOutstanding, types.UserOutstandingRewardsRecord{
+				DelegatorAddress: key.K1().String(),
+				ValidatorAddress: key.K2().String(),
+				Rewards:          value.Rewards,
+			})
+			return false, nil
+		},
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	gs := types.NewGenesisState(params, feePool, dwi, pp, outstanding, acc, his, cur, dels, slashes)
+	gs.UserOutstandingRewards = userOutstanding
+	return gs
 }

@@ -53,6 +53,55 @@ func (s *KeeperTestSuite) TestValidatorSigningInfo() {
 	require.Equal(sInfo.JailedUntil, jailTime)
 }
 
+func (s *KeeperTestSuite) TestValidatorMissedBlocksKeepIndexWithMissingChunks() {
+	ctx, keeper := s.ctx, s.slashingKeeper
+	require := s.Require()
+
+	params := testutil.TestParams()
+	params.SignedBlocksWindow = 10_000
+	require.NoError(keeper.SetParams(ctx, params))
+
+	// Only chunks 1 and 4 exist: the validator never missed a block in chunk 0.
+	missedIdx := []int64{1500, 1501, 4200}
+	for _, idx := range missedIdx {
+		require.NoError(keeper.SetMissedBlockBitmapValue(ctx, consAddr, idx, true))
+	}
+
+	missedBlocks, err := keeper.GetValidatorMissedBlocks(ctx, consAddr)
+	require.NoError(err)
+	got := make([]int64, 0, len(missedBlocks))
+	for _, mb := range missedBlocks {
+		got = append(got, mb.Index)
+	}
+	require.Equal(missedIdx, got)
+
+	// Stopping in the first chunk must not visit the next one.
+	var visited []int64
+	require.NoError(keeper.IterateMissedBlockBitmap(ctx, consAddr, func(index int64, missed bool) bool {
+		if missed {
+			visited = append(visited, index)
+		}
+		return missed
+	}))
+	require.Equal([]int64{1500}, visited)
+
+	// Chunk keys are little-endian, so chunk 256 sorts before chunk 255.
+	params.SignedBlocksWindow = 300 * slashingtypes.MissedBlockBitmapChunkSize
+	require.NoError(keeper.SetParams(ctx, params))
+	require.NoError(keeper.DeleteMissedBlockBitmap(ctx, consAddr))
+	boundaryIdx := []int64{255*slashingtypes.MissedBlockBitmapChunkSize + 5, 256*slashingtypes.MissedBlockBitmapChunkSize + 7}
+	for _, idx := range boundaryIdx {
+		require.NoError(keeper.SetMissedBlockBitmapValue(ctx, consAddr, idx, true))
+	}
+	missedBlocks, err = keeper.GetValidatorMissedBlocks(ctx, consAddr)
+	require.NoError(err)
+	got = got[:0]
+	for _, mb := range missedBlocks {
+		got = append(got, mb.Index)
+	}
+	require.ElementsMatch(boundaryIdx, got)
+}
+
 func (s *KeeperTestSuite) TestValidatorMissedBlockBitmap_SmallWindow() {
 	ctx, keeper := s.ctx, s.slashingKeeper
 	require := s.Require()

@@ -1,12 +1,5 @@
 package types
 
-import (
-	"fmt"
-	"time"
-
-	"cosmossdk.io/math"
-)
-
 // NewGenesisState creates a new GenesisState object
 func NewGenesisState(
 	params Params, signingInfos []SigningInfo, missedBlocks []ValidatorMissedBlocks,
@@ -35,32 +28,9 @@ func DefaultGenesisState() *GenesisState {
 	}
 }
 
-// ValidateGenesis validates the slashing genesis parameters
+// ValidateGenesis validates the slashing genesis parameters with the same
+// rules as a parameter update, so a genesis exported after governance set any
+// accepted value still validates.
 func ValidateGenesis(data GenesisState) error {
-	downtime := data.Params.SlashFractionDowntime
-	if downtime.IsNegative() || downtime.GT(math.LegacyOneDec()) {
-		return fmt.Errorf("slashing fraction downtime should be less than or equal to one and greater than zero, is %s", downtime.String())
-	}
-
-	dblSign := data.Params.SlashFractionDoubleSign
-	if dblSign.IsNegative() || dblSign.GT(math.LegacyOneDec()) {
-		return fmt.Errorf("slashing fraction double sign should be less than or equal to one and greater than zero, is %s", dblSign.String())
-	}
-
-	minSign := data.Params.MinSignedPerWindow
-	if minSign.IsNegative() || minSign.GT(math.LegacyOneDec()) {
-		return fmt.Errorf("min signed per window should be less than or equal to one and greater than zero, is %s", minSign.String())
-	}
-
-	downtimeJail := data.Params.DowntimeJailDuration
-	if downtimeJail < 1*time.Minute {
-		return fmt.Errorf("downtime unjail duration must be at least 1 minute, is %s", downtimeJail.String())
-	}
-
-	signedWindow := data.Params.SignedBlocksWindow
-	if signedWindow < 10 {
-		return fmt.Errorf("signed blocks window must be at least 10, is %d", signedWindow)
-	}
-
-	return nil
+	return data.Params.Validate()
 }

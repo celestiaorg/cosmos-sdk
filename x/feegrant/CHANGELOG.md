@@ -28,6 +28,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 ### Bug Fixes
 
 * [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) `InitGenesis` skips allowances that expired before the genesis block time instead of failing.
+* [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) Genesis validation accepts a periodic allowance whose `PeriodSpendLimit` lists a denom that `Basic.SpendLimit` has spent to zero. `Accept` stores that state, so an export that holds it now passes `genesis validate`; `ValidateBasic` and `MsgGrantAllowance` are unchanged.
 
 ## [v0.1.1](https://github.com/cosmos/cosmos-sdk/releases/tag/x/feegrant/v0.1.1) - 2024-04-22
 

@@ -55,7 +55,7 @@ func (gs GenesisState) Validate() error {
 			return fmt.Errorf("duplicate client metadata for denom %s", metadata.Base)
 		}
 
-		if err := metadata.Validate(); err != nil {
+		if err := metadata.Validate(); err != nil && !isIBCTransferMetadata(metadata) {
 			return err
 		}
 

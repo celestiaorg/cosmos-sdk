@@ -78,6 +78,14 @@ func (a *PeriodicAllowance) tryResetPeriod(blockTime time.Time) {
 
 // ValidateBasic implements FeeAllowance and enforces basic sanity checks
 func (a PeriodicAllowance) ValidateBasic() error {
+	return a.validate(false)
+}
+
+// validate runs the ValidateBasic checks. With allowSpentDenoms set it accepts a
+// PeriodSpendLimit denom that Basic.SpendLimit no longer holds: Accept stores
+// that state once a denom of Basic.SpendLimit is spent to zero, because Coins
+// drops zero amounts.
+func (a PeriodicAllowance) validate(allowSpentDenoms bool) error {
 	if err := a.Basic.ValidateBasic(); err != nil {
 		return err
 	}
@@ -97,7 +105,7 @@ func (a PeriodicAllowance) ValidateBasic() error {
 	}
 
 	// ensure PeriodSpendLimit can be subtracted from total (same coin types)
-	if a.Basic.SpendLimit != nil && !a.PeriodSpendLimit.DenomsSubsetOf(a.Basic.SpendLimit) {
+	if !allowSpentDenoms && a.Basic.SpendLimit != nil && !a.PeriodSpendLimit.DenomsSubsetOf(a.Basic.SpendLimit) {
 		return errorsmod.Wrap(sdkerrors.ErrInvalidCoins, "period spend limit has different currency than basic spend limit")
 	}
 

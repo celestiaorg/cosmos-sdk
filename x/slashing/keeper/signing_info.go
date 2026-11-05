@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"context"
+	"encoding/binary"
+	"fmt"
 	"time"
 
 	"github.com/bits-and-blooms/bitset"
@@ -217,11 +219,12 @@ func (k Keeper) DeleteMissedBlockBitmap(ctx context.Context, addr sdk.ConsAddres
 }
 
 // IterateMissedBlockBitmap iterates over a validator's signed blocks window
-// bitmap and performs a callback function on each index, i.e. block height, in
-// the range [0, SignedBlocksWindow).
-//
-// Note: A callback will only be executed over all bitmap chunks that exist in
-// state.
+// bitmap and performs a callback function on each index, i.e. block height, of
+// every bitmap chunk that exists in state, including the indices past
+// SignedBlocksWindow in the last chunk. The index is derived from the chunk
+// index in the key, so a missing chunk does not shift later indices. Chunks are
+// visited in store order, which follows the little-endian chunk index, so
+// indices are not ascending once a window has more than 256 chunks.
 func (k Keeper) IterateMissedBlockBitmap(ctx context.Context, addr sdk.ConsAddress, cb func(index int64, missed bool) (stop bool)) error {
 	store := k.storeService.OpenKVStore(ctx)
 	prefix := types.ValidatorMissedBlockBitmapPrefixKey(addr)
@@ -231,21 +234,23 @@ func (k Keeper) IterateMissedBlockBitmap(ctx context.Context, addr sdk.ConsAddre
 	}
 	defer iter.Close()
 
-	var index int64
 	for ; iter.Valid(); iter.Next() {
-		bs := bitset.New(uint(types.MissedBlockBitmapChunkSize))
+		chunkKey := iter.Key()[len(prefix):]
+		if len(chunkKey) != 8 {
+			return fmt.Errorf("missed block bitmap key %X: chunk index has %d bytes, expected 8", iter.Key(), len(chunkKey))
+		}
+		chunkIndex := int64(binary.LittleEndian.Uint64(chunkKey))
 
+		bs := bitset.New(uint(types.MissedBlockBitmapChunkSize))
 		if err := bs.UnmarshalBinary(iter.Value()); err != nil {
-			return errors.Wrapf(err, "failed to decode bitmap chunk; index: %v", string(iter.Key()))
+			return errors.Wrapf(err, "failed to decode bitmap chunk; index: %v", chunkIndex)
 		}
 
-		for i := uint(0); i < types.MissedBlockBitmapChunkSize; i++ {
+		for i := int64(0); i < types.MissedBlockBitmapChunkSize; i++ {
 			// execute the callback, where Test() returns true if the bit is set
-			if cb(index, bs.Test(i)) {
-				break
+			if cb(chunkIndex*types.MissedBlockBitmapChunkSize+i, bs.Test(uint(i))) {
+				return nil
 			}
-
-			index++
 		}
 	}
 	return nil

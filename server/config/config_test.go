@@ -234,3 +234,18 @@ func TestAppConfig(t *testing.T) {
 	require.NoError(t, v.Unmarshal(appCfg))
 	require.EqualValues(t, appCfg, defAppConfig)
 }
+
+func TestDisableOptimisticExecutionKey(t *testing.T) {
+	// Fails if the key is missing or sits under a [section] (TOML scopes it to that table).
+	cfg := DefaultConfig()
+	cfg.DisableOptimisticExecution = true
+	file := filepath.Join(t.TempDir(), "app.toml")
+	WriteConfigFile(file, cfg)
+
+	v := viper.New()
+	v.SetConfigFile(file)
+	require.NoError(t, v.ReadInConfig())
+	got, err := GetConfig(v)
+	require.NoError(t, err)
+	require.True(t, got.DisableOptimisticExecution)
+}

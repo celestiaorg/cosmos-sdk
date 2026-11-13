@@ -42,6 +42,10 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 * (baseapp/oe) [#162](https://github.com/celestiaorg/cosmos-sdk/pull/162) `AbortIfNeeded` takes the `FinalizeBlock` txs.
 
+### Features
+
+* (server/config) [#187](https://github.com/celestiaorg/cosmos-sdk/pull/187) Top-level `disable-optimistic-execution` app.toml key (`BaseConfig.DisableOptimisticExecution`, default `false`), read by the app to turn off optimistic execution on one node.
+
 ### Improvements
 
 * (server) [#168](https://github.com/celestiaorg/cosmos-sdk/pull/168) `StartCmdOptions.PreNodeStart` runs with the in-process CometBFT node after it is created and before it starts.

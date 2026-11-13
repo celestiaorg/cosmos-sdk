@@ -41,7 +41,14 @@ func RejectUnknownFieldsStrict(bz []byte, msg proto.Message, resolver jsonpb.Any
 // An AnyResolver must be provided for traversing inside google.protobuf.Any's.
 func RejectUnknownFields(bz []byte, msg proto.Message, allowUnknownNonCriticals bool, resolver jsonpb.AnyResolver) (hasUnknownNonCriticals bool, err error) {
 	// recursion limit with same default as https://github.com/protocolbuffers/protobuf-go/blob/v1.35.2/encoding/protowire/wire.go#L28
-	return doRejectUnknownFields(bz, msg, allowUnknownNonCriticals, resolver, 10_000)
+	return doRejectUnknownFields(bz, msg, allowUnknownNonCriticals, resolver, 10_000, false)
+}
+
+// RejectAmbiguousEncoding is RejectUnknownFieldsStrict plus the rules that make
+// every protobuf decoder read bz the same way; see checkStrictField.
+func RejectAmbiguousEncoding(bz []byte, msg proto.Message, resolver jsonpb.AnyResolver) error {
+	_, err := doRejectUnknownFields(bz, msg, false, resolver, 100, true)
+	return err
 }
 
 func doRejectUnknownFields(
@@ -50,11 +57,12 @@ func doRejectUnknownFields(
 	allowUnknownNonCriticals bool,
 	resolver jsonpb.AnyResolver,
 	recursionLimit int,
+	strict bool,
 ) (hasUnknownNonCriticals bool, err error) {
-	if len(bz) == 0 {
+	if len(bz) == 0 && !strict {
 		return hasUnknownNonCriticals, nil
 	}
-	if recursionLimit == 0 {
+	if recursionLimit <= 0 {
 		return false, errors.New("recursion limit reached")
 	}
 
@@ -63,10 +71,12 @@ func doRejectUnknownFields(
 		return hasUnknownNonCriticals, fmt.Errorf("%T does not have a Descriptor() method", msg)
 	}
 
-	fieldDescProtoFromTagNum, _, err := getDescriptorInfo(desc, msg)
+	match, err := getDescriptorInfo(desc, msg)
 	if err != nil {
 		return hasUnknownNonCriticals, err
 	}
+	fieldDescProtoFromTagNum := match.cache
+	var seen strictState
 
 	for len(bz) > 0 {
 		tagNum, wireType, m := protowire.ConsumeTag(bz)
@@ -104,6 +114,7 @@ func doRejectUnknownFields(
 			}
 		}
 
+		tagLen := m
 		// Skip over the bytes that store fieldNumber and wireType bytes.
 		bz = bz[m:]
 		n := protowire.ConsumeFieldValue(tagNum, wireType, bz)
@@ -114,6 +125,12 @@ func doRejectUnknownFields(
 		}
 		fieldBytes := bz[:n]
 		bz = bz[n:]
+
+		if strict {
+			if err := seen.checkStrictField(match.rules, fieldDescProto, tagNum, wireType, tagLen, fieldBytes); err != nil {
+				return hasUnknownNonCriticals, fmt.Errorf("%T: %w", msg, err)
+			}
+		}
 
 		// An unknown but non-critical field or just a scalar type (aka *INT and BYTES like).
 		if fieldDescProto == nil || isScalar(fieldDescProto) {
@@ -142,9 +159,14 @@ func doRejectUnknownFields(
 		var msg proto.Message
 		var err error
 
+		childLimit := recursionLimit - 1
 		if protoMessageName == ".google.protobuf.Any" {
+			if strict {
+				// The strict walk counts an Any and the message in it as two levels.
+				childLimit--
+			}
 			// Firstly typecheck types.Any to ensure nothing snuck in.
-			hasUnknownNonCriticalsChild, err := doRejectUnknownFields(fieldBytes, (*types.Any)(nil), allowUnknownNonCriticals, resolver, recursionLimit-1)
+			hasUnknownNonCriticalsChild, err := doRejectUnknownFields(fieldBytes, (*types.Any)(nil), allowUnknownNonCriticals, resolver, recursionLimit-1, strict)
 			hasUnknownNonCriticals = hasUnknownNonCriticals || hasUnknownNonCriticalsChild
 			if err != nil {
 				return hasUnknownNonCriticals, err
@@ -167,13 +189,16 @@ func doRejectUnknownFields(
 			}
 		}
 
-		hasUnknownNonCriticalsChild, err := doRejectUnknownFields(fieldBytes, msg, allowUnknownNonCriticals, resolver, recursionLimit-1)
+		hasUnknownNonCriticalsChild, err := doRejectUnknownFields(fieldBytes, msg, allowUnknownNonCriticals, resolver, childLimit, strict)
 		hasUnknownNonCriticals = hasUnknownNonCriticals || hasUnknownNonCriticalsChild
 		if err != nil {
 			return hasUnknownNonCriticals, err
 		}
 	}
 
+	if strict && seen.required != match.rules.required {
+		return hasUnknownNonCriticals, fmt.Errorf("%T: a non-nullable decimal field is missing", msg)
+	}
 	return hasUnknownNonCriticals, nil
 }
 
@@ -397,6 +422,7 @@ func extractFileDescMessageDesc(desc descriptorIface) (*descriptorpb.FileDescrip
 type descriptorMatch struct {
 	cache map[int32]*descriptorpb.FieldDescriptorProto
 	desc  *descriptorpb.DescriptorProto
+	rules *messageRules
 }
 
 var (
@@ -405,7 +431,7 @@ var (
 )
 
 // getDescriptorInfo retrieves the mapping of field numbers to their respective field descriptors.
-func getDescriptorInfo(desc descriptorIface, msg proto.Message) (map[int32]*descriptorpb.FieldDescriptorProto, *descriptorpb.DescriptorProto, error) {
+func getDescriptorInfo(desc descriptorIface, msg proto.Message) (*descriptorMatch, error) {
 	key := reflect.ValueOf(msg).Type()
 
 	descprotoCacheMu.RLock()
@@ -413,13 +439,13 @@ func getDescriptorInfo(desc descriptorIface, msg proto.Message) (map[int32]*desc
 	descprotoCacheMu.RUnlock()
 
 	if ok {
-		return got.cache, got.desc, nil
+		return got, nil
 	}
 
 	// Now compute and cache the index.
-	_, md, err := extractFileDescMessageDesc(desc)
+	fd, md, err := extractFileDescMessageDesc(desc)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	tagNumToTypeIndex := make(map[int32]*descriptorpb.FieldDescriptorProto)
@@ -427,14 +453,16 @@ func getDescriptorInfo(desc descriptorIface, msg proto.Message) (map[int32]*desc
 		tagNumToTypeIndex[field.GetNumber()] = field
 	}
 
-	descprotoCacheMu.Lock()
-	descprotoCache[key] = &descriptorMatch{
+	got = &descriptorMatch{
 		cache: tagNumToTypeIndex,
 		desc:  md,
+		rules: newMessageRules(md, fd.GetSyntax() == "proto3"),
 	}
+	descprotoCacheMu.Lock()
+	descprotoCache[key] = got
 	descprotoCacheMu.Unlock()
 
-	return tagNumToTypeIndex, md, nil
+	return got, nil
 }
 
 // DefaultAnyResolver is a default implementation of AnyResolver which uses

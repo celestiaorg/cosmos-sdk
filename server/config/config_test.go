@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -233,4 +234,27 @@ func TestAppConfig(t *testing.T) {
 	appCfg := new(Config)
 	require.NoError(t, v.Unmarshal(appCfg))
 	require.EqualValues(t, appCfg, defAppConfig)
+}
+
+func TestDisableOptimisticExecutionKey(t *testing.T) {
+	var buf bytes.Buffer
+	require.NoError(t, configTemplate.Execute(&buf, DefaultConfig()))
+	rendered := buf.String()
+	// TOML keys after the first table header belong to that table, not the top level.
+	key := strings.Index(rendered, "\ndisable-optimistic-execution = false\n")
+	section := strings.Index(rendered, "\n[")
+	require.Positive(t, key, "key missing from the default template")
+	require.Less(t, key, section, "key must come before the first [section]")
+
+	cfg := DefaultConfig()
+	cfg.DisableOptimisticExecution = true
+	file := filepath.Join(t.TempDir(), "app.toml")
+	WriteConfigFile(file, cfg)
+
+	v := viper.New()
+	v.SetConfigFile(file)
+	require.NoError(t, v.ReadInConfig())
+	got, err := GetConfig(v)
+	require.NoError(t, err)
+	require.True(t, got.DisableOptimisticExecution)
 }

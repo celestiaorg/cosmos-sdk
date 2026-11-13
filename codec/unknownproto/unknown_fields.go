@@ -62,7 +62,7 @@ func doRejectUnknownFields(
 	if len(bz) == 0 && !strict {
 		return hasUnknownNonCriticals, nil
 	}
-	if recursionLimit == 0 {
+	if recursionLimit <= 0 {
 		return false, errors.New("recursion limit reached")
 	}
 
@@ -159,7 +159,12 @@ func doRejectUnknownFields(
 		var msg proto.Message
 		var err error
 
+		childLimit := recursionLimit - 1
 		if protoMessageName == ".google.protobuf.Any" {
+			if strict {
+				// The strict walk counts an Any and the message in it as two levels.
+				childLimit--
+			}
 			// Firstly typecheck types.Any to ensure nothing snuck in.
 			hasUnknownNonCriticalsChild, err := doRejectUnknownFields(fieldBytes, (*types.Any)(nil), allowUnknownNonCriticals, resolver, recursionLimit-1, strict)
 			hasUnknownNonCriticals = hasUnknownNonCriticals || hasUnknownNonCriticalsChild
@@ -184,7 +189,7 @@ func doRejectUnknownFields(
 			}
 		}
 
-		hasUnknownNonCriticalsChild, err := doRejectUnknownFields(fieldBytes, msg, allowUnknownNonCriticals, resolver, recursionLimit-1, strict)
+		hasUnknownNonCriticalsChild, err := doRejectUnknownFields(fieldBytes, msg, allowUnknownNonCriticals, resolver, childLimit, strict)
 		hasUnknownNonCriticals = hasUnknownNonCriticals || hasUnknownNonCriticalsChild
 		if err != nil {
 			return hasUnknownNonCriticals, err

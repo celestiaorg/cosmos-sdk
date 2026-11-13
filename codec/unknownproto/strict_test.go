@@ -273,6 +273,36 @@ func TestRejectAmbiguousEncodingTypes(t *testing.T) {
 	}
 }
 
+// TestRejectAmbiguousEncodingDepth checks the nesting limit: 100 messages,
+// counting an Any and the message in it as two.
+func TestRejectAmbiguousEncodingDepth(t *testing.T) {
+	// TestVersion1.a = 2 nests a message; TestVersion1.g = 8 nests an Any.
+	nestFields := func(n int) []byte {
+		var b []byte
+		for range n {
+			b = bytesField(2, b)
+		}
+		return b
+	}
+	nestAnys := func(n int) []byte {
+		var b []byte
+		for range n {
+			b = bytesField(8, anyOf("/testpb.TestVersion1", b))
+		}
+		return b
+	}
+	require.NoError(t, checkStrict(nestFields(99), &testdata.TestVersion1{}))
+	require.Error(t, checkStrict(nestFields(100), &testdata.TestVersion1{}))
+	require.NoError(t, checkStrict(nestAnys(49), &testdata.TestVersion1{}))
+	require.Error(t, checkStrict(nestAnys(50), &testdata.TestVersion1{}))
+
+	// The default walk keeps its own, much higher, limit.
+	_, err := RejectUnknownFields(nestFields(500), &testdata.TestVersion1{}, false, DefaultAnyResolver{})
+	require.NoError(t, err)
+	_, err = RejectUnknownFields(nestAnys(500), &testdata.TestVersion1{}, false, DefaultAnyResolver{})
+	require.NoError(t, err)
+}
+
 func TestCheckVarints(t *testing.T) {
 	type T = descriptorpb.FieldDescriptorProto_Type
 	testCases := []struct {

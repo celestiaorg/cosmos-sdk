@@ -3,6 +3,7 @@ package tx
 import (
 	"fmt"
 
+	gogoproto "github.com/cosmos/gogoproto/proto"
 	"google.golang.org/protobuf/encoding/protowire"
 
 	errorsmod "cosmossdk.io/errors"
@@ -16,6 +17,22 @@ import (
 
 // DefaultTxDecoder returns a default protobuf TxDecoder using the provided Marshaler.
 func DefaultTxDecoder(cdc codec.Codec) sdk.TxDecoder {
+	return newTxDecoder(cdc, false)
+}
+
+// StrictTxDecoder is DefaultTxDecoder that also rejects encodings protobuf
+// decoders can read differently; see unknownproto.RejectAmbiguousEncoding.
+func StrictTxDecoder(cdc codec.Codec) sdk.TxDecoder {
+	return newTxDecoder(cdc, true)
+}
+
+func newTxDecoder(cdc codec.Codec, strict bool) sdk.TxDecoder {
+	rejectUnknown := func(bz []byte, msg gogoproto.Message, allowNonCriticals bool) (bool, error) {
+		if strict {
+			return false, unknownproto.RejectAmbiguousEncoding(bz, msg, cdc.InterfaceRegistry())
+		}
+		return unknownproto.RejectUnknownFields(bz, msg, allowNonCriticals, cdc.InterfaceRegistry())
+	}
 	return func(txBytes []byte) (sdk.Tx, error) {
 		// Make sure txBytes follow ADR-027.
 		err := rejectNonADR027TxRaw(txBytes)
@@ -26,7 +43,7 @@ func DefaultTxDecoder(cdc codec.Codec) sdk.TxDecoder {
 		var raw tx.TxRaw
 
 		// reject all unknown proto fields in the root TxRaw
-		err = unknownproto.RejectUnknownFieldsStrict(txBytes, &raw, cdc.InterfaceRegistry())
+		_, err = rejectUnknown(txBytes, &raw, false)
 		if err != nil {
 			return nil, errorsmod.Wrap(sdkerrors.ErrTxDecode, err.Error())
 		}
@@ -39,7 +56,7 @@ func DefaultTxDecoder(cdc codec.Codec) sdk.TxDecoder {
 		var body tx.TxBody
 
 		// allow non-critical unknown fields in TxBody
-		txBodyHasUnknownNonCriticals, err := unknownproto.RejectUnknownFields(raw.BodyBytes, &body, true, cdc.InterfaceRegistry())
+		txBodyHasUnknownNonCriticals, err := rejectUnknown(raw.BodyBytes, &body, true)
 		if err != nil {
 			return nil, errorsmod.Wrap(sdkerrors.ErrTxDecode, err.Error())
 		}
@@ -52,7 +69,7 @@ func DefaultTxDecoder(cdc codec.Codec) sdk.TxDecoder {
 		var authInfo tx.AuthInfo
 
 		// reject all unknown proto fields in AuthInfo
-		err = unknownproto.RejectUnknownFieldsStrict(raw.AuthInfoBytes, &authInfo, cdc.InterfaceRegistry())
+		_, err = rejectUnknown(raw.AuthInfoBytes, &authInfo, false)
 		if err != nil {
 			return nil, errorsmod.Wrap(sdkerrors.ErrTxDecode, err.Error())
 		}

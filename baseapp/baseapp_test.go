@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -35,7 +36,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/testutil"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	signingtypes "github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 )
 
@@ -956,6 +956,12 @@ func TestCommitSimulateRace(t *testing.T) {
 // service calls Simulate concurrently with block finalization.
 // See https://github.com/celestiaorg/cosmos-sdk/issues/140
 func TestFinalizeBlockSimulateRace(t *testing.T) {
+	for _, oe := range []bool{false, true} {
+		t.Run(fmt.Sprintf("oe=%t", oe), func(t *testing.T) { testFinalizeBlockSimulateRace(t, oe) })
+	}
+}
+
+func testFinalizeBlockSimulateRace(t *testing.T, oe bool) {
 	// The writer mutates store state via a PreBlocker rather than via a tx so
 	// that FinalizeBlock does not decode txs / call GetSigners. Combined with a
 	// single reader goroutine (whose GetSigners calls are therefore serial),
@@ -966,7 +972,7 @@ func TestFinalizeBlockSimulateRace(t *testing.T) {
 		store.Set([]byte(fmt.Sprintf("key-%d", req.Height)), bytes.Repeat([]byte("a"), 64))
 		return &sdk.ResponsePreBlock{}, nil
 	}
-	suite := NewBaseAppSuite(t, func(app *baseapp.BaseApp) { app.SetPreBlocker(preBlocker) })
+	suite := NewBaseAppSuite(t, raceTestOpts(oe, func(app *baseapp.BaseApp) { app.SetPreBlocker(preBlocker) })...)
 	baseapptestutil.RegisterKeyValueServer(suite.baseApp.MsgServiceRouter(), ReadWriteKeyValueImpl{})
 
 	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{
@@ -1013,8 +1019,7 @@ func TestFinalizeBlockSimulateRace(t *testing.T) {
 				return
 			default:
 			}
-			_, _ = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: height})
-			_, _ = suite.baseApp.Commit()
+			finalizeRaceBlock(suite.baseApp, height, oe)
 		}
 	}()
 
@@ -1043,12 +1048,20 @@ func TestFinalizeBlockSimulateRace(t *testing.T) {
 // AnteHandler, so the test AnteHandler performs the store read/write that a
 // message handler performs in the Simulate test.
 func TestFinalizeBlockCheckTxRace(t *testing.T) {
+	for _, oe := range []bool{false, true} {
+		t.Run(fmt.Sprintf("oe=%t", oe), func(t *testing.T) { testFinalizeBlockCheckTxRace(t, oe) })
+	}
+}
+
+func testFinalizeBlockCheckTxRace(t *testing.T, oe bool) {
 	preBlocker := func(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
 		store := ctx.KVStore(capKey2)
 		store.Set([]byte(fmt.Sprintf("block-key-%d", req.Height)), bytes.Repeat([]byte("a"), 64))
 		return &sdk.ResponsePreBlock{}, nil
 	}
+	var anteCalls atomic.Int64
 	anteHandler := func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
+		anteCalls.Add(1)
 		counter, _ := parseTxMemo(t, tx)
 		store := ctx.KVStore(capKey2)
 		key := []byte(fmt.Sprintf("checktx-key-%d", counter))
@@ -1058,10 +1071,11 @@ func TestFinalizeBlockCheckTxRace(t *testing.T) {
 		store.Set(key, bytes.Repeat([]byte("b"), 64))
 		return ctx.WithPriority(testTxPriority), nil
 	}
-	suite := NewBaseAppSuite(t, func(app *baseapp.BaseApp) {
+	suite := NewBaseAppSuite(t, raceTestOpts(oe, func(app *baseapp.BaseApp) {
 		app.SetPreBlocker(preBlocker)
 		app.SetAnteHandler(anteHandler)
-	})
+	})...)
+	baseapptestutil.RegisterKeyValueServer(suite.baseApp.MsgServiceRouter(), ReadWriteKeyValueImpl{})
 
 	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{
 		ConsensusParams: &cmtproto.ConsensusParams{},
@@ -1074,22 +1088,15 @@ func TestFinalizeBlockCheckTxRace(t *testing.T) {
 	_, err = suite.baseApp.Commit()
 	require.NoError(t, err)
 
-	privKey := secp256k1.GenPrivKeyFromSecret([]byte("test"))
-	pubKey := privKey.PubKey()
+	// CheckTx rejects a tx without msgs before the AnteHandler runs.
+	_, _, addr := testdata.KeyTestPubAddr()
 	makeCheckTx := func(counter int64) ([]byte, error) {
 		builder := suite.txConfig.NewTxBuilder()
 		builder.SetMemo("counter=" + strconv.FormatInt(counter, 10) + "&failOnAnte=false")
-		err := builder.SetSignatures(
-			signingtypes.SignatureV2{
-				PubKey:   pubKey,
-				Sequence: uint64(counter),
-				Data:     &signingtypes.SingleSignatureData{},
-			},
-		)
-		if err != nil {
+		if err := builder.SetMsgs(&baseapptestutil.MsgKeyValue{Key: []byte("k"), Value: []byte("v"), Signer: addr.String()}); err != nil {
 			return nil, err
 		}
-
+		setTxSignature(t, builder, uint64(counter))
 		return suite.txConfig.TxEncoder()(builder.GetTx())
 	}
 
@@ -1111,8 +1118,7 @@ func TestFinalizeBlockCheckTxRace(t *testing.T) {
 				return
 			default:
 			}
-			_, _ = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: height})
-			_, _ = suite.baseApp.Commit()
+			finalizeRaceBlock(suite.baseApp, height, oe)
 		}
 	}()
 
@@ -1136,6 +1142,28 @@ func TestFinalizeBlockCheckTxRace(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	close(done)
 	wg.Wait()
+	require.Greater(t, anteCalls.Load(), int64(1), "concurrent CheckTx never reached the AnteHandler")
+}
+
+func raceTestOpts(oe bool, opt func(*baseapp.BaseApp)) []func(*baseapp.BaseApp) {
+	if oe {
+		return []func(*baseapp.BaseApp){opt, baseapp.SetOptimisticExecution()}
+	}
+	return []func(*baseapp.BaseApp){opt}
+}
+
+// finalizeRaceBlock finalizes and commits height. With OE it first runs
+// ProcessProposal, and every third height FinalizeBlock's hash differs so the run aborts.
+func finalizeRaceBlock(app *baseapp.BaseApp, height int64, oe bool) {
+	hash := []byte(fmt.Sprintf("h%d", height))
+	if oe {
+		_, _ = app.ProcessProposal(&abci.RequestProcessProposal{Height: height, Hash: hash})
+		if height%3 == 0 {
+			hash = []byte(fmt.Sprintf("other-%d", height))
+		}
+	}
+	_, _ = app.FinalizeBlock(&abci.RequestFinalizeBlock{Height: height, Hash: hash})
+	_, _ = app.Commit()
 }
 
 func TestSetMinGasPrices(t *testing.T) {

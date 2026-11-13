@@ -1038,6 +1038,21 @@ func testFinalizeBlockSimulateRace(t *testing.T, oe bool) {
 		}
 	}()
 
+	// Query reader: builds query contexts from committed state while blocks
+	// (with oe=true, served and aborted speculative runs) are finalized.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			_, _ = suite.baseApp.CreateQueryContext(0, false)
+		}
+	}()
+
 	time.Sleep(100 * time.Millisecond)
 	close(done)
 	wg.Wait()

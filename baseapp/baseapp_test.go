@@ -1076,16 +1076,19 @@ func newRaceSuite(t *testing.T, oe bool, opt func(*baseapp.BaseApp)) *BaseAppSui
 	return suite
 }
 
-// runRace calls each reader in its own goroutine with i = 1, 2, ... until
-// writer returns.
+// runRace calls each reader in its own goroutine with i = 1, 2, ... until writer
+// returns. writer starts only after every reader has made its first call.
 func runRace(writer func(), readers ...func(i int64)) {
 	done := make(chan struct{})
-	var wg sync.WaitGroup
+	var started, wg sync.WaitGroup
 	for _, fn := range readers {
 		wg.Add(1)
+		started.Add(1)
 		go func() {
 			defer wg.Done()
-			for i := int64(1); ; i++ {
+			fn(1)
+			started.Done()
+			for i := int64(2); ; i++ {
 				select {
 				case <-done:
 					return
@@ -1095,6 +1098,7 @@ func runRace(writer func(), readers ...func(i int64)) {
 			}
 		}()
 	}
+	started.Wait()
 	writer()
 	close(done)
 	wg.Wait()
@@ -1109,6 +1113,7 @@ func finalizeRaceBlocks(t *testing.T, app *baseapp.BaseApp, oe bool) {
 			pp, err := app.ProcessProposal(&abci.RequestProcessProposal{Height: height, Hash: hash})
 			assert.NoError(t, err)
 			assert.Equal(t, abci.ResponseProcessProposal_ACCEPT, pp.GetStatus())
+			assert.True(t, app.OEInitialized(), "OE did not start at height %d", height)
 			if height%3 == 0 {
 				hash = []byte(fmt.Sprintf("other-%d", height))
 			}

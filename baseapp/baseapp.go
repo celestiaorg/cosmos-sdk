@@ -188,6 +188,9 @@ type BaseApp struct {
 	// including the goroutine handling.This is experimental and must be enabled
 	// by developers.
 	optimisticExec *oe.OptimisticExecution
+	// finalizedSinceStart is set by the first successful FinalizeBlock after process
+	// start; OE waits for it so first-run in-memory init runs in a real execution.
+	finalizedSinceStart bool
 
 	// disableBlockGasMeter will disable the block gas meter if true, block gas meter is tricky to support
 	// when executing transactions in parallel.

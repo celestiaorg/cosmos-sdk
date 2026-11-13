@@ -8,12 +8,14 @@ import (
 	"math/rand"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	dbm "github.com/cosmos/cosmos-db"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	errorsmod "cosmossdk.io/errors"
@@ -35,7 +37,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/testutil"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	signingtypes "github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 )
 
@@ -956,6 +957,12 @@ func TestCommitSimulateRace(t *testing.T) {
 // service calls Simulate concurrently with block finalization.
 // See https://github.com/celestiaorg/cosmos-sdk/issues/140
 func TestFinalizeBlockSimulateRace(t *testing.T) {
+	for _, oe := range []bool{false, true} {
+		t.Run(fmt.Sprintf("oe=%t", oe), func(t *testing.T) { testFinalizeBlockSimulateRace(t, oe) })
+	}
+}
+
+func testFinalizeBlockSimulateRace(t *testing.T, oe bool) {
 	// The writer mutates store state via a PreBlocker rather than via a tx so
 	// that FinalizeBlock does not decode txs / call GetSigners. Combined with a
 	// single reader goroutine (whose GetSigners calls are therefore serial),
@@ -966,19 +973,7 @@ func TestFinalizeBlockSimulateRace(t *testing.T) {
 		store.Set([]byte(fmt.Sprintf("key-%d", req.Height)), bytes.Repeat([]byte("a"), 64))
 		return &sdk.ResponsePreBlock{}, nil
 	}
-	suite := NewBaseAppSuite(t, func(app *baseapp.BaseApp) { app.SetPreBlocker(preBlocker) })
-	baseapptestutil.RegisterKeyValueServer(suite.baseApp.MsgServiceRouter(), ReadWriteKeyValueImpl{})
-
-	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{
-		ConsensusParams: &cmtproto.ConsensusParams{},
-	})
-	require.NoError(t, err)
-
-	// Commit an initial block so the IAVL tree has committed nodes to traverse.
-	_, err = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1})
-	require.NoError(t, err)
-	_, err = suite.baseApp.Commit()
-	require.NoError(t, err)
+	suite := newRaceSuite(t, oe, func(app *baseapp.BaseApp) { app.SetPreBlocker(preBlocker) })
 
 	// Build a tx whose handler reads store state during simulation.
 	_, _, addr := testdata.KeyTestPubAddr()
@@ -998,44 +993,13 @@ func TestFinalizeBlockSimulateRace(t *testing.T) {
 	// race rather than unrelated cold-start races in tx decoding.
 	_, _, _ = suite.baseApp.Simulate(simTx)
 
-	done := make(chan struct{})
-	var wg sync.WaitGroup
-
-	// Writer goroutine: repeatedly finalize + commit blocks. The PreBlocker
-	// writes store state, so FinalizeBlock's workingHash() flushes those writes
-	// into the root IAVL tree (MutableTree.Set).
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for height := int64(2); ; height++ {
-			select {
-			case <-done:
-				return
-			default:
-			}
-			_, _ = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: height})
-			_, _ = suite.baseApp.Commit()
-		}
-	}()
-
-	// Reader goroutine: repeatedly Simulate a tx whose handler reads store
-	// state, reaching the parent IAVL tree (MutableTree.Get) on a cache miss.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for {
-			select {
-			case <-done:
-				return
-			default:
-			}
-			_, _, _ = suite.baseApp.Simulate(simTx)
-		}
-	}()
-
-	time.Sleep(100 * time.Millisecond)
-	close(done)
-	wg.Wait()
+	// FinalizeBlock's workingHash() flushes PreBlocker writes into the root IAVL
+	// tree while Simulate reads it on a cache miss and queries read committed state.
+	runRace(
+		func() { finalizeRaceBlocks(t, suite.baseApp, oe) },
+		func(int64) { _, _, _ = suite.baseApp.Simulate(simTx) },
+		func(int64) { _, _ = suite.baseApp.CreateQueryContext(0, false) },
+	)
 }
 
 // TestFinalizeBlockCheckTxRace reproduces the same root-store race as
@@ -1043,12 +1007,20 @@ func TestFinalizeBlockSimulateRace(t *testing.T) {
 // AnteHandler, so the test AnteHandler performs the store read/write that a
 // message handler performs in the Simulate test.
 func TestFinalizeBlockCheckTxRace(t *testing.T) {
+	for _, oe := range []bool{false, true} {
+		t.Run(fmt.Sprintf("oe=%t", oe), func(t *testing.T) { testFinalizeBlockCheckTxRace(t, oe) })
+	}
+}
+
+func testFinalizeBlockCheckTxRace(t *testing.T, oe bool) {
 	preBlocker := func(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
 		store := ctx.KVStore(capKey2)
 		store.Set([]byte(fmt.Sprintf("block-key-%d", req.Height)), bytes.Repeat([]byte("a"), 64))
 		return &sdk.ResponsePreBlock{}, nil
 	}
+	var anteCalls atomic.Int64
 	anteHandler := func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
+		anteCalls.Add(1)
 		counter, _ := parseTxMemo(t, tx)
 		store := ctx.KVStore(capKey2)
 		key := []byte(fmt.Sprintf("checktx-key-%d", counter))
@@ -1058,84 +1030,99 @@ func TestFinalizeBlockCheckTxRace(t *testing.T) {
 		store.Set(key, bytes.Repeat([]byte("b"), 64))
 		return ctx.WithPriority(testTxPriority), nil
 	}
-	suite := NewBaseAppSuite(t, func(app *baseapp.BaseApp) {
+	suite := newRaceSuite(t, oe, func(app *baseapp.BaseApp) {
 		app.SetPreBlocker(preBlocker)
 		app.SetAnteHandler(anteHandler)
 	})
 
-	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{
-		ConsensusParams: &cmtproto.ConsensusParams{},
-	})
-	require.NoError(t, err)
-
-	// Commit an initial block so the IAVL tree has committed nodes to traverse.
-	_, err = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1})
-	require.NoError(t, err)
-	_, err = suite.baseApp.Commit()
-	require.NoError(t, err)
-
-	privKey := secp256k1.GenPrivKeyFromSecret([]byte("test"))
-	pubKey := privKey.PubKey()
-	makeCheckTx := func(counter int64) ([]byte, error) {
+	// CheckTx rejects a tx without msgs before the AnteHandler runs.
+	_, _, addr := testdata.KeyTestPubAddr()
+	makeCheckTx := func(counter int64) []byte {
 		builder := suite.txConfig.NewTxBuilder()
 		builder.SetMemo("counter=" + strconv.FormatInt(counter, 10) + "&failOnAnte=false")
-		err := builder.SetSignatures(
-			signingtypes.SignatureV2{
-				PubKey:   pubKey,
-				Sequence: uint64(counter),
-				Data:     &signingtypes.SingleSignatureData{},
-			},
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		return suite.txConfig.TxEncoder()(builder.GetTx())
+		require.NoError(t, builder.SetMsgs(&baseapptestutil.MsgKeyValue{Key: []byte("k"), Value: []byte("v"), Signer: addr.String()}))
+		setTxSignature(t, builder, uint64(counter))
+		bz, err := suite.txConfig.TxEncoder()(builder.GetTx())
+		require.NoError(t, err)
+		return bz
 	}
 
 	// Warm up tx decoding and signing-context caches outside the concurrent
 	// section so the test stays focused on CheckTx vs FinalizeBlock.
-	warmupTx, err := makeCheckTx(0)
+	_, _ = suite.baseApp.CheckTx(&abci.RequestCheckTx{Tx: makeCheckTx(0)})
+
+	runRace(
+		func() { finalizeRaceBlocks(t, suite.baseApp, oe) },
+		func(i int64) { _, _ = suite.baseApp.CheckTx(&abci.RequestCheckTx{Tx: makeCheckTx(i)}) },
+	)
+	require.Greater(t, anteCalls.Load(), int64(1), "concurrent CheckTx never reached the AnteHandler")
+}
+
+// newRaceSuite builds a suite with opt (plus OE when oe is set) and commits
+// height 1 so the IAVL tree has committed nodes to traverse.
+func newRaceSuite(t *testing.T, oe bool, opt func(*baseapp.BaseApp)) *BaseAppSuite {
+	opts := []func(*baseapp.BaseApp){opt}
+	if oe {
+		opts = append(opts, baseapp.SetOptimisticExecution())
+	}
+	suite := NewBaseAppSuite(t, opts...)
+	baseapptestutil.RegisterKeyValueServer(suite.baseApp.MsgServiceRouter(), ReadWriteKeyValueImpl{})
+	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{ConsensusParams: &cmtproto.ConsensusParams{}})
 	require.NoError(t, err)
-	_, _ = suite.baseApp.CheckTx(&abci.RequestCheckTx{Tx: warmupTx})
+	_, err = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1})
+	require.NoError(t, err)
+	_, err = suite.baseApp.Commit()
+	require.NoError(t, err)
+	return suite
+}
 
+// runRace calls each reader in its own goroutine with i = 1, 2, ... until writer
+// returns. writer starts only after every reader has made its first call.
+func runRace(writer func(), readers ...func(i int64)) {
 	done := make(chan struct{})
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for height := int64(2); ; height++ {
-			select {
-			case <-done:
-				return
-			default:
+	var started, wg sync.WaitGroup
+	for _, fn := range readers {
+		wg.Add(1)
+		started.Add(1)
+		go func() {
+			defer wg.Done()
+			fn(1)
+			started.Done()
+			for i := int64(2); ; i++ {
+				select {
+				case <-done:
+					return
+				default:
+					fn(i)
+				}
 			}
-			_, _ = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: height})
-			_, _ = suite.baseApp.Commit()
-		}
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for counter := int64(1); ; counter++ {
-			select {
-			case <-done:
-				return
-			default:
-			}
-			tx, err := makeCheckTx(counter)
-			if err != nil {
-				continue
-			}
-			_, _ = suite.baseApp.CheckTx(&abci.RequestCheckTx{Tx: tx})
-		}
-	}()
-
-	time.Sleep(100 * time.Millisecond)
+		}()
+	}
+	started.Wait()
+	writer()
 	close(done)
 	wg.Wait()
+}
+
+// finalizeRaceBlocks finalizes and commits heights 2..31. With OE each runs
+// ProcessProposal first, and every third FinalizeBlock hash differs so the run aborts.
+func finalizeRaceBlocks(t *testing.T, app *baseapp.BaseApp, oe bool) {
+	for height := int64(2); height <= 31; height++ {
+		hash := []byte(fmt.Sprintf("h%d", height))
+		if oe {
+			pp, err := app.ProcessProposal(&abci.RequestProcessProposal{Height: height, Hash: hash})
+			assert.NoError(t, err)
+			assert.Equal(t, abci.ResponseProcessProposal_ACCEPT, pp.GetStatus())
+			assert.True(t, app.OEInitialized(), "OE did not start at height %d", height)
+			if height%3 == 0 {
+				hash = []byte(fmt.Sprintf("other-%d", height))
+			}
+		}
+		_, err := app.FinalizeBlock(&abci.RequestFinalizeBlock{Height: height, Hash: hash})
+		assert.NoError(t, err)
+		_, err = app.Commit()
+		assert.NoError(t, err)
+	}
 }
 
 func TestSetMinGasPrices(t *testing.T) {

@@ -68,11 +68,15 @@ func WithTxsTransform(fn func(txs [][]byte) [][]byte) func(*OptimisticExecution)
 	}
 }
 
-// Reset resets the OE context. Must be called whenever we want to invalidate
-// the current OE.
+// Reset forgets a completed OE run. The caller must first join the worker using
+// WaitResult or Abort.
 func (oe *OptimisticExecution) Reset() {
 	oe.mtx.Lock()
 	defer oe.mtx.Unlock()
+	if oe.cancelFunc != nil {
+		oe.cancelFunc()
+	}
+	oe.cancelFunc = nil
 	oe.request = nil
 	oe.response = nil
 	oe.err = nil
@@ -167,7 +171,7 @@ func (oe *OptimisticExecution) transformTxs(txs [][]byte) (out [][]byte, ok bool
 
 // AbortIfNeeded aborts the OE if the request hash or txs differ from the running
 // OE's. Returns true if the OE was aborted.
-func (oe *OptimisticExecution) AbortIfNeeded(reqHash []byte, reqTxs [][]byte) bool {
+func (oe *OptimisticExecution) AbortIfNeeded(reqHeight int64, reqHash []byte, reqTxs [][]byte) bool {
 	if oe == nil {
 		return false
 	}
@@ -176,7 +180,7 @@ func (oe *OptimisticExecution) AbortIfNeeded(reqHash []byte, reqTxs [][]byte) bo
 	defer oe.mtx.Unlock()
 
 	if !bytes.Equal(oe.request.Hash, reqHash) {
-		oe.logger.Error("OE aborted due to hash mismatch", "oe_hash", hex.EncodeToString(oe.request.Hash), "req_hash", hex.EncodeToString(reqHash), "oe_height", oe.request.Height, "req_height", oe.request.Height)
+		oe.logger.Error("OE aborted due to hash mismatch", "oe_hash", hex.EncodeToString(oe.request.Hash), "req_hash", hex.EncodeToString(reqHash), "oe_height", oe.request.Height, "req_height", reqHeight)
 		oe.cancelFunc()
 		return true
 	} else if !slices.EqualFunc(oe.request.Txs, reqTxs, bytes.Equal) {
@@ -197,12 +201,19 @@ func (oe *OptimisticExecution) AbortIfNeeded(reqHash []byte, reqTxs [][]byte) bo
 // Abort aborts the OE unconditionally, waits for it to finish and forgets it, so
 // a canceled run can never be served to FinalizeBlock.
 func (oe *OptimisticExecution) Abort() {
-	if oe == nil || oe.cancelFunc == nil {
+	if oe == nil {
+		return
+	}
+	// Read under the lock: Close calls Abort off the consensus goroutine.
+	oe.mtx.Lock()
+	cancel, stopCh := oe.cancelFunc, oe.stopCh
+	oe.mtx.Unlock()
+	if cancel == nil {
 		return
 	}
 
-	oe.cancelFunc()
-	<-oe.stopCh
+	cancel()
+	<-stopCh
 	oe.Reset()
 }
 

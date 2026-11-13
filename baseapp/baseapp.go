@@ -188,6 +188,9 @@ type BaseApp struct {
 	// including the goroutine handling.This is experimental and must be enabled
 	// by developers.
 	optimisticExec *oe.OptimisticExecution
+	// finalizedSinceStart is set by the first successful FinalizeBlock after process
+	// start; OE waits for it so first-run in-memory init runs in a real execution.
+	finalizedSinceStart bool
 
 	// disableBlockGasMeter will disable the block gas meter if true, block gas meter is tricky to support
 	// when executing transactions in parallel.
@@ -1053,8 +1056,13 @@ func (app *BaseApp) TxEncode(tx sdk.Tx) ([]byte, error) {
 	return app.txEncoder(tx)
 }
 
-// Close is called in start cmd to gracefully cleanup resources.
+// Close is called in start cmd to gracefully cleanup resources. It must run
+// after consensus has stopped calling ABCI methods.
 func (app *BaseApp) Close() error {
+	// Consensus may stop after ProcessProposal starts a speculative worker.
+	// Join it before closing any resources it can still be using.
+	app.optimisticExec.Abort()
+
 	var errs []error
 
 	// Close app.db (opened by cosmos-sdk/server/start.go call to openDB)

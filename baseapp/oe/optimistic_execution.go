@@ -204,7 +204,7 @@ func (oe *OptimisticExecution) Abort() {
 	if oe == nil {
 		return
 	}
-	// Close must run after consensus has stopped calling ABCI methods.
+	// Read under the lock: Close calls Abort off the consensus goroutine.
 	oe.mtx.Lock()
 	cancel, stopCh := oe.cancelFunc, oe.stopCh
 	oe.mtx.Unlock()

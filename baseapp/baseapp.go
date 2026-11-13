@@ -1053,7 +1053,8 @@ func (app *BaseApp) TxEncode(tx sdk.Tx) ([]byte, error) {
 	return app.txEncoder(tx)
 }
 
-// Close is called in start cmd to gracefully cleanup resources.
+// Close is called in start cmd to gracefully cleanup resources. It must run
+// after consensus has stopped calling ABCI methods.
 func (app *BaseApp) Close() error {
 	// Consensus may stop after ProcessProposal starts a speculative worker.
 	// Join it before closing any resources it can still be using.

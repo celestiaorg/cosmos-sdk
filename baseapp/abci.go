@@ -877,7 +877,7 @@ func (app *BaseApp) FinalizeBlock(req *abci.RequestFinalizeBlock) (res *abci.Res
 
 	if app.optimisticExec.Initialized() {
 		// check if the hash and txs we got are the ones we are executing
-		if !app.optimisticExec.AbortIfNeeded(req.Hash, req.Txs) {
+		if !app.optimisticExec.AbortIfNeeded(req.Height, req.Hash, req.Txs) {
 			// WaitResult joins the worker, including before re-raising its panic.
 			// Forget the consumed result but retain finalizeBlockState for Commit.
 			defer app.optimisticExec.Reset()

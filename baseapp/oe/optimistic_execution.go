@@ -171,7 +171,7 @@ func (oe *OptimisticExecution) transformTxs(txs [][]byte) (out [][]byte, ok bool
 
 // AbortIfNeeded aborts the OE if the request hash or txs differ from the running
 // OE's. Returns true if the OE was aborted.
-func (oe *OptimisticExecution) AbortIfNeeded(reqHash []byte, reqTxs [][]byte) bool {
+func (oe *OptimisticExecution) AbortIfNeeded(reqHeight int64, reqHash []byte, reqTxs [][]byte) bool {
 	if oe == nil {
 		return false
 	}
@@ -180,7 +180,7 @@ func (oe *OptimisticExecution) AbortIfNeeded(reqHash []byte, reqTxs [][]byte) bo
 	defer oe.mtx.Unlock()
 
 	if !bytes.Equal(oe.request.Hash, reqHash) {
-		oe.logger.Error("OE aborted due to hash mismatch", "oe_hash", hex.EncodeToString(oe.request.Hash), "req_hash", hex.EncodeToString(reqHash), "oe_height", oe.request.Height, "req_height", oe.request.Height)
+		oe.logger.Error("OE aborted due to hash mismatch", "oe_hash", hex.EncodeToString(oe.request.Hash), "req_hash", hex.EncodeToString(reqHash), "oe_height", oe.request.Height, "req_height", reqHeight)
 		oe.cancelFunc()
 		return true
 	} else if !slices.EqualFunc(oe.request.Txs, reqTxs, bytes.Equal) {
@@ -204,7 +204,7 @@ func (oe *OptimisticExecution) Abort() {
 	if oe == nil {
 		return
 	}
-	// Read under the lock: Close may abort while FinalizeBlock resets.
+	// Close must run after consensus has stopped calling ABCI methods.
 	oe.mtx.Lock()
 	cancel, stopCh := oe.cancelFunc, oe.stopCh
 	oe.mtx.Unlock()

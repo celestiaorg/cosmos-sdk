@@ -46,6 +46,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### Features
 
+* (baseapp) [#188](https://github.com/celestiaorg/cosmos-sdk/pull/188) `BaseApp.ReadCheckState` runs a function with the check state context under the lock `CheckTx` and `Commit` take, so apps can read check state outside `CheckTx` without racing `FinalizeBlock` and `Commit`.
 * (server/config) [#187](https://github.com/celestiaorg/cosmos-sdk/pull/187) Top-level `disable-optimistic-execution` app.toml key (`BaseConfig.DisableOptimisticExecution`, default `false`), read by the app to turn off optimistic execution on one node.
 
 ### Improvements
@@ -67,6 +68,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### Bug Fixes
 
+* (baseapp) [#188](https://github.com/celestiaorg/cosmos-sdk/pull/188) `/store` ABCI queries hold the check state read lock while they read the IAVL tree, so they no longer race `FinalizeBlock` and `Commit` writing it ([celestia-app#8638](https://github.com/celestiaorg/celestia-app/issues/8638)).
 * (store) [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) `RollbackToVersion` keeps the target height's commit timestamp instead of resetting it to zero.
 * (x/distribution) [#169](https://github.com/celestiaorg/cosmos-sdk/pull/169) Export and import user outstanding rewards (`withdrawNow=false`) in genesis field `user_outstanding_rewards`, so an exported genesis no longer fails the module balance check on import.
 * (x/distribution) [#169](https://github.com/celestiaorg/cosmos-sdk/pull/169) `ModuleAccountInvariant` counts user outstanding rewards, so it no longer reports a broken invariant while rewards are parked.

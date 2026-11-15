@@ -240,14 +240,10 @@ func TestMultistoreRestore_ResetsInterBlockCache(t *testing.T) {
 	source := newMultiStoreWithMixedMountsAndBasicData(dbm.NewMemDB())
 	version := uint64(source.LastCommitID().Version)
 
-	target := rootmulti.NewStore(dbm.NewMemDB(), log.NewNopLogger(), metrics.NewNoOpMetrics())
+	target := newMultiStoreWithMixedMounts(dbm.NewMemDB())
 	target.SetInterBlockCache(cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize))
-	key := types.NewKVStoreKey("iavl1")
-	target.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
-	target.MountStoreWithDB(types.NewKVStoreKey("iavl2"), types.StoreTypeIAVL, nil)
-	target.MountStoreWithDB(types.NewKVStoreKey("iavl3"), types.StoreTypeIAVL, nil)
-	target.MountStoreWithDB(types.NewTransientStoreKey("trans1"), types.StoreTypeTransient, nil)
-	require.NoError(t, target.LoadLatestVersion())
+	require.NoError(t, target.LoadLatestVersion()) // wrap the stores in the cache
+	key := target.StoreKeysByName()["iavl1"]
 
 	require.Nil(t, target.GetKVStore(key).Get([]byte("a")))
 	require.Nil(t, target.CacheMultiStore().GetKVStore(key).Get([]byte("b")))

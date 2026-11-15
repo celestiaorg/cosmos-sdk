@@ -296,7 +296,12 @@ func TestABCI_ApplySnapshotChunk(t *testing.T) {
 		snapshotKeepRecent: 2,
 		pruningOpts:        pruningtypes.NewPruningOptions(pruningtypes.PruningNothing),
 	}
-	targetSuite := NewBaseAppSuiteWithSnapshots(t, targetCfg)
+	// the inter-block cache must not keep values read before the restore
+	targetSuite := NewBaseAppSuiteWithSnapshots(t, targetCfg,
+		baseapp.SetInterBlockCache(storecache.NewCommitKVStoreCacheManager(storecache.DefaultCommitKVStoreCacheSize)))
+	key := []byte("0")
+	require.Nil(t, targetSuite.baseApp.NewContext(true).KVStore(capKey2).Get(key))
+	require.Nil(t, targetSuite.baseApp.NewUncachedContext(false, cmtproto.Header{}).KVStore(capKey2).Get(key))
 
 	// fetch latest snapshot to restore
 	respList, err := srcSuite.baseApp.ListSnapshots(&abci.RequestListSnapshots{})
@@ -348,51 +353,9 @@ func TestABCI_ApplySnapshotChunk(t *testing.T) {
 
 	// the target should now have the same hash as the source
 	require.Equal(t, srcSuite.baseApp.LastCommitID(), targetSuite.baseApp.LastCommitID())
-}
 
-// TestABCI_ApplySnapshotChunk_ReadsBeforeRestore reads a key through the check
-// state and the inter-block cache before a restore and checks that both return
-// the restored value once the last chunk is applied.
-func TestABCI_ApplySnapshotChunk_ReadsBeforeRestore(t *testing.T) {
-	srcSuite := NewBaseAppSuiteWithSnapshots(t, SnapshotsConfig{
-		blocks:           2,
-		blockTxs:         2,
-		snapshotInterval: 2,
-		pruningOpts:      pruningtypes.NewPruningOptions(pruningtypes.PruningNothing),
-	})
-	targetSuite := NewBaseAppSuiteWithSnapshots(t, SnapshotsConfig{
-		snapshotInterval: 2,
-		pruningOpts:      pruningtypes.NewPruningOptions(pruningtypes.PruningNothing),
-	}, baseapp.SetInterBlockCache(storecache.NewCommitKVStoreCacheManager(storecache.DefaultCommitKVStoreCacheSize)))
-	src, target := srcSuite.baseApp, targetSuite.baseApp
-
-	key := []byte("0")
-	want := src.NewUncachedContext(false, cmtproto.Header{}).KVStore(capKey2).Get(key)
+	want := srcSuite.baseApp.NewUncachedContext(false, cmtproto.Header{}).KVStore(capKey2).Get(key)
 	require.NotEmpty(t, want)
-	require.Nil(t, target.NewContext(true).KVStore(capKey2).Get(key))
-	require.Nil(t, target.NewUncachedContext(false, cmtproto.Header{}).KVStore(capKey2).Get(key))
-
-	respList, err := src.ListSnapshots(&abci.RequestListSnapshots{})
-	require.NoError(t, err)
-	require.NotEmpty(t, respList.Snapshots)
-	snapshot := respList.Snapshots[0]
-
-	respOffer, err := target.OfferSnapshot(&abci.RequestOfferSnapshot{Snapshot: snapshot})
-	require.NoError(t, err)
-	require.Equal(t, abci.ResponseOfferSnapshot_ACCEPT, respOffer.Result)
-	for index := uint32(0); index < snapshot.Chunks; index++ {
-		respChunk, err := src.LoadSnapshotChunk(&abci.RequestLoadSnapshotChunk{
-			Height: snapshot.Height,
-			Format: snapshot.Format,
-			Chunk:  index,
-		})
-		require.NoError(t, err)
-		respApply, err := target.ApplySnapshotChunk(&abci.RequestApplySnapshotChunk{Index: index, Chunk: respChunk.Chunk})
-		require.NoError(t, err)
-		require.Equal(t, abci.ResponseApplySnapshotChunk_ACCEPT, respApply.Result)
-	}
-	require.Equal(t, src.LastCommitID(), target.LastCommitID())
-
-	require.Equal(t, want, target.NewContext(true).KVStore(capKey2).Get(key))
-	require.Equal(t, want, target.NewUncachedContext(false, cmtproto.Header{}).KVStore(capKey2).Get(key))
+	require.Equal(t, want, targetSuite.baseApp.NewContext(true).KVStore(capKey2).Get(key))
+	require.Equal(t, want, targetSuite.baseApp.NewUncachedContext(false, cmtproto.Header{}).KVStore(capKey2).Get(key))
 }

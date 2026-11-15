@@ -42,6 +42,10 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 * (baseapp) [#190](https://github.com/celestiaorg/cosmos-sdk/pull/190) `/store/<name>/subspace` ABCI queries are off by default; set `enable-subspace-queries = true` in app.toml to serve them (`baseapp.SetSubspaceQueries`).
 
+### Features
+
+* (baseapp) [#188](https://github.com/celestiaorg/cosmos-sdk/pull/188) `BaseApp.ReadCheckState` runs a function with the check state context under the lock `CheckTx` and `Commit` take, so apps can read check state outside `CheckTx` without racing `FinalizeBlock` and `Commit`.
+
 ### State Machine Breaking
 
 * (baseapp) [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) `FinalizeBlock` now executes transactions in two phases. Ante handlers run first for all transactions in block order, followed by message execution for every transaction whose ante handler succeeded. Compared with sequential execution:
@@ -53,6 +57,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### Bug Fixes
 
+* (baseapp) [#188](https://github.com/celestiaorg/cosmos-sdk/pull/188) `/store` ABCI queries hold the check state read lock while they read the IAVL tree, so they no longer race `FinalizeBlock` and `Commit` writing it ([celestia-app#8638](https://github.com/celestiaorg/celestia-app/issues/8638)).
 * (store) [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) Recover automatically from an IAVL commit that was interrupted mid-write. A node killed while committing block N (SIGKILL, OOM, power loss) could be left with an IAVL store that has some of version N's nodes on disk but no root node. The node then started, replayed block N, and panicked with `version does not exist` on every restart until the operator ran `rollback`.
     * `LoadLatestVersion` and `LoadLatestVersionAndUpgrade` now detect a version whose root is missing and discard it before replay, which is what `rollback` did by hand. A complete version above the committed height is kept and recommitted as a no-op. `LoadVersion` and `LoadVersionAndUpgrade` are unchanged and never delete newer state.
     * The repair can trigger a fast node index rebuild for the affected store on that start, logged at info level.

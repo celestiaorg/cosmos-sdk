@@ -8,12 +8,14 @@ import (
 	"math/rand"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	dbm "github.com/cosmos/cosmos-db"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 
@@ -1140,6 +1142,106 @@ func TestFinalizeBlockCheckTxRace(t *testing.T) {
 	wg.Wait()
 }
 
+// TestFinalizeBlockReadCheckStateRace checks that store reads through
+// ReadCheckState do not race workingHash and Commit writing the IAVL tree.
+func TestFinalizeBlockReadCheckStateRace(t *testing.T) {
+	for _, oe := range []bool{false, true} {
+		t.Run(fmt.Sprintf("oe=%t", oe), func(t *testing.T) {
+			suite := newRaceSuite(t, oe, func(app *baseapp.BaseApp) { app.SetPreBlocker(raceKeyPreBlocker) })
+			runRace(
+				func() { finalizeRaceBlocks(t, suite.baseApp, oe) },
+				func(i int64) {
+					// A fresh key misses checkState's cache and reads the tree.
+					assert.True(t, suite.baseApp.ReadCheckState(func(ctx sdk.Context) {
+						_ = ctx.KVStore(capKey2).Get([]byte(fmt.Sprintf("read-key-%d", i)))
+					}))
+				},
+			)
+		})
+	}
+}
+
+// TestConcurrentReadCheckState checks that concurrent ReadCheckState callers do
+// not share a gas meter or event manager.
+func TestConcurrentReadCheckState(t *testing.T) {
+	suite := newRaceSuite(t, false, func(*baseapp.BaseApp) {})
+	read := func(i int64) {
+		assert.True(t, suite.baseApp.ReadCheckState(func(ctx sdk.Context) {
+			_ = ctx.KVStore(capKey2).Get([]byte(fmt.Sprintf("read-key-%d", i)))
+			ctx.EventManager().EmitEvent(sdk.NewEvent("read"))
+		}))
+	}
+	runRace(func() { time.Sleep(200 * time.Millisecond) }, read, read)
+}
+
+// TestFinalizeBlockStoreQueryRace checks that /store ABCI queries do not race
+// workingHash and Commit writing the IAVL tree.
+// See https://github.com/celestiaorg/celestia-app/issues/8638
+func TestFinalizeBlockStoreQueryRace(t *testing.T) {
+	for _, oe := range []bool{false, true} {
+		t.Run(fmt.Sprintf("oe=%t", oe), func(t *testing.T) {
+			suite := newRaceSuite(t, oe, func(app *baseapp.BaseApp) { app.SetPreBlocker(raceKeyPreBlocker) })
+			query := func(i int64, height int64, prove bool) *abci.ResponseQuery {
+				resp, err := suite.baseApp.Query(context.Background(), &abci.RequestQuery{
+					Path:   "/store/" + capKey2.Name() + "/key",
+					Data:   []byte(fmt.Sprintf("key-%d", 1+i%30)),
+					Height: height,
+					Prove:  prove,
+				})
+				assert.NoError(t, err)
+				return resp
+			}
+			resp := query(0, 0, false)
+			require.Zero(t, resp.Code, resp.Log)
+			require.NotEmpty(t, resp.Value)
+
+			// Proofs walk the tree nodes workingHash rewrites; heights <= 1 are refused.
+			var proved atomic.Int64
+			runRace(
+				func() { finalizeRaceBlocks(t, suite.baseApp, oe) },
+				func(i int64) { assert.Zero(t, query(i, 0, false).Code) },
+				func(i int64) {
+					if resp := query(i, suite.baseApp.LastBlockHeight(), true); resp.Code == 0 && resp.ProofOps != nil {
+						proved.Add(1)
+					}
+				},
+			)
+			require.Positive(t, proved.Load())
+		})
+	}
+}
+
+// TestFinalizeBlockSubspaceQueryRace checks that an enabled /subspace scan of the
+// live IAVL tree does not race workingHash and Commit.
+func TestFinalizeBlockSubspaceQueryRace(t *testing.T) {
+	for _, oe := range []bool{false, true} {
+		t.Run(fmt.Sprintf("oe=%t", oe), func(t *testing.T) {
+			suite := newRaceSuite(t, oe, func(app *baseapp.BaseApp) {
+				baseapp.SetSubspaceQueries(true)(app)
+				app.SetPreBlocker(raceKeyPreBlocker)
+			})
+			runRace(
+				func() { finalizeRaceBlocks(t, suite.baseApp, oe) },
+				func(int64) {
+					resp, err := suite.baseApp.Query(context.Background(), &abci.RequestQuery{
+						Path: "/store/" + capKey2.Name() + "/subspace",
+						Data: []byte("key-"),
+					})
+					assert.NoError(t, err)
+					assert.Zero(t, resp.Code, resp.Log)
+					assert.NotEmpty(t, resp.Value)
+				},
+			)
+		})
+	}
+}
+
+// raceKeyPreBlocker writes key-<height> so every block changes the IAVL tree.
+func raceKeyPreBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
+	ctx.KVStore(capKey2).Set([]byte(fmt.Sprintf("key-%d", req.Height)), bytes.Repeat([]byte("a"), 64))
+	return &sdk.ResponsePreBlock{}, nil
+}
+
 // newRaceSuite builds a suite with opt (plus OE when oe is set) and commits
 // height 1 so the IAVL tree has committed nodes to traverse.
 func newRaceSuite(t *testing.T, oe bool, opt func(*baseapp.BaseApp)) *BaseAppSuite {
@@ -1156,6 +1258,54 @@ func newRaceSuite(t *testing.T, oe bool, opt func(*baseapp.BaseApp)) *BaseAppSui
 	_, err = suite.baseApp.Commit()
 	require.NoError(t, err)
 	return suite
+}
+
+// runRace calls each reader in its own goroutine with i = 1, 2, ... until writer
+// returns. writer starts only after every reader has made its first call.
+func runRace(writer func(), readers ...func(i int64)) {
+	done := make(chan struct{})
+	var started, wg sync.WaitGroup
+	for _, fn := range readers {
+		wg.Add(1)
+		started.Add(1)
+		go func() {
+			defer wg.Done()
+			fn(1)
+			started.Done()
+			for i := int64(2); ; i++ {
+				select {
+				case <-done:
+					return
+				default:
+					fn(i)
+				}
+			}
+		}()
+	}
+	started.Wait()
+	writer()
+	close(done)
+	wg.Wait()
+}
+
+// finalizeRaceBlocks finalizes and commits heights 2..31. With OE each runs
+// ProcessProposal first, and every third FinalizeBlock hash differs so the run aborts.
+func finalizeRaceBlocks(t *testing.T, app *baseapp.BaseApp, oe bool) {
+	for height := int64(2); height <= 31; height++ {
+		hash := []byte(fmt.Sprintf("h%d", height))
+		if oe {
+			pp, err := app.ProcessProposal(&abci.RequestProcessProposal{Height: height, Hash: hash})
+			assert.NoError(t, err)
+			assert.Equal(t, abci.ResponseProcessProposal_ACCEPT, pp.GetStatus())
+			if height%3 == 0 {
+				hash = []byte(fmt.Sprintf("other-%d", height))
+			}
+		}
+		_, err := app.FinalizeBlock(&abci.RequestFinalizeBlock{Height: height, Hash: hash})
+		assert.NoError(t, err)
+		_, err = app.Commit()
+		assert.NoError(t, err)
+	}
 }
 
 func TestSetMinGasPrices(t *testing.T) {

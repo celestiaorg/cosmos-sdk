@@ -38,6 +38,10 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## [Unreleased]
 
+### API Breaking
+
+* (baseapp) [#190](https://github.com/celestiaorg/cosmos-sdk/pull/190) `/store/<name>/subspace` ABCI queries are off by default; set `enable-subspace-queries = true` in app.toml to serve them (`baseapp.SetSubspaceQueries`).
+
 ### State Machine Breaking
 
 * (baseapp) [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) `FinalizeBlock` now executes transactions in two phases. Ante handlers run first for all transactions in block order, followed by message execution for every transaction whose ante handler succeeded. Compared with sequential execution:

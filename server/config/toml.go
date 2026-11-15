@@ -25,6 +25,10 @@ minimum-gas-prices = "{{ .BaseConfig.MinGasPrices }}"
 # If this is set to zero, the query can consume an unbounded amount of gas.
 query-gas-limit = "{{ .BaseConfig.QueryGasLimit }}"
 
+# EnableSubspaceQueries serves /store/<name>/subspace ABCI queries, which scan a whole key prefix.
+# Leave false on validators.
+enable-subspace-queries = {{ .BaseConfig.EnableSubspaceQueries }}
+
 # default: the last 362880 states are kept, pruning at 10 block intervals
 # nothing: all historic states will be saved, nothing will be deleted (i.e. archiving node)
 # everything: 2 latest states will be kept; pruning at 10 block intervals.

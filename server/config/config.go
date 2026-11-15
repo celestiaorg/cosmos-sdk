@@ -90,6 +90,9 @@ type BaseConfig struct {
 	// AppDBBackend defines the type of Database to use for the application and snapshots databases.
 	// An empty string indicates that the CometBFT config's DBBackend value should be used.
 	AppDBBackend string `mapstructure:"app-db-backend"`
+
+	// EnableSubspaceQueries serves /store/<name>/subspace ABCI queries; DefaultConfig leaves it false.
+	EnableSubspaceQueries bool `mapstructure:"enable-subspace-queries"`
 }
 
 // APIConfig defines the API listener configuration.

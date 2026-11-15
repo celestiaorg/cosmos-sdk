@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"cosmossdk.io/log"
+	"cosmossdk.io/store/cache"
 	"cosmossdk.io/store/iavl"
 	"cosmossdk.io/store/metrics"
 	"cosmossdk.io/store/rootmulti"
@@ -230,6 +231,42 @@ func TestMultistoreSnapshotRestore(t *testing.T) {
 		default:
 			assertStoresEqual(t, sourceStore, targetStore, "store %q not equal", key.Name())
 		}
+	}
+}
+
+// TestMultistoreRestore_ResetsInterBlockCache reads keys through the inter-block
+// cache before a restore and checks they return the restored values after it.
+func TestMultistoreRestore_ResetsInterBlockCache(t *testing.T) {
+	source := newMultiStoreWithMixedMountsAndBasicData(dbm.NewMemDB())
+	version := uint64(source.LastCommitID().Version)
+
+	target := rootmulti.NewStore(dbm.NewMemDB(), log.NewNopLogger(), metrics.NewNoOpMetrics())
+	target.SetInterBlockCache(cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize))
+	key := types.NewKVStoreKey("iavl1")
+	target.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+	target.MountStoreWithDB(types.NewKVStoreKey("iavl2"), types.StoreTypeIAVL, nil)
+	target.MountStoreWithDB(types.NewKVStoreKey("iavl3"), types.StoreTypeIAVL, nil)
+	target.MountStoreWithDB(types.NewTransientStoreKey("trans1"), types.StoreTypeTransient, nil)
+	require.NoError(t, target.LoadLatestVersion())
+
+	require.Nil(t, target.GetKVStore(key).Get([]byte("a")))
+	require.Nil(t, target.CacheMultiStore().GetKVStore(key).Get([]byte("b")))
+
+	chunks := make(chan io.ReadCloser, 100)
+	go func() {
+		streamWriter := snapshots.NewStreamWriter(chunks)
+		defer streamWriter.Close()
+		require.NoError(t, source.Snapshot(version, streamWriter))
+	}()
+	streamReader, err := snapshots.NewStreamReader(chunks)
+	require.NoError(t, err)
+	_, err = target.Restore(version, snapshottypes.CurrentFormat, streamReader)
+	require.NoError(t, err)
+	require.Equal(t, source.LastCommitID(), target.LastCommitID())
+
+	for _, kv := range []struct{ k, v []byte }{{[]byte("a"), []byte{1}}, {[]byte("b"), []byte{2}}} {
+		require.Equal(t, kv.v, target.GetKVStore(key).Get(kv.k), "key %s", kv.k)
+		require.Equal(t, kv.v, target.CacheMultiStore().GetKVStore(key).Get(kv.k), "key %s", kv.k)
 	}
 }
 

@@ -1056,6 +1056,11 @@ loop:
 	}
 
 	rs.flushMetadata(rs.db, int64(height), rs.buildCommitInfo(int64(height)))
+	// The import wrote under the inter-block cache; drop its wrappers so the
+	// reload wraps the restored stores with empty caches.
+	if rs.interBlockCache != nil {
+		rs.interBlockCache.Reset()
+	}
 	return snapshotItem, rs.LoadLatestVersion()
 }
 

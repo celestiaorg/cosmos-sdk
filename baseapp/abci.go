@@ -322,9 +322,15 @@ func (app *BaseApp) ApplySnapshotChunk(req *abci.RequestApplySnapshotChunk) (*ab
 		return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ABORT}, nil
 	}
 
-	_, err := app.snapshotManager.RestoreChunk(req.Chunk)
+	done, err := app.snapshotManager.RestoreChunk(req.Chunk)
 	switch {
 	case err == nil:
+		if done {
+			// checkState still branches the pre-restore stores; rebuild it as Init does.
+			app.checkStateMu.Lock()
+			app.setState(execModeCheck, cmtproto.Header{ChainID: app.chainID})
+			app.checkStateMu.Unlock()
+		}
 		return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ACCEPT}, nil
 
 	case errors.Is(err, snapshottypes.ErrChunkHashMismatch):

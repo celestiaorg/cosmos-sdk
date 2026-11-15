@@ -66,6 +66,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### Bug Fixes
 
+* (store, baseapp) [#191](https://github.com/celestiaorg/cosmos-sdk/pull/191) A snapshot restore clears the inter-block cache and rebuilds the check state, so reads made before the restore no longer return pre-restore values afterwards.
 * (store) [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) `RollbackToVersion` keeps the target height's commit timestamp instead of resetting it to zero.
 * (x/distribution) [#169](https://github.com/celestiaorg/cosmos-sdk/pull/169) Export and import user outstanding rewards (`withdrawNow=false`) in genesis field `user_outstanding_rewards`, so an exported genesis no longer fails the module balance check on import.
 * (x/distribution) [#169](https://github.com/celestiaorg/cosmos-sdk/pull/169) `ModuleAccountInvariant` counts user outstanding rewards, so it no longer reports a broken invariant while rewards are parked.

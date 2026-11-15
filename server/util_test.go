@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	abci "github.com/cometbft/cometbft/abci/types"
 	cmtcfg "github.com/cometbft/cometbft/config"
 	db "github.com/cosmos/cosmos-db"
 	"github.com/spf13/cobra"
@@ -441,4 +442,27 @@ func TestDefaultBaseappOptionsPendingRollbackIgnoresConfig(t *testing.T) {
 	v = newRollbackViper(t.TempDir())
 	v.Set("allow-pending-rollback", "true")
 	requirePendingRollbackPanic(t, appDB, v, 2)
+}
+
+func TestDefaultBaseappOptionsSubspaceQueries(t *testing.T) {
+	for _, enabled := range []any{nil, false, true, "true"} {
+		t.Run(fmt.Sprintf("%#v", enabled), func(t *testing.T) {
+			v := newRollbackViper(t.TempDir())
+			if enabled != nil {
+				v.Set("enable-subspace-queries", enabled) // the app.toml key; env values arrive as strings
+			}
+			app := newRollbackTestApp(log.NewNopLogger(), db.NewMemDB(), nil, v)
+			defer func() { require.NoError(t, app.Close()) }()
+			runRollbackChain(t, app, 1)
+
+			sub, err := app.Query(context.Background(), &abci.RequestQuery{Path: "/store/a/subspace", Data: []byte("height")})
+			require.NoError(t, err)
+			if enabled == true || enabled == "true" {
+				require.Zero(t, sub.Code, sub.Log)
+				require.NotEmpty(t, sub.Value)
+			} else {
+				require.NotZero(t, sub.Code)
+			}
+		})
+	}
 }

@@ -136,6 +136,9 @@ type BaseApp struct {
 	// queryGasLimit defines the maximum gas for queries; unbounded if 0.
 	queryGasLimit uint64
 
+	// subspaceQueries serves /store/<name>/subspace queries; off by default since prefix scans are unbounded.
+	subspaceQueries bool
+
 	// The minimum gas prices a validator is willing to accept for processing a
 	// transaction. This is mainly used for DoS and spam prevention.
 	minGasPrices sdk.DecCoins

@@ -93,6 +93,9 @@ type BaseConfig struct {
 
 	// DisableOptimisticExecution is read by the app to turn off optimistic execution on this node.
 	DisableOptimisticExecution bool `mapstructure:"disable-optimistic-execution"`
+
+	// EnableSubspaceQueries serves /store/<name>/subspace ABCI queries; DefaultConfig leaves it false.
+	EnableSubspaceQueries bool `mapstructure:"enable-subspace-queries"`
 }
 
 // APIConfig defines the API listener configuration.

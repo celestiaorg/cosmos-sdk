@@ -40,6 +40,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### API Breaking
 
+* (baseapp) [#190](https://github.com/celestiaorg/cosmos-sdk/pull/190) `/store/<name>/subspace` ABCI queries are off by default; set `enable-subspace-queries = true` in app.toml to serve them (`baseapp.SetSubspaceQueries`).
 * (baseapp/oe) [#162](https://github.com/celestiaorg/cosmos-sdk/pull/162) `AbortIfNeeded` takes the `FinalizeBlock` txs.
 * (baseapp/oe) [#185](https://github.com/celestiaorg/cosmos-sdk/pull/185) `AbortIfNeeded` takes the `FinalizeBlock` height first, so a hash-mismatch abort logs the request height as `req_height`.
 

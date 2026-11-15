@@ -644,8 +644,12 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 
 			// Attempt to lazy-load an already saved IAVL store version. If the
 			// version does not exist or is pruned, an error should be returned.
+			iavlStore, ok := store.(*iavl.Store)
+			if !ok {
+				return nil, fmt.Errorf("store %s has unexpected type %T", key.Name(), store)
+			}
 			var err error
-			cacheStore, err = store.(*iavl.Store).GetImmutable(version)
+			cacheStore, err = iavlStore.GetImmutable(version)
 			// if we got error from loading a module store
 			// we fetch commit info of this version
 			// we use commit info to check if the store existed at this version or not

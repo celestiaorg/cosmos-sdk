@@ -15,6 +15,7 @@ import (
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	dbm "github.com/cosmos/cosmos-db"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/log"
@@ -35,6 +36,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/testutil"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	signingtypes "github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 )
@@ -1138,6 +1140,24 @@ func TestFinalizeBlockCheckTxRace(t *testing.T) {
 	wg.Wait()
 }
 
+// newRaceSuite builds a suite with opt (plus OE when oe is set) and commits
+// height 1 so the IAVL tree has committed nodes to traverse.
+func newRaceSuite(t *testing.T, oe bool, opt func(*baseapp.BaseApp)) *BaseAppSuite {
+	opts := []func(*baseapp.BaseApp){opt}
+	if oe {
+		opts = append(opts, baseapp.SetOptimisticExecution())
+	}
+	suite := NewBaseAppSuite(t, opts...)
+	baseapptestutil.RegisterKeyValueServer(suite.baseApp.MsgServiceRouter(), ReadWriteKeyValueImpl{})
+	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{ConsensusParams: &cmtproto.ConsensusParams{}})
+	require.NoError(t, err)
+	_, err = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1})
+	require.NoError(t, err)
+	_, err = suite.baseApp.Commit()
+	require.NoError(t, err)
+	return suite
+}
+
 func TestSetMinGasPrices(t *testing.T) {
 	minGasPrices := sdk.DecCoins{sdk.NewInt64DecCoin("stake", 5000)}
 	suite := NewBaseAppSuite(t, baseapp.SetMinGasPrices(minGasPrices.String()))
@@ -1197,6 +1217,56 @@ func TestQueryGasLimit(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestSubspaceQueries checks that /store/<name>/subspace is served only with SetSubspaceQueries(true).
+func TestSubspaceQueries(t *testing.T) {
+	pairs := [][2]string{{"sub-a", "1"}, {"sub-b", "2"}}
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
+			suite := newRaceSuite(t, false, func(app *baseapp.BaseApp) {
+				if enabled {
+					baseapp.SetSubspaceQueries(true)(app)
+				}
+				app.SetPreBlocker(func(ctx sdk.Context, _ *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
+					for _, p := range pairs {
+						ctx.KVStore(capKey2).Set([]byte(p[0]), []byte(p[1]))
+					}
+					ctx.KVStore(capKey2).Set([]byte("other"), []byte("3"))
+					return &sdk.ResponsePreBlock{}, nil
+				})
+			})
+			query := func(path, data string) *abci.ResponseQuery {
+				resp, err := suite.baseApp.Query(context.Background(), &abci.RequestQuery{Path: "/store/" + capKey2.Name() + path, Data: []byte(data)})
+				require.NoError(t, err)
+				return resp
+			}
+
+			key := query("/key", "sub-a")
+			require.Zero(t, key.Code, key.Log)
+			require.Equal(t, []byte("1"), key.Value)
+
+			sub := query("/subspace", "sub-")
+			if !enabled {
+				require.Equal(t, sdkerrors.ErrUnknownRequest.ABCICode(), sub.Code)
+				require.Contains(t, sub.Log, "enable-subspace-queries")
+				return
+			}
+			require.Zero(t, sub.Code, sub.Log)
+			// The value is a kv.Pairs proto: repeated Pair{key = 1, value = 2} in field 1.
+			var want []byte
+			for _, p := range pairs {
+				var pair []byte
+				pair = protowire.AppendTag(pair, 1, protowire.BytesType)
+				pair = protowire.AppendBytes(pair, []byte(p[0]))
+				pair = protowire.AppendTag(pair, 2, protowire.BytesType)
+				pair = protowire.AppendBytes(pair, []byte(p[1]))
+				want = protowire.AppendTag(want, 1, protowire.BytesType)
+				want = protowire.AppendBytes(want, pair)
+			}
+			require.Equal(t, want, sub.Value)
+		})
 	}
 }
 

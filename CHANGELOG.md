@@ -66,6 +66,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### Bug Fixes
 
+* (baseapp) [#196](https://github.com/celestiaorg/cosmos-sdk/pull/196) `Init` seeds the check state with the last committed height and block time, so after a restart `CheckTx` no longer verifies signatures as genesis txs (account number 0) and queries no longer see a zero block time until the next block ([celestia-app#8661](https://github.com/celestiaorg/celestia-app/issues/8661)).
 * (store) [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) `RollbackToVersion` keeps the target height's commit timestamp instead of resetting it to zero.
 * (x/distribution) [#169](https://github.com/celestiaorg/cosmos-sdk/pull/169) Export and import user outstanding rewards (`withdrawNow=false`) in genesis field `user_outstanding_rewards`, so an exported genesis no longer fails the module balance check on import.
 * (x/distribution) [#169](https://github.com/celestiaorg/cosmos-sdk/pull/169) `ModuleAccountInvariant` counts user outstanding rewards, so it no longer reports a broken invariant while rewards are parked.

@@ -309,6 +309,42 @@ func TestLoadVersion(t *testing.T) {
 	testLoadVersionHelper(t, app, int64(2), commitID2)
 }
 
+// TestCheckStateHeaderAfterRestart checks that a reloaded app gives CheckTx the last
+// committed height and block time before it applies a new block.
+func TestCheckStateHeaderAfterRestart(t *testing.T) {
+	logger, db, chainID := log.NewTestLogger(t), dbm.NewMemDB(), baseapp.SetChainID("test-chain")
+	app := baseapp.NewBaseApp(t.Name(), logger, db, nil, chainID)
+	require.NoError(t, app.LoadLatestVersion())
+	ctx, ok := app.CheckState()
+	require.True(t, ok)
+	require.Zero(t, ctx.BlockHeight())
+
+	start := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	for h := int64(1); h <= 2; h++ {
+		_, err := app.FinalizeBlock(&abci.RequestFinalizeBlock{Height: h, Time: start.Add(time.Duration(h) * time.Second)})
+		require.NoError(t, err)
+		_, err = app.Commit()
+		require.NoError(t, err)
+	}
+
+	for _, height := range []int64{2, 1} {
+		app = baseapp.NewBaseApp(t.Name(), logger, db, nil, chainID)
+		if height == 2 {
+			require.NoError(t, app.LoadLatestVersion())
+		} else {
+			require.NoError(t, app.LoadVersion(height))
+		}
+		ctx, ok := app.CheckState()
+		require.True(t, ok)
+		require.Equal(t, height, ctx.BlockHeight())
+		want := start.Add(time.Duration(height) * time.Second)
+		require.True(t, want.Equal(ctx.BlockTime()), "block time %v", ctx.BlockTime())
+		require.Equal(t, height, ctx.HeaderInfo().Height)
+		require.True(t, want.Equal(ctx.HeaderInfo().Time), "header info time %v", ctx.HeaderInfo().Time)
+		require.Equal(t, "test-chain", ctx.ChainID())
+	}
+}
+
 func TestSetLoader(t *testing.T) {
 	useDefaultLoader := func(app *baseapp.BaseApp) {
 		app.SetStoreLoader(baseapp.DefaultStoreLoader)

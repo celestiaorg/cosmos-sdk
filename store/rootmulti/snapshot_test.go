@@ -1,6 +1,7 @@
 package rootmulti_test
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	dbm "github.com/cosmos/cosmos-db"
+	protoio "github.com/cosmos/gogoproto/io"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -247,6 +249,14 @@ func TestMultistoreRestore_ResetsInterBlockCache(t *testing.T) {
 
 	require.Nil(t, target.GetKVStore(key).Get([]byte("a")))
 	require.Nil(t, target.CacheMultiStore().GetKVStore(key).Get([]byte("b")))
+
+	// A malformed snapshot must also discard cached reads and leave the stores
+	// accessible for a subsequent restore attempt.
+	reader := protoio.NewDelimitedReader(bytes.NewReader([]byte{0xff}), 1024)
+	_, err := target.Restore(version, snapshottypes.CurrentFormat, reader)
+	require.Error(t, err)
+	require.IsType(t, &iavl.Store{}, target.GetCommitKVStore(key))
+	require.IsType(t, &iavl.Store{}, target.GetKVStore(key))
 
 	chunks := make(chan io.ReadCloser, 100)
 	go func() {

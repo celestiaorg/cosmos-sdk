@@ -61,8 +61,8 @@ func keysFromStoreKeyMap[V any](m map[types.StoreKey]V) []types.StoreKey {
 type Store struct {
 	db                  dbm.DB
 	logger              log.Logger
-	lastCommitInfo   *types.CommitInfo
-	lastCommitInfoMu sync.RWMutex
+	lastCommitInfo      *types.CommitInfo
+	lastCommitInfoMu    sync.RWMutex
 	pruningManager      *pruning.Manager
 	iavlCacheSize       int
 	iavlDisableFastNode bool
@@ -755,7 +755,11 @@ func (rs *Store) PruneStores(pruningHeight int64) (err error) {
 
 		store = rs.GetCommitKVStore(key)
 
-		err := store.(*iavl.Store).DeleteVersionsTo(pruningHeight)
+		iavlStore, ok := store.(*iavl.Store)
+		if !ok {
+			return fmt.Errorf("store %s has unexpected type %T", key.Name(), store)
+		}
+		err := iavlStore.DeleteVersionsTo(pruningHeight)
 		if err == nil {
 			continue
 		}
@@ -975,10 +979,21 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 }
 
 // Restore implements snapshottypes.Snapshotter.
-// returns next snapshot item and error.
+// It must not run concurrently with store reads or writes.
+// Returns the next snapshot item and error.
 func (rs *Store) Restore(
 	height uint64, format uint32, protoReader protoio.Reader,
 ) (snapshottypes.SnapshotItem, error) {
+	if rs.interBlockCache != nil {
+		// The snapshot writes directly to the stores, bypassing the inter-block
+		// cache. Reset it first so even a failed import cannot reuse stale values.
+		// Keep the underlying stores mounted before dropping their cache wrappers.
+		for key := range rs.stores {
+			rs.stores[key] = rs.GetCommitKVStore(key)
+		}
+		rs.interBlockCache.Reset()
+	}
+
 	// Import nodes into stores. The first item is expected to be a SnapshotItem containing
 	// a SnapshotStoreItem, telling us which store to import into. The following items will contain
 	// SnapshotNodeItem (i.e. ExportNode) until we reach the next SnapshotStoreItem or EOF.
@@ -1060,11 +1075,6 @@ loop:
 	}
 
 	rs.flushMetadata(rs.db, int64(height), rs.buildCommitInfo(int64(height)))
-	// The import wrote under the inter-block cache; drop its wrappers so the
-	// reload wraps the restored stores with empty caches.
-	if rs.interBlockCache != nil {
-		rs.interBlockCache.Reset()
-	}
 	return snapshotItem, rs.LoadLatestVersion()
 }
 
@@ -1243,7 +1253,11 @@ func (rs *Store) RollbackToVersion(target int64) error {
 			// If the store is wrapped with an inter-block cache, we must first unwrap
 			// it to get the underlying IAVL store.
 			store = rs.GetCommitKVStore(key)
-			err := store.(*iavl.Store).LoadVersionForOverwriting(target)
+			iavlStore, ok := store.(*iavl.Store)
+			if !ok {
+				return fmt.Errorf("store %s has unexpected type %T", key.Name(), store)
+			}
+			err := iavlStore.LoadVersionForOverwriting(target)
 			if err != nil {
 				return err
 			}

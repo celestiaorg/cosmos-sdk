@@ -34,7 +34,8 @@ type (
 	// CommitKVStoreCacheManager maintains a mapping from a StoreKey to a
 	// CommitKVStoreCache. Each CommitKVStore, per StoreKey, is meant to be used
 	// in an inter-block (persistent) manner and typically provided by a
-	// CommitMultiStore.
+	// CommitMultiStore. Its mutex protects the cache map, not access to the
+	// underlying stores.
 	CommitKVStoreCacheManager struct {
 		mtx       sync.RWMutex
 		cacheSize uint

@@ -1078,6 +1078,10 @@ func handleQueryStore(app *BaseApp, path []string, req abci.RequestQuery) *abci.
 			), app.trace)
 	}
 
+	if !app.subspaceQueries && strings.HasSuffix(req.Path, "/subspace") {
+		return sdkerrors.QueryResult(errorsmod.Wrap(sdkerrors.ErrUnknownRequest, "subspace queries are disabled; set enable-subspace-queries in app.toml"), app.trace)
+	}
+
 	sdkReq := storetypes.RequestQuery(req)
 	resp, err := queryable.Query(&sdkReq)
 	if err != nil {

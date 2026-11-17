@@ -571,6 +571,7 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 		defaultMempool,
 		baseapp.SetChainID(chainID),
 		baseapp.SetQueryGasLimit(cast.ToUint64(appOpts.Get(FlagQueryGasLimit))),
+		baseapp.SetSubspaceQueries(cast.ToBool(appOpts.Get(FlagEnableSubspaceQueries))),
 	}
 	if rollback {
 		opts = append(opts, baseapp.SetAllowPendingRollback())

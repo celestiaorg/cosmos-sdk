@@ -249,3 +249,24 @@ func TestDisableOptimisticExecutionKey(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, got.DisableOptimisticExecution)
 }
+
+func TestEnableSubspaceQueriesKey(t *testing.T) {
+	cfg := DefaultConfig()
+	require.False(t, cfg.EnableSubspaceQueries)
+	file := filepath.Join(t.TempDir(), "app.toml")
+	WriteConfigFile(file, cfg)
+	bz, err := os.ReadFile(file)
+	require.NoError(t, err)
+	require.Contains(t, string(bz), "\nenable-subspace-queries = false\n")
+
+	// Top-level key, read by server.DefaultBaseappOptions under the same name.
+	cfg.EnableSubspaceQueries = true
+	WriteConfigFile(file, cfg)
+	v := viper.New()
+	v.SetConfigFile(file)
+	require.NoError(t, v.ReadInConfig())
+	require.True(t, v.GetBool("enable-subspace-queries"))
+	got, err := GetConfig(v)
+	require.NoError(t, err)
+	require.True(t, got.EnableSubspaceQueries)
+}

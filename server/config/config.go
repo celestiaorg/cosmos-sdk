@@ -90,6 +90,9 @@ type BaseConfig struct {
 	// AppDBBackend defines the type of Database to use for the application and snapshots databases.
 	// An empty string indicates that the CometBFT config's DBBackend value should be used.
 	AppDBBackend string `mapstructure:"app-db-backend"`
+
+	// DisableOptimisticExecution is read by the app to turn off optimistic execution on this node.
+	DisableOptimisticExecution bool `mapstructure:"disable-optimistic-execution"`
 }
 
 // APIConfig defines the API listener configuration.

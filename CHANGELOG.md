@@ -68,6 +68,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### Bug Fixes
 
+* (baseapp) [#196](https://github.com/celestiaorg/cosmos-sdk/pull/196) `Init` seeds the check state with the last committed height and block time, so after a restart `CheckTx` no longer verifies signatures as genesis txs (account number 0) and queries no longer see a zero block time until the next block ([celestia-app#8661](https://github.com/celestiaorg/celestia-app/issues/8661)).
 * (store, baseapp) [#191](https://github.com/celestiaorg/cosmos-sdk/pull/191) A snapshot restore clears the inter-block cache and rebuilds the check state, so reads made before the restore no longer return pre-restore values afterwards. The inter-block cache manager synchronizes access to its cache map; snapshot restore still requires exclusive access to the stores.
 * (baseapp) [#188](https://github.com/celestiaorg/cosmos-sdk/pull/188) `/store` ABCI queries hold the check state read lock while they read the IAVL tree, so they no longer race `FinalizeBlock` and `Commit` writing it ([celestia-app#8638](https://github.com/celestiaorg/celestia-app/issues/8638)).
 * (store) [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) `RollbackToVersion` keeps the target height's commit timestamp instead of resetting it to zero.

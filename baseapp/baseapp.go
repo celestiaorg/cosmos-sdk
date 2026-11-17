@@ -22,6 +22,7 @@ import (
 	"cosmossdk.io/log"
 	"cosmossdk.io/store"
 	storemetrics "cosmossdk.io/store/metrics"
+	"cosmossdk.io/store/rootmulti"
 	"cosmossdk.io/store/snapshots"
 	storetypes "cosmossdk.io/store/types"
 
@@ -460,10 +461,8 @@ func (app *BaseApp) Init() error {
 		panic("cannot call initFromMainStore: baseapp already sealed")
 	}
 
-	emptyHeader := cmtproto.Header{ChainID: app.chainID}
-
 	// needed for the export command which inits from store but never calls initchain
-	app.setState(execModeCheck, emptyHeader)
+	app.setState(execModeCheck, app.lastCommitHeader())
 	app.Seal()
 
 	if app.cms == nil {
@@ -471,6 +470,18 @@ func (app *BaseApp) Init() error {
 	}
 
 	return app.cms.GetPruning().Validate()
+}
+
+// lastCommitHeader returns the height and time Commit would set on checkState; other header
+// fields stay empty. At height 0 the ante handler would treat txs as genesis txs.
+func (app *BaseApp) lastCommitHeader() cmtproto.Header {
+	header := cmtproto.Header{ChainID: app.chainID, Height: app.LastBlockHeight()}
+	if rms, ok := app.cms.(*rootmulti.Store); ok && header.Height > 0 {
+		if ci, err := rms.GetCommitInfo(header.Height); err == nil {
+			header.Time = ci.Timestamp
+		}
+	}
+	return header
 }
 
 func (app *BaseApp) GetMinGasPrices() sdk.DecCoins {

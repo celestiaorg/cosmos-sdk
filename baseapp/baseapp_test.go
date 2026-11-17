@@ -8,13 +8,16 @@ import (
 	"math/rand"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	dbm "github.com/cosmos/cosmos-db"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/log"
@@ -35,6 +38,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/testutil"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	signingtypes "github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 )
@@ -1138,6 +1142,172 @@ func TestFinalizeBlockCheckTxRace(t *testing.T) {
 	wg.Wait()
 }
 
+// TestFinalizeBlockReadCheckStateRace checks that store reads through
+// ReadCheckState do not race workingHash and Commit writing the IAVL tree.
+func TestFinalizeBlockReadCheckStateRace(t *testing.T) {
+	for _, oe := range []bool{false, true} {
+		t.Run(fmt.Sprintf("oe=%t", oe), func(t *testing.T) {
+			suite := newRaceSuite(t, oe, func(app *baseapp.BaseApp) { app.SetPreBlocker(raceKeyPreBlocker) })
+			runRace(
+				func() { finalizeRaceBlocks(t, suite.baseApp, oe) },
+				func(i int64) {
+					// A fresh key misses checkState's cache and reads the tree.
+					assert.True(t, suite.baseApp.ReadCheckState(func(ctx sdk.Context) {
+						_ = ctx.KVStore(capKey2).Get([]byte(fmt.Sprintf("read-key-%d", i)))
+					}))
+				},
+			)
+		})
+	}
+}
+
+// TestConcurrentReadCheckState checks that concurrent ReadCheckState callers do
+// not share a gas meter or event manager.
+func TestConcurrentReadCheckState(t *testing.T) {
+	suite := newRaceSuite(t, false, func(*baseapp.BaseApp) {})
+	read := func(i int64) {
+		assert.True(t, suite.baseApp.ReadCheckState(func(ctx sdk.Context) {
+			_ = ctx.KVStore(capKey2).Get([]byte(fmt.Sprintf("read-key-%d", i)))
+			ctx.EventManager().EmitEvent(sdk.NewEvent("read"))
+		}))
+	}
+	runRace(func() { time.Sleep(200 * time.Millisecond) }, read, read)
+}
+
+// TestFinalizeBlockStoreQueryRace checks that /store ABCI queries do not race
+// workingHash and Commit writing the IAVL tree.
+// See https://github.com/celestiaorg/celestia-app/issues/8638
+func TestFinalizeBlockStoreQueryRace(t *testing.T) {
+	for _, oe := range []bool{false, true} {
+		t.Run(fmt.Sprintf("oe=%t", oe), func(t *testing.T) {
+			suite := newRaceSuite(t, oe, func(app *baseapp.BaseApp) { app.SetPreBlocker(raceKeyPreBlocker) })
+			query := func(i int64, height int64, prove bool) *abci.ResponseQuery {
+				resp, err := suite.baseApp.Query(context.Background(), &abci.RequestQuery{
+					Path:   "/store/" + capKey2.Name() + "/key",
+					Data:   []byte(fmt.Sprintf("key-%d", 1+i%30)),
+					Height: height,
+					Prove:  prove,
+				})
+				assert.NoError(t, err)
+				return resp
+			}
+			resp := query(0, 0, false)
+			require.Zero(t, resp.Code, resp.Log)
+			require.NotEmpty(t, resp.Value)
+
+			// Proofs walk the tree nodes workingHash rewrites; heights <= 1 are refused.
+			var proved atomic.Int64
+			runRace(
+				func() { finalizeRaceBlocks(t, suite.baseApp, oe) },
+				func(i int64) { assert.Zero(t, query(i, 0, false).Code) },
+				func(i int64) {
+					if resp := query(i, suite.baseApp.LastBlockHeight(), true); resp.Code == 0 && resp.ProofOps != nil {
+						proved.Add(1)
+					}
+				},
+			)
+			require.Positive(t, proved.Load())
+		})
+	}
+}
+
+// TestFinalizeBlockSubspaceQueryRace checks that an enabled /subspace scan of the
+// live IAVL tree does not race workingHash and Commit.
+func TestFinalizeBlockSubspaceQueryRace(t *testing.T) {
+	for _, oe := range []bool{false, true} {
+		t.Run(fmt.Sprintf("oe=%t", oe), func(t *testing.T) {
+			suite := newRaceSuite(t, oe, func(app *baseapp.BaseApp) {
+				baseapp.SetSubspaceQueries(true)(app)
+				app.SetPreBlocker(raceKeyPreBlocker)
+			})
+			runRace(
+				func() { finalizeRaceBlocks(t, suite.baseApp, oe) },
+				func(int64) {
+					resp, err := suite.baseApp.Query(context.Background(), &abci.RequestQuery{
+						Path: "/store/" + capKey2.Name() + "/subspace",
+						Data: []byte("key-"),
+					})
+					assert.NoError(t, err)
+					assert.Zero(t, resp.Code, resp.Log)
+					assert.NotEmpty(t, resp.Value)
+				},
+			)
+		})
+	}
+}
+
+// raceKeyPreBlocker writes key-<height> so every block changes the IAVL tree.
+func raceKeyPreBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
+	ctx.KVStore(capKey2).Set([]byte(fmt.Sprintf("key-%d", req.Height)), bytes.Repeat([]byte("a"), 64))
+	return &sdk.ResponsePreBlock{}, nil
+}
+
+// newRaceSuite builds a suite with opt (plus OE when oe is set) and commits
+// height 1 so the IAVL tree has committed nodes to traverse.
+func newRaceSuite(t *testing.T, oe bool, opt func(*baseapp.BaseApp)) *BaseAppSuite {
+	opts := []func(*baseapp.BaseApp){opt}
+	if oe {
+		opts = append(opts, baseapp.SetOptimisticExecution())
+	}
+	suite := NewBaseAppSuite(t, opts...)
+	baseapptestutil.RegisterKeyValueServer(suite.baseApp.MsgServiceRouter(), ReadWriteKeyValueImpl{})
+	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{ConsensusParams: &cmtproto.ConsensusParams{}})
+	require.NoError(t, err)
+	_, err = suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1})
+	require.NoError(t, err)
+	_, err = suite.baseApp.Commit()
+	require.NoError(t, err)
+	return suite
+}
+
+// runRace calls each reader in its own goroutine with i = 1, 2, ... until writer
+// returns. writer starts only after every reader has made its first call.
+func runRace(writer func(), readers ...func(i int64)) {
+	done := make(chan struct{})
+	var started, wg sync.WaitGroup
+	for _, fn := range readers {
+		wg.Add(1)
+		started.Add(1)
+		go func() {
+			defer wg.Done()
+			fn(1)
+			started.Done()
+			for i := int64(2); ; i++ {
+				select {
+				case <-done:
+					return
+				default:
+					fn(i)
+				}
+			}
+		}()
+	}
+	started.Wait()
+	writer()
+	close(done)
+	wg.Wait()
+}
+
+// finalizeRaceBlocks finalizes and commits heights 2..31. With OE each runs
+// ProcessProposal first, and every third FinalizeBlock hash differs so the run aborts.
+func finalizeRaceBlocks(t *testing.T, app *baseapp.BaseApp, oe bool) {
+	for height := int64(2); height <= 31; height++ {
+		hash := []byte(fmt.Sprintf("h%d", height))
+		if oe {
+			pp, err := app.ProcessProposal(&abci.RequestProcessProposal{Height: height, Hash: hash})
+			assert.NoError(t, err)
+			assert.Equal(t, abci.ResponseProcessProposal_ACCEPT, pp.GetStatus())
+			if height%3 == 0 {
+				hash = []byte(fmt.Sprintf("other-%d", height))
+			}
+		}
+		_, err := app.FinalizeBlock(&abci.RequestFinalizeBlock{Height: height, Hash: hash})
+		assert.NoError(t, err)
+		_, err = app.Commit()
+		assert.NoError(t, err)
+	}
+}
+
 func TestSetMinGasPrices(t *testing.T) {
 	minGasPrices := sdk.DecCoins{sdk.NewInt64DecCoin("stake", 5000)}
 	suite := NewBaseAppSuite(t, baseapp.SetMinGasPrices(minGasPrices.String()))
@@ -1197,6 +1367,56 @@ func TestQueryGasLimit(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestSubspaceQueries checks that /store/<name>/subspace is served only with SetSubspaceQueries(true).
+func TestSubspaceQueries(t *testing.T) {
+	pairs := [][2]string{{"sub-a", "1"}, {"sub-b", "2"}}
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
+			suite := newRaceSuite(t, false, func(app *baseapp.BaseApp) {
+				if enabled {
+					baseapp.SetSubspaceQueries(true)(app)
+				}
+				app.SetPreBlocker(func(ctx sdk.Context, _ *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
+					for _, p := range pairs {
+						ctx.KVStore(capKey2).Set([]byte(p[0]), []byte(p[1]))
+					}
+					ctx.KVStore(capKey2).Set([]byte("other"), []byte("3"))
+					return &sdk.ResponsePreBlock{}, nil
+				})
+			})
+			query := func(path, data string) *abci.ResponseQuery {
+				resp, err := suite.baseApp.Query(context.Background(), &abci.RequestQuery{Path: "/store/" + capKey2.Name() + path, Data: []byte(data)})
+				require.NoError(t, err)
+				return resp
+			}
+
+			key := query("/key", "sub-a")
+			require.Zero(t, key.Code, key.Log)
+			require.Equal(t, []byte("1"), key.Value)
+
+			sub := query("/subspace", "sub-")
+			if !enabled {
+				require.Equal(t, sdkerrors.ErrUnknownRequest.ABCICode(), sub.Code)
+				require.Contains(t, sub.Log, "enable-subspace-queries")
+				return
+			}
+			require.Zero(t, sub.Code, sub.Log)
+			// The value is a kv.Pairs proto: repeated Pair{key = 1, value = 2} in field 1.
+			var want []byte
+			for _, p := range pairs {
+				var pair []byte
+				pair = protowire.AppendTag(pair, 1, protowire.BytesType)
+				pair = protowire.AppendBytes(pair, []byte(p[0]))
+				pair = protowire.AppendTag(pair, 2, protowire.BytesType)
+				pair = protowire.AppendBytes(pair, []byte(p[1]))
+				want = protowire.AppendTag(want, 1, protowire.BytesType)
+				want = protowire.AppendBytes(want, pair)
+			}
+			require.Equal(t, want, sub.Value)
+		})
 	}
 }
 

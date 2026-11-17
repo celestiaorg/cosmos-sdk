@@ -101,6 +101,9 @@ const (
 	// mempool flags
 	FlagMempoolMaxTxs = "mempool.max-txs"
 
+	// FlagEnableSubspaceQueries is an app.toml key only; it has no CLI flag.
+	FlagEnableSubspaceQueries = "enable-subspace-queries"
+
 	// testnet keys
 	KeyIsTestnet             = "is-testnet"
 	KeyNewChainID            = "new-chain-ID"

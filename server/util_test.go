@@ -10,15 +10,22 @@ import (
 	"strings"
 	"testing"
 
+	abci "github.com/cometbft/cometbft/abci/types"
 	cmtcfg "github.com/cometbft/cometbft/config"
 	db "github.com/cosmos/cosmos-db"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 
+	"cosmossdk.io/log"
+	pruningtypes "cosmossdk.io/store/pruning/types"
+	storetypes "cosmossdk.io/store/types"
+
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/server"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 var errCanceledInPreRun = errors.New("canceled in prerun")
@@ -421,3 +428,38 @@ func (m mapGetter) Get(key string) interface{} {
 }
 
 var _ servertypes.AppOptions = mapGetter{}
+
+func TestDefaultBaseappOptionsSubspaceQueries(t *testing.T) {
+	key := storetypes.NewKVStoreKey("a")
+	for _, enabled := range []any{nil, false, true, "true"} {
+		t.Run(fmt.Sprintf("%#v", enabled), func(t *testing.T) {
+			opts := mapGetter{flags.FlagHome: t.TempDir(), flags.FlagChainID: "subspace-chain", server.FlagPruning: pruningtypes.PruningOptionNothing}
+			if enabled != nil {
+				opts["enable-subspace-queries"] = enabled // the app.toml key; env values arrive as strings
+			}
+			app := baseapp.NewBaseApp("subspace", log.NewNopLogger(), db.NewMemDB(), nil, server.DefaultBaseappOptions(opts)...)
+			defer func() { require.NoError(t, app.Close()) }()
+			app.MountStores(key)
+			app.SetBeginBlocker(func(ctx sdk.Context) (sdk.BeginBlock, error) {
+				ctx.KVStore(key).Set([]byte("height"), sdk.Uint64ToBigEndian(uint64(ctx.BlockHeight())))
+				return sdk.BeginBlock{}, nil
+			})
+			require.NoError(t, app.LoadLatestVersion())
+			_, err := app.InitChain(&abci.RequestInitChain{ChainId: "subspace-chain", InitialHeight: 1})
+			require.NoError(t, err)
+			_, err = app.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1})
+			require.NoError(t, err)
+			_, err = app.Commit()
+			require.NoError(t, err)
+
+			sub, err := app.Query(context.Background(), &abci.RequestQuery{Path: "/store/a/subspace", Data: []byte("height")})
+			require.NoError(t, err)
+			if enabled == true || enabled == "true" {
+				require.Zero(t, sub.Code, sub.Log)
+				require.NotEmpty(t, sub.Value)
+			} else {
+				require.NotZero(t, sub.Code)
+			}
+		})
+	}
+}

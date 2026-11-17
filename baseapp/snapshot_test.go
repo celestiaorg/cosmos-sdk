@@ -1,16 +1,20 @@
 package baseapp_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"testing"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	dbm "github.com/cosmos/cosmos-db"
 	"github.com/stretchr/testify/require"
 
 	storecache "cosmossdk.io/store/cache"
 	pruningtypes "cosmossdk.io/store/pruning/types"
+	"cosmossdk.io/store/snapshots"
 	snapshottypes "cosmossdk.io/store/snapshots/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -358,4 +362,44 @@ func TestABCI_ApplySnapshotChunk(t *testing.T) {
 	require.NotEmpty(t, want)
 	require.Equal(t, want, targetSuite.baseApp.NewContext(true).KVStore(capKey2).Get(key))
 	require.Equal(t, want, targetSuite.baseApp.NewUncachedContext(false, cmtproto.Header{}).KVStore(capKey2).Get(key))
+}
+
+func TestRestoreLocalSnapshot_RefreshesCheckState(t *testing.T) {
+	source := NewBaseAppSuiteWithSnapshots(t, SnapshotsConfig{
+		blocks: 2, blockTxs: 4, snapshotInterval: 2, snapshotKeepRecent: 1,
+		pruningOpts: pruningtypes.NewPruningOptions(pruningtypes.PruningNothing),
+	})
+	list, err := source.baseApp.ListSnapshots(&abci.RequestListSnapshots{})
+	require.NoError(t, err)
+	require.Len(t, list.Snapshots, 1)
+	snapshot := list.Snapshots[0]
+
+	// Copy the source snapshot to the target's local snapshot store.
+	local, err := snapshots.NewStore(dbm.NewMemDB(), t.TempDir())
+	require.NoError(t, err)
+	chunks := make(chan io.ReadCloser, snapshot.Chunks)
+	for index := uint32(0); index < snapshot.Chunks; index++ {
+		chunk, err := source.baseApp.LoadSnapshotChunk(&abci.RequestLoadSnapshotChunk{
+			Height: snapshot.Height, Format: snapshot.Format, Chunk: index,
+		})
+		require.NoError(t, err)
+		chunks <- io.NopCloser(bytes.NewReader(chunk.Chunk))
+	}
+	close(chunks)
+	_, err = local.Save(snapshot.Height, snapshot.Format, chunks)
+	require.NoError(t, err)
+
+	target := NewBaseAppSuite(t,
+		baseapp.SetSnapshot(local, snapshottypes.NewSnapshotOptions(2, 1)),
+		baseapp.SetInterBlockCache(storecache.NewCommitKVStoreCacheManager(storecache.DefaultCommitKVStoreCacheSize)))
+	key := []byte("0")
+	require.Nil(t, target.baseApp.NewContext(true).KVStore(capKey2).Get(key))
+	require.Nil(t, target.baseApp.NewUncachedContext(false, cmtproto.Header{}).KVStore(capKey2).Get(key))
+
+	require.NoError(t, target.baseApp.SnapshotManager().RestoreLocalSnapshot(snapshot.Height, snapshot.Format))
+	require.Equal(t, source.baseApp.LastCommitID(), target.baseApp.LastCommitID())
+	want := source.baseApp.NewContext(true).KVStore(capKey2).Get(key)
+	require.NotEmpty(t, want)
+	require.Equal(t, want, target.baseApp.NewContext(true).KVStore(capKey2).Get(key))
+	require.Equal(t, want, target.baseApp.NewUncachedContext(false, cmtproto.Header{}).KVStore(capKey2).Get(key))
 }

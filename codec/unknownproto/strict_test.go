@@ -2,6 +2,7 @@ package unknownproto
 
 import (
 	"bytes"
+	"runtime"
 	"testing"
 
 	"github.com/cosmos/gogoproto/proto"
@@ -362,4 +363,22 @@ func FuzzRejectAmbiguousEncoding(f *testing.F) {
 		}
 		require.NoError(t, RejectUnknownFieldsStrict(bz, &testdata.TestVersion1{}, DefaultAnyResolver{}))
 	})
+}
+
+// TestRejectAmbiguousEncodingAnyAllocation checks that the strict walk does
+// not copy the value of each Any, so a deep chain of Anys around a large
+// payload costs memory in proportion to the input.
+func TestRejectAmbiguousEncodingAnyAllocation(t *testing.T) {
+	// TestVersion1.k = 12 is a Customer1, whose name = 2 is a string.
+	bz := bytesField(12, bytesField(2, bytes.Repeat([]byte{'a'}, 1<<20)))
+	for range 48 {
+		bz = bytesField(8, anyOf("/testpb.TestVersion1", bz))
+	}
+	require.NoError(t, checkStrict(bz, &testdata.TestVersion1{}))
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	require.NoError(t, checkStrict(bz, &testdata.TestVersion1{}))
+	runtime.ReadMemStats(&after)
+	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(len(bz)))
 }

@@ -3,6 +3,7 @@ package tx
 import (
 	"fmt"
 
+	"github.com/cosmos/gogoproto/jsonpb"
 	gogoproto "github.com/cosmos/gogoproto/proto"
 	"google.golang.org/protobuf/encoding/protowire"
 
@@ -10,6 +11,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/unknownproto"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/tx"
@@ -79,6 +81,17 @@ func newTxDecoder(cdc codec.Codec, strict bool) sdk.TxDecoder {
 			return nil, errorsmod.Wrap(sdkerrors.ErrTxDecode, err.Error())
 		}
 
+		if strict {
+			for i, signer := range authInfo.SignerInfos {
+				if i >= len(raw.Signatures) {
+					break
+				}
+				if err := rejectAmbiguousMultiSignature(signer.ModeInfo, raw.Signatures[i], cdc.InterfaceRegistry()); err != nil {
+					return nil, errorsmod.Wrap(sdkerrors.ErrTxDecode, err.Error())
+				}
+			}
+		}
+
 		theTx := &tx.Tx{
 			Body:       &body,
 			AuthInfo:   &authInfo,
@@ -93,6 +106,32 @@ func newTxDecoder(cdc codec.Codec, strict bool) sdk.TxDecoder {
 			cdc:                          cdc,
 		}, nil
 	}
+}
+
+// rejectAmbiguousMultiSignature applies the strict walk to sig when mode is a
+// multisig mode, at every level of nesting. No signature covers these bytes,
+// so sig must also hold exactly one signature per mode info.
+func rejectAmbiguousMultiSignature(mode *tx.ModeInfo, sig []byte, resolver jsonpb.AnyResolver) error {
+	multi := mode.GetMulti()
+	if multi == nil {
+		return nil
+	}
+	if err := unknownproto.RejectAmbiguousEncoding(sig, &cryptotypes.MultiSignature{}, resolver); err != nil {
+		return err
+	}
+	var multiSig cryptotypes.MultiSignature
+	if err := multiSig.Unmarshal(sig); err != nil {
+		return err
+	}
+	if len(multiSig.Signatures) != len(multi.ModeInfos) {
+		return fmt.Errorf("multisignature has %d signatures for %d mode infos", len(multiSig.Signatures), len(multi.ModeInfos))
+	}
+	for i, inner := range multi.ModeInfos {
+		if err := rejectAmbiguousMultiSignature(inner, multiSig.Signatures[i], resolver); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // DefaultJSONTxDecoder returns a default protobuf JSON TxDecoder using the provided Marshaler.

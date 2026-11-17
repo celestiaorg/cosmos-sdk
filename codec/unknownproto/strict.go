@@ -200,3 +200,27 @@ func gogoOptions(opts *descriptorpb.FieldOptions) (customType string, nullable b
 	}
 	return customType, nullable
 }
+
+// anyParts returns the type URL and the value of an encoded Any that the
+// strict walk accepted. The value aliases bz.
+func anyParts(bz []byte) (typeURL string, value []byte) {
+	for len(bz) > 0 {
+		num, _, n := protowire.ConsumeTag(bz)
+		if n < 0 {
+			return typeURL, value
+		}
+		bz = bz[n:]
+		field, n := protowire.ConsumeBytes(bz)
+		if n < 0 {
+			return typeURL, value
+		}
+		bz = bz[n:]
+		switch num {
+		case 1:
+			typeURL = string(field)
+		case 2:
+			value = field
+		}
+	}
+	return typeURL, value
+}

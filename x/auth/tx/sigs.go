@@ -71,6 +71,10 @@ func ModeInfoAndSigToSignatureData(modeInfo *tx.ModeInfo, sig []byte) (signing.S
 			return nil, err
 		}
 
+		if len(sigs) < len(multi.ModeInfos) {
+			return nil, fmt.Errorf("multisignature has %d signatures for %d mode infos", len(sigs), len(multi.ModeInfos))
+		}
+
 		sigv2s := make([]signing.SignatureData, len(sigs))
 		for i, mi := range multi.ModeInfos {
 			sigv2s[i], err = ModeInfoAndSigToSignatureData(mi, sigs[i])

@@ -109,7 +109,9 @@ func TestStrictTxDecoder(t *testing.T) {
 	execAny := func(num protowire.Number, inner []byte) []byte {
 		return anyField(num, "/cosmos.authz.v1beta1.MsgExec", join(protoField(1, []byte(strictTo.String())), inner))
 	}
-	sendAny := func(num protowire.Number, send []byte) []byte { return anyField(num, "/cosmos.bank.v1beta1.MsgSend", send) }
+	sendAny := func(num protowire.Number, send []byte) []byte {
+		return anyField(num, "/cosmos.bank.v1beta1.MsgSend", send)
+	}
 	longOne := []byte{0x81, 0x00}
 
 	testCases := []struct {
@@ -391,4 +393,81 @@ func FuzzStrictTxDecoder(f *testing.F) {
 		require.Equal(t, mustMarshalProto(t, defTx.(interface{ GetProtoTx() *txtypes.Tx }).GetProtoTx()),
 			mustMarshalProto(t, strictTx.(interface{ GetProtoTx() *txtypes.Tx }).GetProtoTx()))
 	})
+}
+
+// TestStrictTxDecoderMultisig checks that the strict decoder also walks the
+// MultiSignature in TxRaw.signatures. No signature covers those bytes, so
+// anyone could otherwise change them and get a different valid tx.
+func TestStrictTxDecoderMultisig(t *testing.T) {
+	cfg := strictTestConfig()
+	strict, def := authtx.StrictTxDecoder(cfg.Codec), authtx.DefaultTxDecoder(cfg.Codec)
+	p := newStrictTxParts(t)
+
+	keys := []cryptotypes.PubKey{
+		secp256k1.GenPrivKeyFromSecret([]byte("a")).PubKey(),
+		secp256k1.GenPrivKeyFromSecret([]byte("b")).PubKey(),
+	}
+	pk, err := codectypes.NewAnyWithValue(multisig.NewLegacyAminoPubKey(2, keys))
+	require.NoError(t, err)
+	single := &txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Single_{Single: &txtypes.ModeInfo_Single{Mode: signingtypes.SignMode_SIGN_MODE_DIRECT}}}
+	multi := func(infos ...*txtypes.ModeInfo) *txtypes.ModeInfo {
+		bits := cryptotypes.NewCompactBitArray(len(infos))
+		for i := range infos {
+			bits.SetIndex(i, true)
+		}
+		return &txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Multi_{Multi: &txtypes.ModeInfo_Multi{Bitarray: bits, ModeInfos: infos}}}
+	}
+	rawTx := func(mode *txtypes.ModeInfo, sig []byte) []byte {
+		signer := mustMarshalProto(t, &txtypes.SignerInfo{PublicKey: pk, ModeInfo: mode, Sequence: 1})
+		return join(protoField(1, p.body), protoField(2, join(protoField(1, signer), protoField(2, p.fee))), protoField(3, sig))
+	}
+
+	sigA, sigB := bytes.Repeat([]byte{7}, 64), bytes.Repeat([]byte{8}, 64)
+	// longLen is sig as MultiSignature.signatures with a length prefix one byte too long.
+	longLen := func(sig []byte) []byte { return join([]byte{0x0a, 0x80 | byte(len(sig)), 0x00}, sig) }
+	longTag := func(sig []byte) []byte { return join([]byte{0x8a, 0x00, byte(len(sig))}, sig) }
+	two := multi(single, single)
+	nested := multi(single, multi(single))
+
+	testCases := []struct {
+		name     string
+		mode     *txtypes.ModeInfo
+		sig      []byte
+		strictOK bool
+		// sigsOK is whether GetSignaturesV2 succeeds on the tx DefaultTxDecoder returns.
+		sigsOK bool
+	}{
+		{"canonical", two, join(protoField(1, sigA), protoField(1, sigB)), true, true},
+		{"canonical nested", nested, join(protoField(1, sigA), protoField(1, protoField(1, sigB))), true, true},
+		{"non-minimal length", two, join(longLen(sigA), protoField(1, sigB)), false, true},
+		{"non-minimal tag", two, join(protoField(1, sigA), longTag(sigB)), false, true},
+		{"unknown field", two, join(protoField(1, sigA), protoField(1, sigB), protoField(2, nil)), false, false},
+		{"fewer signatures than mode infos", two, protoField(1, sigA), false, false},
+		{"no signatures", two, nil, false, false},
+		{"more signatures than mode infos", two, join(protoField(1, sigA), protoField(1, sigB), protoField(1, sigB)), false, true},
+		{"nested non-minimal length", nested, join(protoField(1, sigA), protoField(1, longLen(sigB))), false, true},
+		{"nested fewer signatures", nested, join(protoField(1, sigA), protoField(1, nil)), false, false},
+	}
+	type sigsTx interface {
+		GetSignaturesV2() ([]signingtypes.SignatureV2, error)
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := rawTx(tc.mode, tc.sig)
+			_, err := strict(raw)
+			if tc.strictOK {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, sdkerrors.ErrTxDecode)
+			}
+			decoded, err := def(raw)
+			require.NoError(t, err)
+			require.NotPanics(t, func() { _, err = decoded.(sigsTx).GetSignaturesV2() })
+			if tc.sigsOK {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
 }

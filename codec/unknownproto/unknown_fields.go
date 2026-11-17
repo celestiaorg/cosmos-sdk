@@ -172,12 +172,18 @@ func doRejectUnknownFields(
 				return hasUnknownNonCriticals, err
 			}
 			// And finally we can extract the TypeURL containing the protoMessageName.
-			any := new(types.Any)
-			if err := proto.Unmarshal(fieldBytes, any); err != nil {
-				return hasUnknownNonCriticals, err
+			if strict {
+				// The walk above accepted the Any, so its parts can be read
+				// in place. Unmarshal would copy the value at each level.
+				protoMessageName, fieldBytes = anyParts(fieldBytes)
+			} else {
+				any := new(types.Any)
+				if err := proto.Unmarshal(fieldBytes, any); err != nil {
+					return hasUnknownNonCriticals, err
+				}
+				protoMessageName = any.TypeUrl
+				fieldBytes = any.Value
 			}
-			protoMessageName = any.TypeUrl
-			fieldBytes = any.Value
 			msg, err = resolver.Resolve(protoMessageName)
 			if err != nil {
 				return hasUnknownNonCriticals, err

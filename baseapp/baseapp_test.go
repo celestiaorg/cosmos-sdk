@@ -1060,6 +1060,106 @@ func testFinalizeBlockCheckTxRace(t *testing.T, oe bool) {
 	require.Greater(t, anteCalls.Load(), int64(1), "concurrent CheckTx never reached the AnteHandler")
 }
 
+// TestFinalizeBlockReadCheckStateRace checks that store reads through
+// ReadCheckState do not race workingHash and Commit writing the IAVL tree.
+func TestFinalizeBlockReadCheckStateRace(t *testing.T) {
+	for _, oe := range []bool{false, true} {
+		t.Run(fmt.Sprintf("oe=%t", oe), func(t *testing.T) {
+			suite := newRaceSuite(t, oe, func(app *baseapp.BaseApp) { app.SetPreBlocker(raceKeyPreBlocker) })
+			runRace(
+				func() { finalizeRaceBlocks(t, suite.baseApp, oe) },
+				func(i int64) {
+					// A fresh key misses checkState's cache and reads the tree.
+					assert.True(t, suite.baseApp.ReadCheckState(func(ctx sdk.Context) {
+						_ = ctx.KVStore(capKey2).Get([]byte(fmt.Sprintf("read-key-%d", i)))
+					}))
+				},
+			)
+		})
+	}
+}
+
+// TestConcurrentReadCheckState checks that concurrent ReadCheckState callers do
+// not share a gas meter or event manager.
+func TestConcurrentReadCheckState(t *testing.T) {
+	suite := newRaceSuite(t, false, func(*baseapp.BaseApp) {})
+	read := func(i int64) {
+		assert.True(t, suite.baseApp.ReadCheckState(func(ctx sdk.Context) {
+			_ = ctx.KVStore(capKey2).Get([]byte(fmt.Sprintf("read-key-%d", i)))
+			ctx.EventManager().EmitEvent(sdk.NewEvent("read"))
+		}))
+	}
+	runRace(func() { time.Sleep(200 * time.Millisecond) }, read, read)
+}
+
+// TestFinalizeBlockStoreQueryRace checks that /store ABCI queries do not race
+// workingHash and Commit writing the IAVL tree.
+// See https://github.com/celestiaorg/celestia-app/issues/8638
+func TestFinalizeBlockStoreQueryRace(t *testing.T) {
+	for _, oe := range []bool{false, true} {
+		t.Run(fmt.Sprintf("oe=%t", oe), func(t *testing.T) {
+			suite := newRaceSuite(t, oe, func(app *baseapp.BaseApp) { app.SetPreBlocker(raceKeyPreBlocker) })
+			query := func(i int64, height int64, prove bool) *abci.ResponseQuery {
+				resp, err := suite.baseApp.Query(context.Background(), &abci.RequestQuery{
+					Path:   "/store/" + capKey2.Name() + "/key",
+					Data:   []byte(fmt.Sprintf("key-%d", 1+i%30)),
+					Height: height,
+					Prove:  prove,
+				})
+				assert.NoError(t, err)
+				return resp
+			}
+			resp := query(0, 0, false)
+			require.Zero(t, resp.Code, resp.Log)
+			require.NotEmpty(t, resp.Value)
+
+			// Proofs walk the tree nodes workingHash rewrites; heights <= 1 are refused.
+			var proved atomic.Int64
+			runRace(
+				func() { finalizeRaceBlocks(t, suite.baseApp, oe) },
+				func(i int64) { assert.Zero(t, query(i, 0, false).Code) },
+				func(i int64) {
+					if resp := query(i, suite.baseApp.LastBlockHeight(), true); resp.Code == 0 && resp.ProofOps != nil {
+						proved.Add(1)
+					}
+				},
+			)
+			require.Positive(t, proved.Load())
+		})
+	}
+}
+
+// TestFinalizeBlockSubspaceQueryRace checks that an enabled /subspace scan of the
+// live IAVL tree does not race workingHash and Commit.
+func TestFinalizeBlockSubspaceQueryRace(t *testing.T) {
+	for _, oe := range []bool{false, true} {
+		t.Run(fmt.Sprintf("oe=%t", oe), func(t *testing.T) {
+			suite := newRaceSuite(t, oe, func(app *baseapp.BaseApp) {
+				baseapp.SetSubspaceQueries(true)(app)
+				app.SetPreBlocker(raceKeyPreBlocker)
+			})
+			runRace(
+				func() { finalizeRaceBlocks(t, suite.baseApp, oe) },
+				func(int64) {
+					resp, err := suite.baseApp.Query(context.Background(), &abci.RequestQuery{
+						Path: "/store/" + capKey2.Name() + "/subspace",
+						Data: []byte("key-"),
+					})
+					assert.NoError(t, err)
+					assert.Zero(t, resp.Code, resp.Log)
+					assert.NotEmpty(t, resp.Value)
+				},
+			)
+		})
+	}
+}
+
+// raceKeyPreBlocker writes key-<height> so every block changes the IAVL tree.
+func raceKeyPreBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
+	ctx.KVStore(capKey2).Set([]byte(fmt.Sprintf("key-%d", req.Height)), bytes.Repeat([]byte("a"), 64))
+	return &sdk.ResponsePreBlock{}, nil
+}
+
 // newRaceSuite builds a suite with opt (plus OE when oe is set) and commits
 // height 1 so the IAVL tree has committed nodes to traverse.
 func newRaceSuite(t *testing.T, oe bool, opt func(*baseapp.BaseApp)) *BaseAppSuite {

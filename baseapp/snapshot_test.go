@@ -357,7 +357,10 @@ func TestABCI_ApplySnapshotChunk(t *testing.T) {
 
 	// the target should now have the same hash as the source
 	require.Equal(t, srcSuite.baseApp.LastCommitID(), targetSuite.baseApp.LastCommitID())
-	require.Equal(t, int64(snapshot.Height), targetSuite.baseApp.NewContext(true).BlockHeight())
+	ctx, ok := targetSuite.baseApp.CheckState()
+	require.True(t, ok)
+	require.Equal(t, int64(snapshot.Height), ctx.BlockHeight())
+	require.Equal(t, int64(snapshot.Height), ctx.HeaderInfo().Height)
 
 	want := srcSuite.baseApp.NewUncachedContext(false, cmtproto.Header{}).KVStore(capKey2).Get(key)
 	require.NotEmpty(t, want)
@@ -399,7 +402,10 @@ func TestRestoreLocalSnapshot_RefreshesCheckState(t *testing.T) {
 
 	require.NoError(t, target.baseApp.SnapshotManager().RestoreLocalSnapshot(snapshot.Height, snapshot.Format))
 	require.Equal(t, source.baseApp.LastCommitID(), target.baseApp.LastCommitID())
-	require.Equal(t, int64(snapshot.Height), target.baseApp.NewContext(true).BlockHeight())
+	ctx, ok := target.baseApp.CheckState()
+	require.True(t, ok)
+	require.Equal(t, int64(snapshot.Height), ctx.BlockHeight())
+	require.Equal(t, int64(snapshot.Height), ctx.HeaderInfo().Height)
 	want := source.baseApp.NewContext(true).KVStore(capKey2).Get(key)
 	require.NotEmpty(t, want)
 	require.Equal(t, want, target.baseApp.NewContext(true).KVStore(capKey2).Get(key))

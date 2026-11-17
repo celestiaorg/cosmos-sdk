@@ -137,6 +137,9 @@ type BaseApp struct {
 	// queryGasLimit defines the maximum gas for queries; unbounded if 0.
 	queryGasLimit uint64
 
+	// subspaceQueries serves /store/<name>/subspace queries; off by default since prefix scans are unbounded.
+	subspaceQueries bool
+
 	// The minimum gas prices a validator is willing to accept for processing a
 	// transaction. This is mainly used for DoS and spam prevention.
 	minGasPrices sdk.DecCoins
@@ -300,6 +303,19 @@ func (app *BaseApp) CheckState() (sdk.Context, bool) {
 	}
 
 	return app.checkState.Context(), true
+}
+
+// ReadCheckState runs fn under the CheckTx/Commit lock on checkState (own gas meter and event manager); false if unset.
+// fn must only read, not retain ctx, and not call CheckTx, Simulate, Query, Info, CreateQueryContext or ReadCheckState.
+// Never call ReadCheckState from code already under the lock, such as ante or msg handlers during CheckTx.
+func (app *BaseApp) ReadCheckState(fn func(sdk.Context)) bool {
+	app.checkStateMu.RLock()
+	defer app.checkStateMu.RUnlock()
+	if app.checkState == nil {
+		return false
+	}
+	fn(app.checkState.Context().WithGasMeter(storetypes.NewInfiniteGasMeter()).WithEventManager(sdk.NewEventManager()))
+	return true
 }
 
 // GRPCQueryRouter returns the GRPCQueryRouter of a BaseApp.

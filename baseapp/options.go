@@ -49,6 +49,11 @@ func SetQueryGasLimit(queryGasLimit uint64) func(*BaseApp) {
 	return func(bapp *BaseApp) { bapp.queryGasLimit = queryGasLimit }
 }
 
+// SetSubspaceQueries returns an option that serves /store/<name>/subspace ABCI queries when enable is true.
+func SetSubspaceQueries(enable bool) func(*BaseApp) {
+	return func(bapp *BaseApp) { bapp.subspaceQueries = enable }
+}
+
 // SetHaltHeight returns a BaseApp option function that sets the halt block height.
 func SetHaltHeight(blockHeight uint64) func(*BaseApp) {
 	return func(bapp *BaseApp) { bapp.setHaltHeight(blockHeight) }
@@ -312,7 +317,7 @@ func (app *BaseApp) SetSnapshot(snapshotStore *snapshots.Store, opts snapshottyp
 		return
 	}
 	app.cms.SetSnapshotInterval(opts.Interval)
-	app.snapshotManager = snapshots.NewManager(snapshotStore, opts, app.cms, nil, app.logger)
+	app.snapshotManager = snapshots.NewManager(snapshotStore, opts, appSnapshotter{Snapshotter: app.cms, app: app}, nil, app.logger)
 }
 
 // SetInterfaceRegistry sets the InterfaceRegistry.

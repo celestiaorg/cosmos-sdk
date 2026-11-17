@@ -2,6 +2,7 @@ package cache_test
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 
 	dbm "github.com/cosmos/cosmos-db"
@@ -98,4 +99,27 @@ func TestCacheWrap(t *testing.T) {
 
 	cacheWrapper := mngr.GetStoreCache(sKey, store).CacheWrap()
 	require.IsType(t, &cachekv.Store{}, cacheWrapper)
+}
+
+// Only the manager map is shared; this does not exercise concurrent store access.
+func TestCacheManagerConcurrentReset(t *testing.T) {
+	manager := cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize)
+	key := types.NewKVStoreKey("test")
+	tree := iavl.NewMutableTree(wrapper.NewDBWrapper(dbm.NewMemDB()), 100, false, log.NewNopLogger())
+	store := iavlstore.UnsafeNewStore(tree)
+	var wg sync.WaitGroup
+	for worker := 0; worker < 4; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 1000; i++ {
+				manager.GetStoreCache(key, store)
+				manager.Unwrap(key)
+				manager.Reset()
+			}
+		}()
+	}
+	wg.Wait()
+	require.Same(t, store, manager.GetStoreCache(key, store).(*cache.CommitKVStoreCache).CommitKVStore)
+	require.Same(t, store, manager.Unwrap(key))
 }

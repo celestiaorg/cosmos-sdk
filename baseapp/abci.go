@@ -1078,6 +1078,13 @@ func handleQueryStore(app *BaseApp, path []string, req abci.RequestQuery) *abci.
 			), app.trace)
 	}
 
+	if !app.subspaceQueries && strings.HasSuffix(req.Path, "/subspace") {
+		return sdkerrors.QueryResult(errorsmod.Wrap(sdkerrors.ErrUnknownRequest, "subspace queries are disabled; set enable-subspace-queries in app.toml"), app.trace)
+	}
+
+	// The query reads the live IAVL tree, which workingHash and Commit write.
+	app.checkStateMu.RLock()
+	defer app.checkStateMu.RUnlock()
 	sdkReq := storetypes.RequestQuery(req)
 	resp, err := queryable.Query(&sdkReq)
 	if err != nil {

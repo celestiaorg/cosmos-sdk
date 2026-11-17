@@ -1,6 +1,7 @@
 package rootmulti_test
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -11,10 +12,12 @@ import (
 	"testing"
 
 	dbm "github.com/cosmos/cosmos-db"
+	protoio "github.com/cosmos/gogoproto/io"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"cosmossdk.io/log"
+	"cosmossdk.io/store/cache"
 	"cosmossdk.io/store/iavl"
 	"cosmossdk.io/store/metrics"
 	"cosmossdk.io/store/rootmulti"
@@ -230,6 +233,46 @@ func TestMultistoreSnapshotRestore(t *testing.T) {
 		default:
 			assertStoresEqual(t, sourceStore, targetStore, "store %q not equal", key.Name())
 		}
+	}
+}
+
+// TestMultistoreRestore_ResetsInterBlockCache reads keys through the inter-block
+// cache before a restore and checks they return the restored values after it.
+func TestMultistoreRestore_ResetsInterBlockCache(t *testing.T) {
+	source := newMultiStoreWithMixedMountsAndBasicData(dbm.NewMemDB())
+	version := uint64(source.LastCommitID().Version)
+
+	target := newMultiStoreWithMixedMounts(dbm.NewMemDB())
+	target.SetInterBlockCache(cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize))
+	require.NoError(t, target.LoadLatestVersion()) // wrap the stores in the cache
+	key := target.StoreKeysByName()["iavl1"]
+
+	require.Nil(t, target.GetKVStore(key).Get([]byte("a")))
+	require.Nil(t, target.CacheMultiStore().GetKVStore(key).Get([]byte("b")))
+
+	// A malformed snapshot must also discard cached reads and leave the stores
+	// accessible for a subsequent restore attempt.
+	reader := protoio.NewDelimitedReader(bytes.NewReader([]byte{0xff}), 1024)
+	_, err := target.Restore(version, snapshottypes.CurrentFormat, reader)
+	require.Error(t, err)
+	require.IsType(t, &iavl.Store{}, target.GetCommitKVStore(key))
+	require.IsType(t, &iavl.Store{}, target.GetKVStore(key))
+
+	chunks := make(chan io.ReadCloser, 100)
+	go func() {
+		streamWriter := snapshots.NewStreamWriter(chunks)
+		defer streamWriter.Close()
+		require.NoError(t, source.Snapshot(version, streamWriter))
+	}()
+	streamReader, err := snapshots.NewStreamReader(chunks)
+	require.NoError(t, err)
+	_, err = target.Restore(version, snapshottypes.CurrentFormat, streamReader)
+	require.NoError(t, err)
+	require.Equal(t, source.LastCommitID(), target.LastCommitID())
+
+	for _, kv := range []struct{ k, v []byte }{{[]byte("a"), []byte{1}}, {[]byte("b"), []byte{2}}} {
+		require.Equal(t, kv.v, target.GetKVStore(key).Get(kv.k), "key %s", kv.k)
+		require.Equal(t, kv.v, target.CacheMultiStore().GetKVStore(key).Get(kv.k), "key %s", kv.k)
 	}
 }
 

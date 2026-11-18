@@ -2,6 +2,7 @@ package staking
 
 import (
 	"fmt"
+	"math"
 
 	cmttypes "github.com/cometbft/cometbft/types"
 
@@ -47,8 +48,37 @@ func ValidateGenesis(data *types.GenesisState) error {
 	if err := validateGenesisStateValidators(data.Validators); err != nil {
 		return err
 	}
+	if err := validateUnbondingIDs(data); err != nil {
+		return err
+	}
 
 	return data.Params.Validate()
+}
+
+// validateUnbondingIDs checks the unbonding ID counter and records: the
+// counter must leave an ID to issue, and each record is a distinct issued ID
+// with an index or a known type.
+func validateUnbondingIDs(data *types.GenesisState) error {
+	if data.LastUnbondingId == math.MaxUint64 {
+		return fmt.Errorf("last unbonding ID %d leaves no ID to issue", data.LastUnbondingId)
+	}
+	seen := make(map[uint64]struct{}, len(data.UnbondingIds))
+	for _, record := range data.UnbondingIds {
+		if record.Id == 0 || record.Id > data.LastUnbondingId {
+			return fmt.Errorf("unbonding ID %d is not between 1 and the last unbonding ID %d", record.Id, data.LastUnbondingId)
+		}
+		if _, ok := seen[record.Id]; ok {
+			return fmt.Errorf("duplicate unbonding ID %d", record.Id)
+		}
+		seen[record.Id] = struct{}{}
+		if record.UnbondingType > uint64(types.UnbondingType_ValidatorUnbonding) {
+			return fmt.Errorf("unbonding ID %d has unknown type %d", record.Id, record.UnbondingType)
+		}
+		if record.UnbondingType == 0 && len(record.Index) == 0 {
+			return fmt.Errorf("unbonding ID %d has neither an index nor a type", record.Id)
+		}
+	}
+	return nil
 }
 
 func validateGenesisStateValidators(validators []types.Validator) error {

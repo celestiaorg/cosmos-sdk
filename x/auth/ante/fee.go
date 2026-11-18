@@ -114,6 +114,9 @@ func (dfd DeductFeeDecorator) checkDeductFee(ctx sdk.Context, sdkTx sdk.Tx, fee 
 		}
 	}
 
+	if sdk.EventsDiscarded(ctx) {
+		return nil
+	}
 	events := sdk.Events{
 		sdk.NewEvent(
 			sdk.EventTypeTx,

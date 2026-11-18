@@ -2,6 +2,9 @@ package baseapp
 
 import (
 	"sync"
+	"sync/atomic"
+
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 
 	storetypes "cosmossdk.io/store/types"
 
@@ -13,6 +16,9 @@ type state struct {
 
 	mtx sync.RWMutex
 	ctx sdk.Context
+
+	// consensusParams caches the params CheckTx reads from ms (checkConsensusParams).
+	consensusParams atomic.Pointer[cmtproto.ConsensusParams]
 }
 
 // CacheMultiStore calls and returns a CacheMultiStore on the state's underling

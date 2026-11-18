@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cometbft/cometbft/abci/server"
+	abci "github.com/cometbft/cometbft/abci/types"
 	cmtcmd "github.com/cometbft/cometbft/cmd/cometbft/commands"
 	cmtcfg "github.com/cometbft/cometbft/config"
 	cmtjson "github.com/cometbft/cometbft/libs/json"
@@ -130,6 +131,9 @@ type StartCmdOptions struct {
 	// PreNodeStart, if set, is called with the in-process CometBFT node after it
 	// is created and before it starts, e.g. to hand the app the node's mempool.
 	PreNodeStart func(app types.Application, node *node.Node) error
+	// ClientCreator, if set, builds the in-process node's ABCI clients. The default,
+	// proxy.NewLocalClientCreator, holds one mutex across every ABCI connection.
+	ClientCreator func(app abci.Application) proxy.ClientCreator
 	// GRPCServerOptions are appended to the default gRPC server options so
 	// applications can register custom interceptors, stats handlers, or other
 	// grpc.ServerOptions.
@@ -335,7 +339,7 @@ func startInProcess(svrCtx *Context, svrCfg serverconfig.Config, clientCtx clien
 		svrCfg.GRPC.Enable = true
 	} else {
 		svrCtx.Logger.Info("starting node with ABCI CometBFT in-process")
-		tmNode, cleanupFn, err := startCmtNode(ctx, cmtCfg, app, svrCtx, opts.PreNodeStart)
+		tmNode, cleanupFn, err := startCmtNode(ctx, cmtCfg, app, svrCtx, opts)
 		if err != nil {
 			return err
 		}
@@ -387,7 +391,7 @@ func startCmtNode(
 	cfg *cmtcfg.Config,
 	app types.Application,
 	svrCtx *Context,
-	preStart func(types.Application, *node.Node) error,
+	opts StartCmdOptions,
 ) (tmNode *node.Node, cleanupFn func(), err error) {
 	nodeKey, err := p2p.LoadOrGenNodeKey(cfg.NodeKeyFile())
 	if err != nil {
@@ -395,12 +399,16 @@ func startCmtNode(
 	}
 
 	cmtApp := NewCometABCIWrapper(app)
+	newClientCreator := proxy.NewLocalClientCreator
+	if opts.ClientCreator != nil {
+		newClientCreator = opts.ClientCreator
+	}
 	tmNode, err = node.NewNodeWithContext(
 		ctx,
 		cfg,
 		pvm.LoadOrGenFilePV(cfg.PrivValidatorKeyFile(), cfg.PrivValidatorStateFile()),
 		nodeKey,
-		proxy.NewLocalClientCreator(cmtApp),
+		newClientCreator(cmtApp),
 		getGenDocProvider(cfg),
 		cmtcfg.DefaultDBProvider,
 		node.DefaultMetricsProvider(cfg.Instrumentation),
@@ -410,8 +418,8 @@ func startCmtNode(
 		return tmNode, cleanupFn, err
 	}
 
-	if preStart != nil {
-		if err := preStart(app, tmNode); err != nil {
+	if opts.PreNodeStart != nil {
+		if err := opts.PreNodeStart(app, tmNode); err != nil {
 			return tmNode, cleanupFn, err
 		}
 	}

@@ -35,6 +35,14 @@ func (k Keeper) IncrementUnbondingID(ctx context.Context) (unbondingID uint64, e
 	return unbondingID, err
 }
 
+// SetUnbondingID sets the last unbonding ID. The next unbonding operation
+// gets id + 1.
+func (k Keeper) SetUnbondingID(ctx context.Context, id uint64) error {
+	bz := make([]byte, 8)
+	binary.BigEndian.PutUint64(bz, id)
+	return k.storeService.OpenKVStore(ctx).Set(types.UnbondingIDKey, bz)
+}
+
 // DeleteUnbondingIndex removes a mapping from UnbondingId to unbonding operation
 func (k Keeper) DeleteUnbondingIndex(ctx context.Context, id uint64) error {
 	store := k.storeService.OpenKVStore(ctx)

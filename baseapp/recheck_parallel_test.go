@@ -67,7 +67,7 @@ func isFeeKey(k storetypes.StoreKey, key []byte) bool {
 
 func newRecheckSuite(t *testing.T, opts ...func(*baseapp.BaseApp)) *BaseAppSuite {
 	t.Helper()
-	opts = append(opts, func(app *baseapp.BaseApp) { app.SetAnteHandler(recheckAnte) })
+	opts = append([]func(*baseapp.BaseApp){func(app *baseapp.BaseApp) { app.SetAnteHandler(recheckAnte) }}, opts...)
 	s := NewBaseAppSuite(t, opts...)
 	baseapptestutil.RegisterCounterServer(s.baseApp.MsgServiceRouter(), NoopCounterServerImpl{})
 	_, err := s.baseApp.InitChain(&abci.RequestInitChain{ConsensusParams: &cmtproto.ConsensusParams{}})
@@ -240,6 +240,35 @@ func TestRecheckExecutorDirtyCheckState(t *testing.T) {
 	exec, _, err = s.recheckParallel(t, nil, nil, 1)
 	require.NoError(t, err)
 	require.True(t, exec.Fresh())
+
+	// So does a write under LockCheckState.
+	commitBlock(t, s.baseApp, 3)
+	s.baseApp.LockCheckState()()
+	exec, _, err = s.recheckParallel(t, nil, nil, 1)
+	require.NoError(t, err)
+	require.False(t, exec.Fresh())
+}
+
+func TestRecheckWorkerRecheckTxWith(t *testing.T) {
+	type traceKey struct{}
+	var seen any
+	s := newRecheckSuite(t, func(app *baseapp.BaseApp) {
+		app.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, sim bool) (sdk.Context, error) {
+			seen = ctx.Value(traceKey{})
+			return recheckAnte(ctx, tx, sim)
+		})
+	})
+	tx := s.recheckTx(t, "s=0&n=0&f=x")
+	defer s.baseApp.LockCheckState()()
+	exec, err := s.baseApp.NewRecheckExecutor(1, isFeeKey)
+	require.NoError(t, err)
+	w := exec.NewWorker()
+	w.BeginGroup(0)
+	rsp := w.RecheckTxWith(tx, nil, func(ctx sdk.Context) sdk.Context { return ctx.WithValue(traceKey{}, "traced") })
+	w.EndGroup()
+	require.True(t, rsp.IsOK(), rsp.Log)
+	require.Equal(t, "traced", seen)
+	require.NoError(t, exec.Validate(1))
 }
 
 func TestRecheckExecutorPrepareCheckStater(t *testing.T) {

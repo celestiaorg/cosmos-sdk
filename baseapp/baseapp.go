@@ -326,7 +326,11 @@ func (app *BaseApp) ReadCheckState(fn func(sdk.Context)) bool {
 // state outside CheckTx; Simulate and ReadCheckState wait. Same call restrictions as ReadCheckState until unlock.
 func (app *BaseApp) LockCheckState() (unlock func()) {
 	app.checkStateMu.Lock()
-	return app.checkStateMu.Unlock
+	return func() {
+		// the holder may have written checkState, so a later parallel recheck must read through it
+		app.checkStateDirty = true
+		app.checkStateMu.Unlock()
+	}
 }
 
 // GRPCQueryRouter returns the GRPCQueryRouter of a BaseApp.

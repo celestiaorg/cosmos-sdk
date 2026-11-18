@@ -223,8 +223,17 @@ func (w *RecheckWorker) Context() sdk.Context { return w.ctx }
 // RecheckTx rechecks one tx of the current group on the branch, as
 // CheckTx(Type=Recheck) does on checkState. tx, if not nil, is the decode of txBytes.
 func (w *RecheckWorker) RecheckTx(txBytes []byte, tx sdk.Tx) *abci.ResponseCheckTx {
+	return w.RecheckTxWith(txBytes, tx, nil)
+}
+
+// RecheckTxWith is RecheckTx with wrap, if not nil, applied to the tx's context,
+// e.g. to pass the app's ante handler a value for this tx.
+func (w *RecheckWorker) RecheckTxWith(txBytes []byte, tx sdk.Tx, wrap func(sdk.Context) sdk.Context) *abci.ResponseCheckTx {
 	app := w.e.app
 	ctx := app.txContext(w.ctx, execModeReCheck, txBytes)
+	if wrap != nil {
+		ctx = wrap(ctx)
+	}
 	p, err := app.runTxAnteCtx(execModeReCheck, ctx, txBytes, tx)
 	return app.checkTxResponse(app.finishTx(execModeReCheck, p, err))
 }

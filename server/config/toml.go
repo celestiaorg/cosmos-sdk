@@ -95,7 +95,7 @@ app-db-backend = "{{ .BaseConfig.AppDBBackend }}"
 disable-optimistic-execution = {{ .BaseConfig.DisableOptimisticExecution }}
 
 # RecheckWorkers is how many goroutines the app uses for a batch mempool recheck
-# (celestia-core mempool.recheck_batch). Read by the app; 1 rechecks sequentially, 0 means 8.
+# (celestia-core, unless mempool.disable_recheck_batch). Read by the app; 1 rechecks sequentially, 0 means 8.
 recheck-workers = {{ .BaseConfig.RecheckWorkers }}
 
 ###############################################################################

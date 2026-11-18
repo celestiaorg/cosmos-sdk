@@ -50,6 +50,10 @@ func TestValidateGenesis(t *testing.T) {
 		{"exhausted unbonding ID counter", func(data *types.GenesisState) {
 			data.LastUnbondingId = math.MaxUint64
 		}, true},
+		{"unbonding ID with an index and no type", func(data *types.GenesisState) {
+			data.LastUnbondingId = 3
+			data.UnbondingIds = []types.UnbondingIdRecord{{Id: 2, Index: []byte{0x32}}}
+		}, false},
 		{"unbonding ID zero", func(data *types.GenesisState) {
 			data.LastUnbondingId = 3
 			data.UnbondingIds = []types.UnbondingIdRecord{{Id: 0, UnbondingType: 1}}
@@ -66,9 +70,9 @@ func TestValidateGenesis(t *testing.T) {
 			data.LastUnbondingId = 3
 			data.UnbondingIds = []types.UnbondingIdRecord{{Id: 2, UnbondingType: 4}}
 		}, true},
-		{"unbonding ID without a type", func(data *types.GenesisState) {
+		{"unbonding ID with neither an index nor a type", func(data *types.GenesisState) {
 			data.LastUnbondingId = 3
-			data.UnbondingIds = []types.UnbondingIdRecord{{Id: 2, Index: []byte{0x32}}}
+			data.UnbondingIds = []types.UnbondingIdRecord{{Id: 2}}
 		}, true},
 	}
 

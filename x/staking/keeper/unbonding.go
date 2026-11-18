@@ -103,12 +103,16 @@ func (k Keeper) GetUnbondingIDRecords(ctx context.Context) ([]types.UnbondingIdR
 	return out, nil
 }
 
-// SetUnbondingIDRecord stores the index and type of one unbonding ID.
+// SetUnbondingIDRecord stores the index and type of one unbonding ID; an
+// empty index or a zero type is not stored.
 func (k Keeper) SetUnbondingIDRecord(ctx context.Context, record types.UnbondingIdRecord) error {
 	if len(record.Index) > 0 {
 		if err := k.storeService.OpenKVStore(ctx).Set(types.GetUnbondingIndexKey(record.Id), record.Index); err != nil {
 			return err
 		}
+	}
+	if record.UnbondingType == 0 {
+		return nil
 	}
 	return k.SetUnbondingType(ctx, record.Id, types.UnbondingType(record.UnbondingType))
 }

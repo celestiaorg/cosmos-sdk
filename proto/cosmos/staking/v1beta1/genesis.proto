@@ -44,6 +44,25 @@ message GenesisState {
   // last_unbonding_id is the last unbonding ID issued. The next unbonding
   // operation gets last_unbonding_id + 1.
   uint64 last_unbonding_id = 9;
+
+  // unbonding_ids are the stored index and type of each unbonding ID, ordered
+  // by ID. The type of an ID stays after its unbonding completes, its index
+  // does not.
+  repeated UnbondingIdRecord unbonding_ids = 10 [(gogoproto.nullable) = false, (amino.dont_omitempty) = true];
+}
+
+// UnbondingIdRecord is the stored index and type of one unbonding ID.
+message UnbondingIdRecord {
+  // id is the unbonding ID.
+  uint64 id = 1;
+
+  // unbonding_type is the stored type: 1 for an unbonding delegation, 2 for
+  // a redelegation, 3 for a validator unbonding.
+  uint64 unbonding_type = 2;
+
+  // index is the store key of the unbonding operation the ID points to, empty
+  // if the ID has no index.
+  bytes index = 3;
 }
 
 // LastValidatorPower required for validator set update logic.

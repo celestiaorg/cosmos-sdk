@@ -3,6 +3,10 @@ package keeper
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
+	"slices"
+
+	storetypes "cosmossdk.io/store/types"
 
 	errorsmod "cosmossdk.io/errors"
 
@@ -50,6 +54,63 @@ func (k Keeper) SetUnbondingID(ctx context.Context, id uint64) error {
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, id)
 	return k.storeService.OpenKVStore(ctx).Set(types.UnbondingIDKey, bz)
+}
+
+// GetUnbondingIDRecords returns the stored index and type of every unbonding
+// ID, ordered by ID.
+func (k Keeper) GetUnbondingIDRecords(ctx context.Context) ([]types.UnbondingIdRecord, error) {
+	store := k.storeService.OpenKVStore(ctx)
+	records := make(map[uint64]*types.UnbondingIdRecord)
+	var ids []uint64
+	visit := func(prefix []byte, set func(*types.UnbondingIdRecord, []byte)) error {
+		it, err := store.Iterator(prefix, storetypes.PrefixEndBytes(prefix))
+		if err != nil {
+			return err
+		}
+		defer it.Close()
+		for ; it.Valid(); it.Next() {
+			key := it.Key()
+			if len(key) != len(prefix)+8 {
+				return fmt.Errorf("unbonding ID key %X has a bad length", key)
+			}
+			id := binary.BigEndian.Uint64(key[len(prefix):])
+			record, ok := records[id]
+			if !ok {
+				record = &types.UnbondingIdRecord{Id: id}
+				records[id] = record
+				ids = append(ids, id)
+			}
+			set(record, it.Value())
+		}
+		return nil
+	}
+	if err := visit(types.UnbondingIndexKey, func(r *types.UnbondingIdRecord, v []byte) {
+		r.Index = slices.Clone(v)
+	}); err != nil {
+		return nil, err
+	}
+	if err := visit(types.UnbondingTypeKey, func(r *types.UnbondingIdRecord, v []byte) {
+		r.UnbondingType = binary.BigEndian.Uint64(v)
+	}); err != nil {
+		return nil, err
+	}
+
+	slices.Sort(ids)
+	out := make([]types.UnbondingIdRecord, len(ids))
+	for i, id := range ids {
+		out[i] = *records[id]
+	}
+	return out, nil
+}
+
+// SetUnbondingIDRecord stores the index and type of one unbonding ID.
+func (k Keeper) SetUnbondingIDRecord(ctx context.Context, record types.UnbondingIdRecord) error {
+	if len(record.Index) > 0 {
+		if err := k.storeService.OpenKVStore(ctx).Set(types.GetUnbondingIndexKey(record.Id), record.Index); err != nil {
+			return err
+		}
+	}
+	return k.SetUnbondingType(ctx, record.Id, types.UnbondingType(record.UnbondingType))
 }
 
 // DeleteUnbondingIndex removes a mapping from UnbondingId to unbonding operation

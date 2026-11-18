@@ -20,8 +20,6 @@ import (
 func (k Keeper) InitGenesis(ctx context.Context, data *types.GenesisState) (res []abci.ValidatorUpdate) {
 	bondedTokens := math.ZeroInt()
 	notBondedTokens := math.ZeroInt()
-	// lastUnbondingID is the highest unbonding ID in the genesis state.
-	var lastUnbondingID uint64
 
 	// We need to pretend to be "n blocks before genesis", where "n" is the
 	// validator update delay, so that e.g. slashing periods are correctly
@@ -86,17 +84,6 @@ func (k Keeper) InitGenesis(ctx context.Context, data *types.GenesisState) (res 
 			}
 		}
 
-		// The index of an unbonding ID is deleted when the validator's
-		// unbonding completes, but the IDs stay on an unbonded validator.
-		for _, id := range validator.UnbondingIds {
-			lastUnbondingID = max(lastUnbondingID, id)
-			if !validator.IsUnbonded() {
-				if err := k.SetValidatorByUnbondingID(ctx, validator, id); err != nil {
-					panic(err)
-				}
-			}
-		}
-
 		switch validator.GetStatus() {
 		case types.Bonded:
 			bondedTokens = bondedTokens.Add(validator.GetTokens())
@@ -149,13 +136,6 @@ func (k Keeper) InitGenesis(ctx context.Context, data *types.GenesisState) (res 
 				panic(err)
 			}
 			notBondedTokens = notBondedTokens.Add(entry.Balance)
-
-			if entry.UnbondingId != 0 {
-				lastUnbondingID = max(lastUnbondingID, entry.UnbondingId)
-				if err := k.SetUnbondingDelegationByUnbondingID(ctx, ubd, entry.UnbondingId); err != nil {
-					panic(err)
-				}
-			}
 		}
 	}
 
@@ -168,21 +148,18 @@ func (k Keeper) InitGenesis(ctx context.Context, data *types.GenesisState) (res 
 			if err := k.InsertRedelegationQueue(ctx, red, entry.CompletionTime); err != nil {
 				panic(err)
 			}
-
-			if entry.UnbondingId != 0 {
-				lastUnbondingID = max(lastUnbondingID, entry.UnbondingId)
-				if err := k.SetRedelegationByUnbondingID(ctx, red, entry.UnbondingId); err != nil {
-					panic(err)
-				}
-			}
 		}
 	}
 
-	// New unbonding operations must not reuse an ID of the genesis state or
-	// one the exporting chain already issued.
-	lastUnbondingID = max(lastUnbondingID, data.LastUnbondingId)
-	if lastUnbondingID > 0 {
-		if err := k.SetUnbondingID(ctx, lastUnbondingID); err != nil {
+	// The unbonding ID records as the exporting chain stored them, and its
+	// counter, so new unbonding operations do not reuse an ID.
+	for _, record := range data.UnbondingIds {
+		if err := k.SetUnbondingIDRecord(ctx, record); err != nil {
+			panic(err)
+		}
+	}
+	if data.LastUnbondingId > 0 {
+		if err := k.SetUnbondingID(ctx, data.LastUnbondingId); err != nil {
 			panic(err)
 		}
 	}
@@ -320,6 +297,10 @@ func (k Keeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
 	if err != nil {
 		panic(err)
 	}
+	unbondingIDs, err := k.GetUnbondingIDRecords(ctx)
+	if err != nil {
+		panic(err)
+	}
 
 	return &types.GenesisState{
 		Params:               params,
@@ -331,5 +312,6 @@ func (k Keeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
 		Redelegations:        redelegations,
 		Exported:             true,
 		LastUnbondingId:      lastUnbondingID,
+		UnbondingIds:         unbondingIDs,
 	}
 }

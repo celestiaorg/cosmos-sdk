@@ -3,7 +3,6 @@ package keeper_test
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/stretchr/testify/require"
@@ -11,7 +10,6 @@ import (
 
 	"cosmossdk.io/math"
 
-	addresscodec "github.com/cosmos/cosmos-sdk/codec/address"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktestutil "github.com/cosmos/cosmos-sdk/x/bank/testutil"
@@ -241,94 +239,63 @@ func TestInitGenesisLargeValidatorSet(t *testing.T) {
 	assert.DeepEqual(t, abcivals, vals)
 }
 
-// TestInitGenesisUnbondingIDs checks that InitGenesis rebuilds the index and
-// type of every unbonding ID in the genesis state, which ExportGenesis does not
-// carry, and that the next unbonding operation does not reuse one of them.
-func TestInitGenesisUnbondingIDs(t *testing.T) {
-	f, addrs := bootstrapGenesisTest(t, 4)
-	genesisValidators, err := f.stakingKeeper.GetAllValidators(f.sdkCtx)
+// TestExportGenesisUnbondingIDRecords checks that ExportGenesis carries the
+// stored index and type of every unbonding ID, including the type of an ID
+// whose unbonding completed and lost its index, and the counter.
+func TestExportGenesisUnbondingIDRecords(t *testing.T) {
+	f, addrs := bootstrapGenesisTest(t, 1)
+	val, err := types.NewValidator(sdk.ValAddress(addrs[0]).String(), PKs[0], types.NewDescription("v", "", "", "", ""))
 	assert.NilError(t, err)
-	params, err := f.stakingKeeper.GetParams(f.sdkCtx)
-	assert.NilError(t, err)
-	valCodec := f.stakingKeeper.ValidatorAddressCodec()
-	accCodec := addresscodec.NewBech32Codec(sdk.GetConfig().GetBech32AccountAddrPrefix())
-	tokens := f.stakingKeeper.TokensFromConsensusPower(f.sdkCtx, 1)
-	completion := f.sdkCtx.BlockTime().Add(time.Hour)
 
-	newValidator := func(i int, status types.BondStatus, ids ...uint64) types.Validator {
-		val, err := types.NewValidator(sdk.ValAddress(addrs[i]).String(), PKs[i], types.NewDescription(fmt.Sprintf("#%d", i), "", "", "", ""))
-		assert.NilError(t, err)
-		val.Status = status
-		val.Tokens = tokens
-		val.DelegatorShares = math.LegacyNewDecFromInt(tokens)
-		val.UnbondingIds = ids
-		if status == types.Unbonding {
-			val.UnbondingHeight = 1
-			val.UnbondingTime = completion
-		}
-		return val
-	}
-	// The bonded validator was rebonded before its unbonding 5 completed, so
-	// index 5 is still set. The unbonded one completed unbonding 3, which
-	// deleted index 3.
-	bonded := newValidator(0, types.Bonded, 5)
-	unbonding := newValidator(1, types.Unbonding, 7)
-	unbonded := newValidator(2, types.Unbonded, 3)
+	assert.NilError(t, f.stakingKeeper.SetValidatorByUnbondingID(f.sdkCtx, val, 5))
+	assert.NilError(t, f.stakingKeeper.SetUnbondingType(f.sdkCtx, 7, types.UnbondingType_Redelegation))
+	assert.NilError(t, f.stakingKeeper.SetUnbondingID(f.sdkCtx, 9))
 
-	delegator := addrs[3]
-	ubd := types.NewUnbondingDelegation(delegator, sdk.ValAddress(addrs[0]), 10, completion, tokens, 2, valCodec, accCodec)
-	ubd.AddEntry(11, completion, tokens, 9)
-	red := types.NewRedelegation(delegator, sdk.ValAddress(addrs[0]), sdk.ValAddress(addrs[1]), 12, completion, tokens, math.LegacyNewDecFromInt(tokens), 4, valCodec, accCodec)
-
-	genesisState := types.NewGenesisState(params, append([]types.Validator{bonded, unbonding, unbonded}, genesisValidators...), nil)
-	genesisState.UnbondingDelegations = []types.UnbondingDelegation{ubd}
-	genesisState.Redelegations = []types.Redelegation{red}
-	genesisState.Exported = true
-
-	assert.NilError(t, banktestutil.FundModuleAccount(f.sdkCtx, f.bankKeeper, types.BondedPoolName,
-		sdk.NewCoins(sdk.NewCoin(params.BondDenom, tokens))))
-	// Two unbonding entries and the unbonding and unbonded validators.
-	assert.NilError(t, banktestutil.FundModuleAccount(f.sdkCtx, f.bankKeeper, types.NotBondedPoolName,
-		sdk.NewCoins(sdk.NewCoin(params.BondDenom, tokens.MulRaw(4)))))
-
-	f.stakingKeeper.InitGenesis(f.sdkCtx, genesisState)
-
-	for _, id := range []uint64{2, 9} {
-		got, err := f.stakingKeeper.GetUnbondingDelegationByUnbondingID(f.sdkCtx, id)
-		assert.NilError(t, err, "unbonding delegation %d", id)
-		assert.DeepEqual(t, ubd, got)
-	}
-	gotRed, err := f.stakingKeeper.GetRedelegationByUnbondingID(f.sdkCtx, 4)
-	assert.NilError(t, err)
-	assert.DeepEqual(t, red, gotRed)
-	for _, val := range []types.Validator{bonded, unbonding} {
-		got, err := f.stakingKeeper.GetValidatorByUnbondingID(f.sdkCtx, val.UnbondingIds[0])
-		assert.NilError(t, err)
-		assert.Equal(t, val.OperatorAddress, got.OperatorAddress)
-	}
-	_, err = f.stakingKeeper.GetUnbondingType(f.sdkCtx, 3)
-	assert.ErrorIs(t, err, types.ErrNoUnbondingType)
-
-	next, err := f.stakingKeeper.IncrementUnbondingID(f.sdkCtx)
-	assert.NilError(t, err)
-	assert.Equal(t, uint64(10), next)
-	assert.Equal(t, next, f.stakingKeeper.ExportGenesis(f.sdkCtx).LastUnbondingId)
+	exported := f.stakingKeeper.ExportGenesis(f.sdkCtx)
+	assert.Equal(t, uint64(9), exported.LastUnbondingId)
+	assert.DeepEqual(t, []types.UnbondingIdRecord{
+		{Id: 5, UnbondingType: uint64(types.UnbondingType_ValidatorUnbonding), Index: types.GetValidatorKey(sdk.ValAddress(addrs[0]))},
+		{Id: 7, UnbondingType: uint64(types.UnbondingType_Redelegation)},
+	}, exported.UnbondingIds)
 }
 
-// TestInitGenesisLastUnbondingID checks that InitGenesis keeps the exported
-// counter when it is above every unbonding ID in the genesis state, so IDs of
-// completed unbonding operations are not issued again.
-func TestInitGenesisLastUnbondingID(t *testing.T) {
-	f, _ := bootstrapGenesisTest(t, 1)
+// TestInitGenesisUnbondingIDRecords checks that InitGenesis stores the
+// unbonding ID records and the counter as exported, and does not add an index
+// the exporting chain did not have.
+func TestInitGenesisUnbondingIDRecords(t *testing.T) {
+	f, addrs := bootstrapGenesisTest(t, 1)
 	genesisValidators, err := f.stakingKeeper.GetAllValidators(f.sdkCtx)
 	assert.NilError(t, err)
 	params, err := f.stakingKeeper.GetParams(f.sdkCtx)
 	assert.NilError(t, err)
 
-	genesisState := types.NewGenesisState(params, genesisValidators, nil)
+	// A bonded validator keeps the IDs of an unbonding that completed, whose
+	// index was deleted; InitGenesis must not index them again.
+	stale, err := types.NewValidator(sdk.ValAddress(addrs[0]).String(), PKs[0], types.NewDescription("v", "", "", "", ""))
+	assert.NilError(t, err)
+	tokens := f.stakingKeeper.TokensFromConsensusPower(f.sdkCtx, 1)
+	stale.Status = types.Bonded
+	stale.Tokens = tokens
+	stale.DelegatorShares = math.LegacyNewDecFromInt(tokens)
+	stale.UnbondingIds = []uint64{4}
+	assert.NilError(t, banktestutil.FundModuleAccount(f.sdkCtx, f.bankKeeper, types.BondedPoolName,
+		sdk.NewCoins(sdk.NewCoin(params.BondDenom, tokens))))
+
+	records := []types.UnbondingIdRecord{
+		{Id: 2, UnbondingType: uint64(types.UnbondingType_UnbondingDelegation), Index: types.GetUBDKey(addrs[0], sdk.ValAddress(addrs[0]))},
+		{Id: 3, UnbondingType: uint64(types.UnbondingType_Redelegation)},
+	}
+	genesisState := types.NewGenesisState(params, append([]types.Validator{stale}, genesisValidators...), nil)
 	genesisState.Exported = true
 	genesisState.LastUnbondingId = 104479
+	genesisState.UnbondingIds = records
 	f.stakingKeeper.InitGenesis(f.sdkCtx, genesisState)
+
+	exported := f.stakingKeeper.ExportGenesis(f.sdkCtx)
+	assert.DeepEqual(t, records, exported.UnbondingIds)
+	assert.Equal(t, uint64(104479), exported.LastUnbondingId)
+	_, err = f.stakingKeeper.GetUnbondingType(f.sdkCtx, 4)
+	assert.ErrorIs(t, err, types.ErrNoUnbondingType)
 
 	next, err := f.stakingKeeper.IncrementUnbondingID(f.sdkCtx)
 	assert.NilError(t, err)

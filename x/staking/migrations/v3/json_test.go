@@ -51,6 +51,7 @@ func TestMigrateJSON(t *testing.T) {
 	},
 	"redelegations": [],
 	"unbonding_delegations": [],
+	"unbonding_ids": [],
 	"validators": []
 }`
 

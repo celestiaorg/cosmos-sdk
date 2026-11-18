@@ -3,6 +3,7 @@ package cachemulti
 import (
 	"fmt"
 	"io"
+	"sync"
 
 	dbm "github.com/cosmos/cosmos-db"
 
@@ -25,8 +26,15 @@ const storeNameCtxKey = "store_name"
 // keys for the substores.
 type Store struct {
 	db     types.CacheKVStore
-	stores map[types.StoreKey]types.CacheWrap
+	stores map[types.StoreKey]types.CacheWrap // substores branched so far
 	keys   map[string]types.StoreKey
+
+	// A substore is branched on first use, from base (a branch of a root
+	// store) or from the parent's substore (a branch of a branch). mu guards
+	// stores and is a pointer so that copies of a Store share it.
+	mu     *sync.RWMutex
+	base   map[types.StoreKey]types.CacheWrapper
+	parent *Store
 
 	traceWriter  io.Writer
 	traceContext types.TraceContext
@@ -41,26 +49,15 @@ func NewFromKVStore(
 	store types.KVStore, stores map[types.StoreKey]types.CacheWrapper,
 	keys map[string]types.StoreKey, traceWriter io.Writer, traceContext types.TraceContext,
 ) Store {
-	cms := Store{
+	return Store{
 		db:           cachekv.NewStore(store),
-		stores:       make(map[types.StoreKey]types.CacheWrap, len(stores)),
+		stores:       make(map[types.StoreKey]types.CacheWrap),
 		keys:         keys,
+		mu:           &sync.RWMutex{},
+		base:         stores,
 		traceWriter:  traceWriter,
 		traceContext: traceContext,
 	}
-
-	for key, store := range stores {
-		if cms.TracingEnabled() {
-			tctx := cms.traceContext.Clone().Merge(types.TraceContext{
-				storeNameCtxKey: key.Name(),
-			})
-
-			store = tracekv.NewStore(store.(types.KVStore), cms.traceWriter, tctx)
-		}
-		cms.stores[key] = cachekv.NewStore(store.(types.KVStore))
-	}
-
-	return cms
 }
 
 // NewStore creates a new Store object from a mapping of store keys to
@@ -73,12 +70,14 @@ func NewStore(
 }
 
 func newCacheMultiStoreFromCMS(cms Store) Store {
-	stores := make(map[types.StoreKey]types.CacheWrapper)
-	for k, v := range cms.stores {
-		stores[k] = v
+	return Store{
+		db:           cachekv.NewStore(cms.db),
+		stores:       make(map[types.StoreKey]types.CacheWrap),
+		mu:           &sync.RWMutex{},
+		parent:       &cms,
+		traceWriter:  cms.traceWriter,
+		traceContext: cms.traceContext,
 	}
-
-	return NewFromKVStore(cms.db, stores, nil, cms.traceWriter, cms.traceContext)
 }
 
 // SetTracer sets the tracer for the MultiStore that the underlying
@@ -122,9 +121,46 @@ func (cms Store) GetStoreType() types.StoreType {
 // Write calls Write on each underlying store.
 func (cms Store) Write() {
 	cms.db.Write()
+	cms.mu.Lock()
+	defer cms.mu.Unlock()
 	for _, store := range cms.stores {
 		store.Write()
 	}
+}
+
+// branch returns the substore for key, branching it on first use, or nil if
+// key is not registered. A branch of a branch first branches key in its parent.
+func (cms Store) branch(key types.StoreKey) types.CacheWrap {
+	cms.mu.RLock()
+	s, ok := cms.stores[key]
+	cms.mu.RUnlock()
+	if ok {
+		return s
+	}
+	cms.mu.Lock()
+	defer cms.mu.Unlock()
+	if s, ok := cms.stores[key]; ok {
+		return s
+	}
+	var src types.CacheWrapper
+	if cms.parent != nil {
+		src = cms.parent.branch(key)
+	} else {
+		src = cms.base[key]
+	}
+	if src == nil {
+		return nil
+	}
+	kv := src.(types.KVStore)
+	if cms.TracingEnabled() {
+		tctx := cms.traceContext.Clone().Merge(types.TraceContext{
+			storeNameCtxKey: key.Name(),
+		})
+		kv = tracekv.NewStore(kv, cms.traceWriter, tctx)
+	}
+	s = cachekv.NewStore(kv)
+	cms.stores[key] = s
+	return s
 }
 
 // Implements CacheWrapper.
@@ -153,8 +189,8 @@ func (cms Store) CacheMultiStoreWithVersion(_ int64) (types.CacheMultiStore, err
 
 // GetStore returns an underlying Store by key.
 func (cms Store) GetStore(key types.StoreKey) types.Store {
-	s := cms.stores[key]
-	if key == nil || s == nil {
+	s := cms.branch(key)
+	if s == nil {
 		panic(fmt.Sprintf("kv store with key %v has not been registered in stores", key))
 	}
 	return s.(types.Store)
@@ -162,8 +198,8 @@ func (cms Store) GetStore(key types.StoreKey) types.Store {
 
 // GetKVStore returns an underlying KVStore by key.
 func (cms Store) GetKVStore(key types.StoreKey) types.KVStore {
-	store := cms.stores[key]
-	if key == nil || store == nil {
+	store := cms.branch(key)
+	if store == nil {
 		panic(fmt.Sprintf("kv store with key %v has not been registered in stores", key))
 	}
 	return store.(types.KVStore)

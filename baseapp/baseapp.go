@@ -126,6 +126,10 @@ type BaseApp struct {
 	processProposalState *state
 	finalizeBlockState   *state
 
+	// checkStateDirty is set once checkState was written since Commit,
+	// so a parallel recheck must read through it. Guarded by checkStateMu.
+	checkStateDirty bool
+
 	// An inter-block write-through cache provided to the context during the ABCI
 	// FinalizeBlock call.
 	interBlockCache storetypes.MultiStorePersistentCache
@@ -548,6 +552,7 @@ func (app *BaseApp) setState(mode execMode, h cmtproto.Header) {
 	case execModeCheck:
 		baseState.SetContext(baseState.Context().WithIsCheckTx(true).WithMinGasPrices(app.minGasPrices))
 		app.checkState = baseState
+		app.checkStateDirty = false
 
 	case execModePrepareProposal:
 		app.prepareProposalState = baseState
@@ -714,7 +719,12 @@ func (app *BaseApp) getContextForTx(mode execMode, txBytes []byte) sdk.Context {
 	if modeState == nil {
 		panic(fmt.Sprintf("state is nil for mode %v", mode))
 	}
-	ctx := modeState.Context().
+	return app.txContext(modeState.Context(), mode, txBytes)
+}
+
+// txContext derives the context a tx runs in from its mode's state context.
+func (app *BaseApp) txContext(base sdk.Context, mode execMode, txBytes []byte) sdk.Context {
+	ctx := base.
 		WithTxBytes(txBytes).
 		WithGasMeter(storetypes.NewInfiniteGasMeter())
 	// WithVoteInfos(app.voteInfos) // TODO: identify if this is needed
@@ -927,6 +937,11 @@ func (app *BaseApp) endBlock(_ context.Context) (sdk.EndBlock, error) {
 // where runMsgs skips message execution so effectively only the antes run.
 func (app *BaseApp) runTx(mode execMode, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
 	p, err := app.runTxAnte(mode, txBytes, nil)
+	return app.finishTx(mode, p, err)
+}
+
+// finishTx runs the message phase of a tx whose ante phase returned p and err.
+func (app *BaseApp) finishTx(mode execMode, p *preparedTx, err error) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, _ error) {
 	if err == nil {
 		result, err = app.runTxMsgs(mode, p)
 	}

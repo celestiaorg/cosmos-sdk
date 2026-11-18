@@ -96,6 +96,9 @@ type BaseConfig struct {
 
 	// EnableSubspaceQueries serves /store/<name>/subspace ABCI queries; DefaultConfig leaves it false.
 	EnableSubspaceQueries bool `mapstructure:"enable-subspace-queries"`
+
+	// RecheckWorkers is read by the app as the parallelism of a batch mempool recheck; 0 means DefaultRecheckWorkers.
+	RecheckWorkers int `mapstructure:"recheck-workers"`
 }
 
 // APIConfig defines the API listener configuration.
@@ -220,6 +223,9 @@ func (c *Config) GetMinGasPrices() sdk.DecCoins {
 	return gasPrices
 }
 
+// DefaultRecheckWorkers is the default RecheckWorkers.
+const DefaultRecheckWorkers = 8
+
 // DefaultConfig returns server's default configuration.
 func DefaultConfig() *Config {
 	return &Config{
@@ -235,6 +241,7 @@ func DefaultConfig() *Config {
 			IAVLCacheSize:       781250,
 			IAVLDisableFastNode: false,
 			AppDBBackend:        "",
+			RecheckWorkers:      DefaultRecheckWorkers,
 		},
 		Telemetry: telemetry.Config{
 			Enabled:      false,

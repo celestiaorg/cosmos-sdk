@@ -47,6 +47,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 ### Features
 
 * (baseapp) [#188](https://github.com/celestiaorg/cosmos-sdk/pull/188) `BaseApp.ReadCheckState` runs a function with the check state context under the lock `CheckTx` and `Commit` take, so apps can read check state outside `CheckTx` without racing `FinalizeBlock` and `Commit`.
+* (baseapp) [#198](https://github.com/celestiaorg/cosmos-sdk/pull/198) `BaseApp.NewRecheckExecutor` rechecks independent groups of mempool txs in parallel on tracked branches of check state and merges them only if they proved independent; `server` forwards CometBFT's batch `RecheckTxs` to the app, and the top-level app.toml key `recheck-workers` (default 8) sets the app's parallelism.
 * (server/config) [#187](https://github.com/celestiaorg/cosmos-sdk/pull/187) Top-level `disable-optimistic-execution` app.toml key (`BaseConfig.DisableOptimisticExecution`, default `false`), read by the app to turn off optimistic execution on one node.
 
 ### Improvements

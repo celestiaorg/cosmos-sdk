@@ -356,32 +356,7 @@ func (app *BaseApp) CheckTx(req *abci.RequestCheckTx) (*abci.ResponseCheckTx, er
 	app.checkStateMu.Lock()
 	defer app.checkStateMu.Unlock()
 
-	var mode execMode
-
-	switch {
-	case req.Type == abci.CheckTxType_New:
-		mode = execModeCheck
-
-	case req.Type == abci.CheckTxType_Recheck:
-		mode = execModeReCheck
-
-	default:
-		return nil, fmt.Errorf("unknown RequestCheckTx type: %s", req.Type)
-	}
-
-	gInfo, result, anteEvents, priority, err := app.runTx(mode, req.Tx)
-	if err != nil {
-		return sdkerrors.ResponseCheckTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, anteEvents, app.trace), nil
-	}
-
-	return &abci.ResponseCheckTx{
-		GasWanted: int64(gInfo.GasWanted), // TODO: Should type accept unsigned ints?
-		GasUsed:   int64(gInfo.GasUsed),   // TODO: Should type accept unsigned ints?
-		Log:       result.Log,
-		Data:      result.Data,
-		Events:    sdk.MarkEventsToIndex(result.Events, app.indexEvents),
-		Priority:  priority,
-	}, nil
+	return app.CheckTxUnlocked(req, nil)
 }
 
 // PrepareProposal implements the PrepareProposal ABCI method and returns a

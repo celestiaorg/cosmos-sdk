@@ -75,3 +75,13 @@ func (w cometABCIWrapper) ApplySnapshotChunk(_ context.Context, req *abci.Reques
 func (w cometABCIWrapper) QuerySequence(ctx context.Context, req *abci.RequestQuerySequence) (*abci.ResponseQuerySequence, error) {
 	return w.app.QuerySequence(ctx, req)
 }
+
+// RecheckTxs forwards a batch recheck if the app implements it; without this,
+// a standalone node would always recheck one tx at a time.
+func (w cometABCIWrapper) RecheckTxs(ctx context.Context, req *abci.RequestRecheckTxs) (*abci.ResponseRecheckTxs, error) {
+	b, ok := w.app.(abci.RecheckTxsApplication)
+	if !ok {
+		return nil, abci.ErrRecheckTxsUnsupported
+	}
+	return b.RecheckTxs(ctx, req)
+}

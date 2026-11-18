@@ -39,6 +39,7 @@ func TestMigrateJSON(t *testing.T) {
 	"delegations": [],
 	"exported": false,
 	"last_total_power": "0",
+	"last_unbonding_id": "0",
 	"last_validator_powers": [],
 	"params": {
 		"bond_denom": "stake",

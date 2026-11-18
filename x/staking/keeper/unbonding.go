@@ -35,6 +35,15 @@ func (k Keeper) IncrementUnbondingID(ctx context.Context) (unbondingID uint64, e
 	return unbondingID, err
 }
 
+// GetUnbondingID returns the last unbonding ID, or 0 if none was issued.
+func (k Keeper) GetUnbondingID(ctx context.Context) (uint64, error) {
+	bz, err := k.storeService.OpenKVStore(ctx).Get(types.UnbondingIDKey)
+	if err != nil || bz == nil {
+		return 0, err
+	}
+	return binary.BigEndian.Uint64(bz), nil
+}
+
 // SetUnbondingID sets the last unbonding ID. The next unbonding operation
 // gets id + 1.
 func (k Keeper) SetUnbondingID(ctx context.Context, id uint64) error {

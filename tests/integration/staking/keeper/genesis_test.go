@@ -312,4 +312,25 @@ func TestInitGenesisUnbondingIDs(t *testing.T) {
 	next, err := f.stakingKeeper.IncrementUnbondingID(f.sdkCtx)
 	assert.NilError(t, err)
 	assert.Equal(t, uint64(10), next)
+	assert.Equal(t, next, f.stakingKeeper.ExportGenesis(f.sdkCtx).LastUnbondingId)
+}
+
+// TestInitGenesisLastUnbondingID checks that InitGenesis keeps the exported
+// counter when it is above every unbonding ID in the genesis state, so IDs of
+// completed unbonding operations are not issued again.
+func TestInitGenesisLastUnbondingID(t *testing.T) {
+	f, _ := bootstrapGenesisTest(t, 1)
+	genesisValidators, err := f.stakingKeeper.GetAllValidators(f.sdkCtx)
+	assert.NilError(t, err)
+	params, err := f.stakingKeeper.GetParams(f.sdkCtx)
+	assert.NilError(t, err)
+
+	genesisState := types.NewGenesisState(params, genesisValidators, nil)
+	genesisState.Exported = true
+	genesisState.LastUnbondingId = 104479
+	f.stakingKeeper.InitGenesis(f.sdkCtx, genesisState)
+
+	next, err := f.stakingKeeper.IncrementUnbondingID(f.sdkCtx)
+	assert.NilError(t, err)
+	assert.Equal(t, uint64(104480), next)
 }

@@ -178,7 +178,9 @@ func (k Keeper) InitGenesis(ctx context.Context, data *types.GenesisState) (res 
 		}
 	}
 
-	// New unbonding operations must not reuse an ID of the genesis state.
+	// New unbonding operations must not reuse an ID of the genesis state or
+	// one the exporting chain already issued.
+	lastUnbondingID = max(lastUnbondingID, data.LastUnbondingId)
 	if lastUnbondingID > 0 {
 		if err := k.SetUnbondingID(ctx, lastUnbondingID); err != nil {
 			panic(err)
@@ -314,6 +316,11 @@ func (k Keeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
 		panic(err)
 	}
 
+	lastUnbondingID, err := k.GetUnbondingID(ctx)
+	if err != nil {
+		panic(err)
+	}
+
 	return &types.GenesisState{
 		Params:               params,
 		LastTotalPower:       totalPower,
@@ -323,5 +330,6 @@ func (k Keeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
 		UnbondingDelegations: unbondingDelegations,
 		Redelegations:        redelegations,
 		Exported:             true,
+		LastUnbondingId:      lastUnbondingID,
 	}
 }

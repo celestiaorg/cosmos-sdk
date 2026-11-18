@@ -40,6 +40,10 @@ message GenesisState {
 
   // exported defines a bool to identify whether the chain dealing with exported or initialized genesis.
   bool exported = 8;
+
+  // last_unbonding_id is the last unbonding ID issued. The next unbonding
+  // operation gets last_unbonding_id + 1.
+  uint64 last_unbonding_id = 9;
 }
 
 // LastValidatorPower required for validator set update logic.

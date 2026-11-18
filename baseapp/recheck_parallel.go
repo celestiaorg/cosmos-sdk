@@ -25,13 +25,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/mempool"
 )
 
-// LockCheckState takes the lock CheckTx takes, for a caller that runs a batch
-// of rechecks with RecheckExecutor or CheckTxUnlocked. It returns the unlock.
-func (app *BaseApp) LockCheckState() (unlock func()) {
-	app.checkStateMu.Lock()
-	return app.checkStateMu.Unlock
-}
-
 // CheckTxUnlocked is CheckTx for a caller that holds LockCheckState. tx, if
 // not nil, is the decode of req.Tx.
 func (app *BaseApp) CheckTxUnlocked(req *abci.RequestCheckTx, tx sdk.Tx) (*abci.ResponseCheckTx, error) {

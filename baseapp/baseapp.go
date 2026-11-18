@@ -322,6 +322,13 @@ func (app *BaseApp) ReadCheckState(fn func(sdk.Context)) bool {
 	return true
 }
 
+// LockCheckState takes the CheckTx/Commit lock on checkState exclusively, for an app that writes check
+// state outside CheckTx; Simulate and ReadCheckState wait. Same call restrictions as ReadCheckState until unlock.
+func (app *BaseApp) LockCheckState() (unlock func()) {
+	app.checkStateMu.Lock()
+	return app.checkStateMu.Unlock
+}
+
 // GRPCQueryRouter returns the GRPCQueryRouter of a BaseApp.
 func (app *BaseApp) GRPCQueryRouter() *GRPCQueryRouter { return app.grpcQueryRouter }
 

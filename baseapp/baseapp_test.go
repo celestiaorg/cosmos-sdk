@@ -1263,6 +1263,29 @@ func finalizeRaceBlocks(t *testing.T, app *baseapp.BaseApp, oe bool) {
 	}
 }
 
+// TestFinalizeBlockLockCheckStateRace checks that checkState reads and writes
+// under LockCheckState do not race workingHash and Commit.
+func TestFinalizeBlockLockCheckStateRace(t *testing.T) {
+	for _, oe := range []bool{false, true} {
+		t.Run(fmt.Sprintf("oe=%t", oe), func(t *testing.T) {
+			suite := newRaceSuite(t, oe, func(app *baseapp.BaseApp) { app.SetPreBlocker(raceKeyPreBlocker) })
+			runRace(
+				func() { finalizeRaceBlocks(t, suite.baseApp, oe) },
+				func(i int64) {
+					unlock := suite.baseApp.LockCheckState()
+					defer unlock()
+					ctx, ok := suite.baseApp.CheckState()
+					assert.True(t, ok)
+					// A fresh key misses checkState's cache and reads the tree.
+					key := []byte(fmt.Sprintf("lock-key-%d", i))
+					_ = ctx.MultiStore().GetKVStore(capKey2).Get(key)
+					ctx.MultiStore().GetKVStore(capKey2).Set(key, []byte("b"))
+				},
+			)
+		})
+	}
+}
+
 func TestSetMinGasPrices(t *testing.T) {
 	minGasPrices := sdk.DecCoins{sdk.NewInt64DecCoin("stake", 5000)}
 	suite := NewBaseAppSuite(t, baseapp.SetMinGasPrices(minGasPrices.String()))

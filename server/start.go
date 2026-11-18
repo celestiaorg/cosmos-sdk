@@ -131,8 +131,8 @@ type StartCmdOptions struct {
 	// PreNodeStart, if set, is called with the in-process CometBFT node after it
 	// is created and before it starts, e.g. to hand the app the node's mempool.
 	PreNodeStart func(app types.Application, node *node.Node) error
-	// ClientCreator, if set, builds the in-process node's ABCI clients. The default,
-	// proxy.NewLocalClientCreator, holds one mutex across every ABCI connection.
+	// ClientCreator, if set, builds the in-process node's ABCI clients; the default holds one
+	// mutex across every connection. A per-connection creator needs an app safe for concurrent calls.
 	ClientCreator func(app abci.Application) proxy.ClientCreator
 	// GRPCServerOptions are appended to the default gRPC server options so
 	// applications can register custom interceptors, stats handlers, or other

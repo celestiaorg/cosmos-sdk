@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	abcicli "github.com/cometbft/cometbft/abci/client"
 	abci "github.com/cometbft/cometbft/abci/types"
 	cmtcfg "github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/node"
@@ -98,17 +99,27 @@ func TestStartCmtNodeUsesClientCreator(t *testing.T) {
 	abciApp, err := mock.NewApp(cfg.RootDir, log.NewNopLogger())
 	require.NoError(t, err)
 
-	calls := 0
+	creator := &countingCreator{}
 	n, cleanup, err := startCmtNode(context.Background(), cfg, hookTestApp{abciApp}, NewDefaultContext(), StartCmdOptions{
 		ClientCreator: func(a abci.Application) proxy.ClientCreator {
-			calls++
-			return proxy.NewConnSyncLocalClientCreator(a)
+			creator.ClientCreator = proxy.NewConnSyncLocalClientCreator(a)
+			return creator
 		},
 	})
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
-	require.Equal(t, 1, calls)
+	require.Positive(t, creator.clients, "the node must open its connections through the option")
 	require.True(t, n.IsRunning())
+}
+
+type countingCreator struct {
+	proxy.ClientCreator
+	clients int
+}
+
+func (c *countingCreator) NewABCIClient() (abcicli.Client, error) {
+	c.clients++
+	return c.ClientCreator.NewABCIClient()
 }
 
 // The in-process start command passes StartCmdOptions.PreNodeStart through.

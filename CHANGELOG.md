@@ -51,6 +51,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### Improvements
 
+* (types) [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) `GetFromBech32` caches the bech32 decode of each address string, so `BaseAccount.GetAddress` no longer re-decodes its address on every call. The prefix and format checks still run on every call; `SetAddrCacheEnabled(false)` turns the cache off.
 * (x/auth) [#XXX](https://github.com/celestiaorg/cosmos-sdk/pull/XXX) The account keeper caches decoded base and module accounts by their stored bytes and gives each caller its own copy, so the ante handler no longer decodes the same signer account several times per tx.
 * (server) [#168](https://github.com/celestiaorg/cosmos-sdk/pull/168) `StartCmdOptions.PreNodeStart` runs with the in-process CometBFT node after it is created and before it starts.
 * (baseapp) [#162](https://github.com/celestiaorg/cosmos-sdk/pull/162) Optimistic execution: `oe.WithTxsTransform` maps the `ProcessProposal` txs to the bytes `FinalizeBlock` will carry (celestia-core strips blobs between the two calls) and `FinalizeBlock` reuses a speculative result only if its txs match, `PrepareProposal` aborts a speculative run from a previous round, the speculative request carries the ProcessProposal `Header`, and `baseapp.DisableOptimisticExecution` turns it back off.

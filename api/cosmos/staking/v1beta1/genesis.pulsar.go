@@ -270,6 +270,57 @@ func (x *_GenesisState_7_list) IsValid() bool {
 	return x.list != nil
 }
 
+var _ protoreflect.List = (*_GenesisState_10_list)(nil)
+
+type _GenesisState_10_list struct {
+	list *[]*UnbondingIdRecord
+}
+
+func (x *_GenesisState_10_list) Len() int {
+	if x.list == nil {
+		return 0
+	}
+	return len(*x.list)
+}
+
+func (x *_GenesisState_10_list) Get(i int) protoreflect.Value {
+	return protoreflect.ValueOfMessage((*x.list)[i].ProtoReflect())
+}
+
+func (x *_GenesisState_10_list) Set(i int, value protoreflect.Value) {
+	valueUnwrapped := value.Message()
+	concreteValue := valueUnwrapped.Interface().(*UnbondingIdRecord)
+	(*x.list)[i] = concreteValue
+}
+
+func (x *_GenesisState_10_list) Append(value protoreflect.Value) {
+	valueUnwrapped := value.Message()
+	concreteValue := valueUnwrapped.Interface().(*UnbondingIdRecord)
+	*x.list = append(*x.list, concreteValue)
+}
+
+func (x *_GenesisState_10_list) AppendMutable() protoreflect.Value {
+	v := new(UnbondingIdRecord)
+	*x.list = append(*x.list, v)
+	return protoreflect.ValueOfMessage(v.ProtoReflect())
+}
+
+func (x *_GenesisState_10_list) Truncate(n int) {
+	for i := n; i < len(*x.list); i++ {
+		(*x.list)[i] = nil
+	}
+	*x.list = (*x.list)[:n]
+}
+
+func (x *_GenesisState_10_list) NewElement() protoreflect.Value {
+	v := new(UnbondingIdRecord)
+	return protoreflect.ValueOfMessage(v.ProtoReflect())
+}
+
+func (x *_GenesisState_10_list) IsValid() bool {
+	return x.list != nil
+}
+
 var (
 	md_GenesisState                       protoreflect.MessageDescriptor
 	fd_GenesisState_params                protoreflect.FieldDescriptor
@@ -280,6 +331,8 @@ var (
 	fd_GenesisState_unbonding_delegations protoreflect.FieldDescriptor
 	fd_GenesisState_redelegations         protoreflect.FieldDescriptor
 	fd_GenesisState_exported              protoreflect.FieldDescriptor
+	fd_GenesisState_last_unbonding_id     protoreflect.FieldDescriptor
+	fd_GenesisState_unbonding_ids         protoreflect.FieldDescriptor
 )
 
 func init() {
@@ -293,6 +346,8 @@ func init() {
 	fd_GenesisState_unbonding_delegations = md_GenesisState.Fields().ByName("unbonding_delegations")
 	fd_GenesisState_redelegations = md_GenesisState.Fields().ByName("redelegations")
 	fd_GenesisState_exported = md_GenesisState.Fields().ByName("exported")
+	fd_GenesisState_last_unbonding_id = md_GenesisState.Fields().ByName("last_unbonding_id")
+	fd_GenesisState_unbonding_ids = md_GenesisState.Fields().ByName("unbonding_ids")
 }
 
 var _ protoreflect.Message = (*fastReflection_GenesisState)(nil)
@@ -408,6 +463,18 @@ func (x *fastReflection_GenesisState) Range(f func(protoreflect.FieldDescriptor,
 			return
 		}
 	}
+	if x.LastUnbondingId != uint64(0) {
+		value := protoreflect.ValueOfUint64(x.LastUnbondingId)
+		if !f(fd_GenesisState_last_unbonding_id, value) {
+			return
+		}
+	}
+	if len(x.UnbondingIds) != 0 {
+		value := protoreflect.ValueOfList(&_GenesisState_10_list{list: &x.UnbondingIds})
+		if !f(fd_GenesisState_unbonding_ids, value) {
+			return
+		}
+	}
 }
 
 // Has reports whether a field is populated.
@@ -439,6 +506,10 @@ func (x *fastReflection_GenesisState) Has(fd protoreflect.FieldDescriptor) bool 
 		return len(x.Redelegations) != 0
 	case "cosmos.staking.v1beta1.GenesisState.exported":
 		return x.Exported != false
+	case "cosmos.staking.v1beta1.GenesisState.last_unbonding_id":
+		return x.LastUnbondingId != uint64(0)
+	case "cosmos.staking.v1beta1.GenesisState.unbonding_ids":
+		return len(x.UnbondingIds) != 0
 	default:
 		if fd.IsExtension() {
 			panic(fmt.Errorf("proto3 declared messages do not support extensions: cosmos.staking.v1beta1.GenesisState"))
@@ -471,6 +542,10 @@ func (x *fastReflection_GenesisState) Clear(fd protoreflect.FieldDescriptor) {
 		x.Redelegations = nil
 	case "cosmos.staking.v1beta1.GenesisState.exported":
 		x.Exported = false
+	case "cosmos.staking.v1beta1.GenesisState.last_unbonding_id":
+		x.LastUnbondingId = uint64(0)
+	case "cosmos.staking.v1beta1.GenesisState.unbonding_ids":
+		x.UnbondingIds = nil
 	default:
 		if fd.IsExtension() {
 			panic(fmt.Errorf("proto3 declared messages do not support extensions: cosmos.staking.v1beta1.GenesisState"))
@@ -526,6 +601,15 @@ func (x *fastReflection_GenesisState) Get(descriptor protoreflect.FieldDescripto
 	case "cosmos.staking.v1beta1.GenesisState.exported":
 		value := x.Exported
 		return protoreflect.ValueOfBool(value)
+	case "cosmos.staking.v1beta1.GenesisState.last_unbonding_id":
+		value := x.LastUnbondingId
+		return protoreflect.ValueOfUint64(value)
+	case "cosmos.staking.v1beta1.GenesisState.unbonding_ids":
+		if len(x.UnbondingIds) == 0 {
+			return protoreflect.ValueOfList(&_GenesisState_10_list{})
+		}
+		listValue := &_GenesisState_10_list{list: &x.UnbondingIds}
+		return protoreflect.ValueOfList(listValue)
 	default:
 		if descriptor.IsExtension() {
 			panic(fmt.Errorf("proto3 declared messages do not support extensions: cosmos.staking.v1beta1.GenesisState"))
@@ -572,6 +656,12 @@ func (x *fastReflection_GenesisState) Set(fd protoreflect.FieldDescriptor, value
 		x.Redelegations = *clv.list
 	case "cosmos.staking.v1beta1.GenesisState.exported":
 		x.Exported = value.Bool()
+	case "cosmos.staking.v1beta1.GenesisState.last_unbonding_id":
+		x.LastUnbondingId = value.Uint()
+	case "cosmos.staking.v1beta1.GenesisState.unbonding_ids":
+		lv := value.List()
+		clv := lv.(*_GenesisState_10_list)
+		x.UnbondingIds = *clv.list
 	default:
 		if fd.IsExtension() {
 			panic(fmt.Errorf("proto3 declared messages do not support extensions: cosmos.staking.v1beta1.GenesisState"))
@@ -627,10 +717,18 @@ func (x *fastReflection_GenesisState) Mutable(fd protoreflect.FieldDescriptor) p
 		}
 		value := &_GenesisState_7_list{list: &x.Redelegations}
 		return protoreflect.ValueOfList(value)
+	case "cosmos.staking.v1beta1.GenesisState.unbonding_ids":
+		if x.UnbondingIds == nil {
+			x.UnbondingIds = []*UnbondingIdRecord{}
+		}
+		value := &_GenesisState_10_list{list: &x.UnbondingIds}
+		return protoreflect.ValueOfList(value)
 	case "cosmos.staking.v1beta1.GenesisState.last_total_power":
 		panic(fmt.Errorf("field last_total_power of message cosmos.staking.v1beta1.GenesisState is not mutable"))
 	case "cosmos.staking.v1beta1.GenesisState.exported":
 		panic(fmt.Errorf("field exported of message cosmos.staking.v1beta1.GenesisState is not mutable"))
+	case "cosmos.staking.v1beta1.GenesisState.last_unbonding_id":
+		panic(fmt.Errorf("field last_unbonding_id of message cosmos.staking.v1beta1.GenesisState is not mutable"))
 	default:
 		if fd.IsExtension() {
 			panic(fmt.Errorf("proto3 declared messages do not support extensions: cosmos.staking.v1beta1.GenesisState"))
@@ -666,6 +764,11 @@ func (x *fastReflection_GenesisState) NewField(fd protoreflect.FieldDescriptor) 
 		return protoreflect.ValueOfList(&_GenesisState_7_list{list: &list})
 	case "cosmos.staking.v1beta1.GenesisState.exported":
 		return protoreflect.ValueOfBool(false)
+	case "cosmos.staking.v1beta1.GenesisState.last_unbonding_id":
+		return protoreflect.ValueOfUint64(uint64(0))
+	case "cosmos.staking.v1beta1.GenesisState.unbonding_ids":
+		list := []*UnbondingIdRecord{}
+		return protoreflect.ValueOfList(&_GenesisState_10_list{list: &list})
 	default:
 		if fd.IsExtension() {
 			panic(fmt.Errorf("proto3 declared messages do not support extensions: cosmos.staking.v1beta1.GenesisState"))
@@ -776,6 +879,15 @@ func (x *fastReflection_GenesisState) ProtoMethods() *protoiface.Methods {
 		if x.Exported {
 			n += 2
 		}
+		if x.LastUnbondingId != 0 {
+			n += 1 + runtime.Sov(uint64(x.LastUnbondingId))
+		}
+		if len(x.UnbondingIds) > 0 {
+			for _, e := range x.UnbondingIds {
+				l = options.Size(e)
+				n += 1 + l + runtime.Sov(uint64(l))
+			}
+		}
 		if x.unknownFields != nil {
 			n += len(x.unknownFields)
 		}
@@ -804,6 +916,27 @@ func (x *fastReflection_GenesisState) ProtoMethods() *protoiface.Methods {
 		if x.unknownFields != nil {
 			i -= len(x.unknownFields)
 			copy(dAtA[i:], x.unknownFields)
+		}
+		if len(x.UnbondingIds) > 0 {
+			for iNdEx := len(x.UnbondingIds) - 1; iNdEx >= 0; iNdEx-- {
+				encoded, err := options.Marshal(x.UnbondingIds[iNdEx])
+				if err != nil {
+					return protoiface.MarshalOutput{
+						NoUnkeyedLiterals: input.NoUnkeyedLiterals,
+						Buf:               input.Buf,
+					}, err
+				}
+				i -= len(encoded)
+				copy(dAtA[i:], encoded)
+				i = runtime.EncodeVarint(dAtA, i, uint64(len(encoded)))
+				i--
+				dAtA[i] = 0x52
+			}
+		}
+		if x.LastUnbondingId != 0 {
+			i = runtime.EncodeVarint(dAtA, i, uint64(x.LastUnbondingId))
+			i--
+			dAtA[i] = 0x48
 		}
 		if x.Exported {
 			i--
@@ -1225,6 +1358,577 @@ func (x *fastReflection_GenesisState) ProtoMethods() *protoiface.Methods {
 					}
 				}
 				x.Exported = bool(v != 0)
+			case 9:
+				if wireType != 0 {
+					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, fmt.Errorf("proto: wrong wireType = %d for field LastUnbondingId", wireType)
+				}
+				x.LastUnbondingId = 0
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, runtime.ErrIntOverflow
+					}
+					if iNdEx >= l {
+						return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					x.LastUnbondingId |= uint64(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+			case 10:
+				if wireType != 2 {
+					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, fmt.Errorf("proto: wrong wireType = %d for field UnbondingIds", wireType)
+				}
+				var msglen int
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, runtime.ErrIntOverflow
+					}
+					if iNdEx >= l {
+						return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					msglen |= int(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				if msglen < 0 {
+					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, runtime.ErrInvalidLength
+				}
+				postIndex := iNdEx + msglen
+				if postIndex < 0 {
+					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, runtime.ErrInvalidLength
+				}
+				if postIndex > l {
+					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, io.ErrUnexpectedEOF
+				}
+				x.UnbondingIds = append(x.UnbondingIds, &UnbondingIdRecord{})
+				if err := options.Unmarshal(dAtA[iNdEx:postIndex], x.UnbondingIds[len(x.UnbondingIds)-1]); err != nil {
+					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, err
+				}
+				iNdEx = postIndex
+			default:
+				iNdEx = preIndex
+				skippy, err := runtime.Skip(dAtA[iNdEx:])
+				if err != nil {
+					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, err
+				}
+				if (skippy < 0) || (iNdEx+skippy) < 0 {
+					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, runtime.ErrInvalidLength
+				}
+				if (iNdEx + skippy) > l {
+					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, io.ErrUnexpectedEOF
+				}
+				if !options.DiscardUnknown {
+					x.unknownFields = append(x.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+				}
+				iNdEx += skippy
+			}
+		}
+
+		if iNdEx > l {
+			return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, io.ErrUnexpectedEOF
+		}
+		return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, nil
+	}
+	return &protoiface.Methods{
+		NoUnkeyedLiterals: struct{}{},
+		Flags:             protoiface.SupportMarshalDeterministic | protoiface.SupportUnmarshalDiscardUnknown,
+		Size:              size,
+		Marshal:           marshal,
+		Unmarshal:         unmarshal,
+		Merge:             nil,
+		CheckInitialized:  nil,
+	}
+}
+
+var (
+	md_UnbondingIdRecord                protoreflect.MessageDescriptor
+	fd_UnbondingIdRecord_id             protoreflect.FieldDescriptor
+	fd_UnbondingIdRecord_unbonding_type protoreflect.FieldDescriptor
+	fd_UnbondingIdRecord_index          protoreflect.FieldDescriptor
+)
+
+func init() {
+	file_cosmos_staking_v1beta1_genesis_proto_init()
+	md_UnbondingIdRecord = File_cosmos_staking_v1beta1_genesis_proto.Messages().ByName("UnbondingIdRecord")
+	fd_UnbondingIdRecord_id = md_UnbondingIdRecord.Fields().ByName("id")
+	fd_UnbondingIdRecord_unbonding_type = md_UnbondingIdRecord.Fields().ByName("unbonding_type")
+	fd_UnbondingIdRecord_index = md_UnbondingIdRecord.Fields().ByName("index")
+}
+
+var _ protoreflect.Message = (*fastReflection_UnbondingIdRecord)(nil)
+
+type fastReflection_UnbondingIdRecord UnbondingIdRecord
+
+func (x *UnbondingIdRecord) ProtoReflect() protoreflect.Message {
+	return (*fastReflection_UnbondingIdRecord)(x)
+}
+
+func (x *UnbondingIdRecord) slowProtoReflect() protoreflect.Message {
+	mi := &file_cosmos_staking_v1beta1_genesis_proto_msgTypes[1]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+var _fastReflection_UnbondingIdRecord_messageType fastReflection_UnbondingIdRecord_messageType
+var _ protoreflect.MessageType = fastReflection_UnbondingIdRecord_messageType{}
+
+type fastReflection_UnbondingIdRecord_messageType struct{}
+
+func (x fastReflection_UnbondingIdRecord_messageType) Zero() protoreflect.Message {
+	return (*fastReflection_UnbondingIdRecord)(nil)
+}
+func (x fastReflection_UnbondingIdRecord_messageType) New() protoreflect.Message {
+	return new(fastReflection_UnbondingIdRecord)
+}
+func (x fastReflection_UnbondingIdRecord_messageType) Descriptor() protoreflect.MessageDescriptor {
+	return md_UnbondingIdRecord
+}
+
+// Descriptor returns message descriptor, which contains only the protobuf
+// type information for the message.
+func (x *fastReflection_UnbondingIdRecord) Descriptor() protoreflect.MessageDescriptor {
+	return md_UnbondingIdRecord
+}
+
+// Type returns the message type, which encapsulates both Go and protobuf
+// type information. If the Go type information is not needed,
+// it is recommended that the message descriptor be used instead.
+func (x *fastReflection_UnbondingIdRecord) Type() protoreflect.MessageType {
+	return _fastReflection_UnbondingIdRecord_messageType
+}
+
+// New returns a newly allocated and mutable empty message.
+func (x *fastReflection_UnbondingIdRecord) New() protoreflect.Message {
+	return new(fastReflection_UnbondingIdRecord)
+}
+
+// Interface unwraps the message reflection interface and
+// returns the underlying ProtoMessage interface.
+func (x *fastReflection_UnbondingIdRecord) Interface() protoreflect.ProtoMessage {
+	return (*UnbondingIdRecord)(x)
+}
+
+// Range iterates over every populated field in an undefined order,
+// calling f for each field descriptor and value encountered.
+// Range returns immediately if f returns false.
+// While iterating, mutating operations may only be performed
+// on the current field descriptor.
+func (x *fastReflection_UnbondingIdRecord) Range(f func(protoreflect.FieldDescriptor, protoreflect.Value) bool) {
+	if x.Id != uint64(0) {
+		value := protoreflect.ValueOfUint64(x.Id)
+		if !f(fd_UnbondingIdRecord_id, value) {
+			return
+		}
+	}
+	if x.UnbondingType != uint64(0) {
+		value := protoreflect.ValueOfUint64(x.UnbondingType)
+		if !f(fd_UnbondingIdRecord_unbonding_type, value) {
+			return
+		}
+	}
+	if len(x.Index) != 0 {
+		value := protoreflect.ValueOfBytes(x.Index)
+		if !f(fd_UnbondingIdRecord_index, value) {
+			return
+		}
+	}
+}
+
+// Has reports whether a field is populated.
+//
+// Some fields have the property of nullability where it is possible to
+// distinguish between the default value of a field and whether the field
+// was explicitly populated with the default value. Singular message fields,
+// member fields of a oneof, and proto2 scalar fields are nullable. Such
+// fields are populated only if explicitly set.
+//
+// In other cases (aside from the nullable cases above),
+// a proto3 scalar field is populated if it contains a non-zero value, and
+// a repeated field is populated if it is non-empty.
+func (x *fastReflection_UnbondingIdRecord) Has(fd protoreflect.FieldDescriptor) bool {
+	switch fd.FullName() {
+	case "cosmos.staking.v1beta1.UnbondingIdRecord.id":
+		return x.Id != uint64(0)
+	case "cosmos.staking.v1beta1.UnbondingIdRecord.unbonding_type":
+		return x.UnbondingType != uint64(0)
+	case "cosmos.staking.v1beta1.UnbondingIdRecord.index":
+		return len(x.Index) != 0
+	default:
+		if fd.IsExtension() {
+			panic(fmt.Errorf("proto3 declared messages do not support extensions: cosmos.staking.v1beta1.UnbondingIdRecord"))
+		}
+		panic(fmt.Errorf("message cosmos.staking.v1beta1.UnbondingIdRecord does not contain field %s", fd.FullName()))
+	}
+}
+
+// Clear clears the field such that a subsequent Has call reports false.
+//
+// Clearing an extension field clears both the extension type and value
+// associated with the given field number.
+//
+// Clear is a mutating operation and unsafe for concurrent use.
+func (x *fastReflection_UnbondingIdRecord) Clear(fd protoreflect.FieldDescriptor) {
+	switch fd.FullName() {
+	case "cosmos.staking.v1beta1.UnbondingIdRecord.id":
+		x.Id = uint64(0)
+	case "cosmos.staking.v1beta1.UnbondingIdRecord.unbonding_type":
+		x.UnbondingType = uint64(0)
+	case "cosmos.staking.v1beta1.UnbondingIdRecord.index":
+		x.Index = nil
+	default:
+		if fd.IsExtension() {
+			panic(fmt.Errorf("proto3 declared messages do not support extensions: cosmos.staking.v1beta1.UnbondingIdRecord"))
+		}
+		panic(fmt.Errorf("message cosmos.staking.v1beta1.UnbondingIdRecord does not contain field %s", fd.FullName()))
+	}
+}
+
+// Get retrieves the value for a field.
+//
+// For unpopulated scalars, it returns the default value, where
+// the default value of a bytes scalar is guaranteed to be a copy.
+// For unpopulated composite types, it returns an empty, read-only view
+// of the value; to obtain a mutable reference, use Mutable.
+func (x *fastReflection_UnbondingIdRecord) Get(descriptor protoreflect.FieldDescriptor) protoreflect.Value {
+	switch descriptor.FullName() {
+	case "cosmos.staking.v1beta1.UnbondingIdRecord.id":
+		value := x.Id
+		return protoreflect.ValueOfUint64(value)
+	case "cosmos.staking.v1beta1.UnbondingIdRecord.unbonding_type":
+		value := x.UnbondingType
+		return protoreflect.ValueOfUint64(value)
+	case "cosmos.staking.v1beta1.UnbondingIdRecord.index":
+		value := x.Index
+		return protoreflect.ValueOfBytes(value)
+	default:
+		if descriptor.IsExtension() {
+			panic(fmt.Errorf("proto3 declared messages do not support extensions: cosmos.staking.v1beta1.UnbondingIdRecord"))
+		}
+		panic(fmt.Errorf("message cosmos.staking.v1beta1.UnbondingIdRecord does not contain field %s", descriptor.FullName()))
+	}
+}
+
+// Set stores the value for a field.
+//
+// For a field belonging to a oneof, it implicitly clears any other field
+// that may be currently set within the same oneof.
+// For extension fields, it implicitly stores the provided ExtensionType.
+// When setting a composite type, it is unspecified whether the stored value
+// aliases the source's memory in any way. If the composite value is an
+// empty, read-only value, then it panics.
+//
+// Set is a mutating operation and unsafe for concurrent use.
+func (x *fastReflection_UnbondingIdRecord) Set(fd protoreflect.FieldDescriptor, value protoreflect.Value) {
+	switch fd.FullName() {
+	case "cosmos.staking.v1beta1.UnbondingIdRecord.id":
+		x.Id = value.Uint()
+	case "cosmos.staking.v1beta1.UnbondingIdRecord.unbonding_type":
+		x.UnbondingType = value.Uint()
+	case "cosmos.staking.v1beta1.UnbondingIdRecord.index":
+		x.Index = value.Bytes()
+	default:
+		if fd.IsExtension() {
+			panic(fmt.Errorf("proto3 declared messages do not support extensions: cosmos.staking.v1beta1.UnbondingIdRecord"))
+		}
+		panic(fmt.Errorf("message cosmos.staking.v1beta1.UnbondingIdRecord does not contain field %s", fd.FullName()))
+	}
+}
+
+// Mutable returns a mutable reference to a composite type.
+//
+// If the field is unpopulated, it may allocate a composite value.
+// For a field belonging to a oneof, it implicitly clears any other field
+// that may be currently set within the same oneof.
+// For extension fields, it implicitly stores the provided ExtensionType
+// if not already stored.
+// It panics if the field does not contain a composite type.
+//
+// Mutable is a mutating operation and unsafe for concurrent use.
+func (x *fastReflection_UnbondingIdRecord) Mutable(fd protoreflect.FieldDescriptor) protoreflect.Value {
+	switch fd.FullName() {
+	case "cosmos.staking.v1beta1.UnbondingIdRecord.id":
+		panic(fmt.Errorf("field id of message cosmos.staking.v1beta1.UnbondingIdRecord is not mutable"))
+	case "cosmos.staking.v1beta1.UnbondingIdRecord.unbonding_type":
+		panic(fmt.Errorf("field unbonding_type of message cosmos.staking.v1beta1.UnbondingIdRecord is not mutable"))
+	case "cosmos.staking.v1beta1.UnbondingIdRecord.index":
+		panic(fmt.Errorf("field index of message cosmos.staking.v1beta1.UnbondingIdRecord is not mutable"))
+	default:
+		if fd.IsExtension() {
+			panic(fmt.Errorf("proto3 declared messages do not support extensions: cosmos.staking.v1beta1.UnbondingIdRecord"))
+		}
+		panic(fmt.Errorf("message cosmos.staking.v1beta1.UnbondingIdRecord does not contain field %s", fd.FullName()))
+	}
+}
+
+// NewField returns a new value that is assignable to the field
+// for the given descriptor. For scalars, this returns the default value.
+// For lists, maps, and messages, this returns a new, empty, mutable value.
+func (x *fastReflection_UnbondingIdRecord) NewField(fd protoreflect.FieldDescriptor) protoreflect.Value {
+	switch fd.FullName() {
+	case "cosmos.staking.v1beta1.UnbondingIdRecord.id":
+		return protoreflect.ValueOfUint64(uint64(0))
+	case "cosmos.staking.v1beta1.UnbondingIdRecord.unbonding_type":
+		return protoreflect.ValueOfUint64(uint64(0))
+	case "cosmos.staking.v1beta1.UnbondingIdRecord.index":
+		return protoreflect.ValueOfBytes(nil)
+	default:
+		if fd.IsExtension() {
+			panic(fmt.Errorf("proto3 declared messages do not support extensions: cosmos.staking.v1beta1.UnbondingIdRecord"))
+		}
+		panic(fmt.Errorf("message cosmos.staking.v1beta1.UnbondingIdRecord does not contain field %s", fd.FullName()))
+	}
+}
+
+// WhichOneof reports which field within the oneof is populated,
+// returning nil if none are populated.
+// It panics if the oneof descriptor does not belong to this message.
+func (x *fastReflection_UnbondingIdRecord) WhichOneof(d protoreflect.OneofDescriptor) protoreflect.FieldDescriptor {
+	switch d.FullName() {
+	default:
+		panic(fmt.Errorf("%s is not a oneof field in cosmos.staking.v1beta1.UnbondingIdRecord", d.FullName()))
+	}
+	panic("unreachable")
+}
+
+// GetUnknown retrieves the entire list of unknown fields.
+// The caller may only mutate the contents of the RawFields
+// if the mutated bytes are stored back into the message with SetUnknown.
+func (x *fastReflection_UnbondingIdRecord) GetUnknown() protoreflect.RawFields {
+	return x.unknownFields
+}
+
+// SetUnknown stores an entire list of unknown fields.
+// The raw fields must be syntactically valid according to the wire format.
+// An implementation may panic if this is not the case.
+// Once stored, the caller must not mutate the content of the RawFields.
+// An empty RawFields may be passed to clear the fields.
+//
+// SetUnknown is a mutating operation and unsafe for concurrent use.
+func (x *fastReflection_UnbondingIdRecord) SetUnknown(fields protoreflect.RawFields) {
+	x.unknownFields = fields
+}
+
+// IsValid reports whether the message is valid.
+//
+// An invalid message is an empty, read-only value.
+//
+// An invalid message often corresponds to a nil pointer of the concrete
+// message type, but the details are implementation dependent.
+// Validity is not part of the protobuf data model, and may not
+// be preserved in marshaling or other operations.
+func (x *fastReflection_UnbondingIdRecord) IsValid() bool {
+	return x != nil
+}
+
+// ProtoMethods returns optional fastReflectionFeature-path implementations of various operations.
+// This method may return nil.
+//
+// The returned methods type is identical to
+// "google.golang.org/protobuf/runtime/protoiface".Methods.
+// Consult the protoiface package documentation for details.
+func (x *fastReflection_UnbondingIdRecord) ProtoMethods() *protoiface.Methods {
+	size := func(input protoiface.SizeInput) protoiface.SizeOutput {
+		x := input.Message.Interface().(*UnbondingIdRecord)
+		if x == nil {
+			return protoiface.SizeOutput{
+				NoUnkeyedLiterals: input.NoUnkeyedLiterals,
+				Size:              0,
+			}
+		}
+		options := runtime.SizeInputToOptions(input)
+		_ = options
+		var n int
+		var l int
+		_ = l
+		if x.Id != 0 {
+			n += 1 + runtime.Sov(uint64(x.Id))
+		}
+		if x.UnbondingType != 0 {
+			n += 1 + runtime.Sov(uint64(x.UnbondingType))
+		}
+		l = len(x.Index)
+		if l > 0 {
+			n += 1 + l + runtime.Sov(uint64(l))
+		}
+		if x.unknownFields != nil {
+			n += len(x.unknownFields)
+		}
+		return protoiface.SizeOutput{
+			NoUnkeyedLiterals: input.NoUnkeyedLiterals,
+			Size:              n,
+		}
+	}
+
+	marshal := func(input protoiface.MarshalInput) (protoiface.MarshalOutput, error) {
+		x := input.Message.Interface().(*UnbondingIdRecord)
+		if x == nil {
+			return protoiface.MarshalOutput{
+				NoUnkeyedLiterals: input.NoUnkeyedLiterals,
+				Buf:               input.Buf,
+			}, nil
+		}
+		options := runtime.MarshalInputToOptions(input)
+		_ = options
+		size := options.Size(x)
+		dAtA := make([]byte, size)
+		i := len(dAtA)
+		_ = i
+		var l int
+		_ = l
+		if x.unknownFields != nil {
+			i -= len(x.unknownFields)
+			copy(dAtA[i:], x.unknownFields)
+		}
+		if len(x.Index) > 0 {
+			i -= len(x.Index)
+			copy(dAtA[i:], x.Index)
+			i = runtime.EncodeVarint(dAtA, i, uint64(len(x.Index)))
+			i--
+			dAtA[i] = 0x1a
+		}
+		if x.UnbondingType != 0 {
+			i = runtime.EncodeVarint(dAtA, i, uint64(x.UnbondingType))
+			i--
+			dAtA[i] = 0x10
+		}
+		if x.Id != 0 {
+			i = runtime.EncodeVarint(dAtA, i, uint64(x.Id))
+			i--
+			dAtA[i] = 0x8
+		}
+		if input.Buf != nil {
+			input.Buf = append(input.Buf, dAtA...)
+		} else {
+			input.Buf = dAtA
+		}
+		return protoiface.MarshalOutput{
+			NoUnkeyedLiterals: input.NoUnkeyedLiterals,
+			Buf:               input.Buf,
+		}, nil
+	}
+	unmarshal := func(input protoiface.UnmarshalInput) (protoiface.UnmarshalOutput, error) {
+		x := input.Message.Interface().(*UnbondingIdRecord)
+		if x == nil {
+			return protoiface.UnmarshalOutput{
+				NoUnkeyedLiterals: input.NoUnkeyedLiterals,
+				Flags:             input.Flags,
+			}, nil
+		}
+		options := runtime.UnmarshalInputToOptions(input)
+		_ = options
+		dAtA := input.Buf
+		l := len(dAtA)
+		iNdEx := 0
+		for iNdEx < l {
+			preIndex := iNdEx
+			var wire uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, runtime.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				wire |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			fieldNum := int32(wire >> 3)
+			wireType := int(wire & 0x7)
+			if wireType == 4 {
+				return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, fmt.Errorf("proto: UnbondingIdRecord: wiretype end group for non-group")
+			}
+			if fieldNum <= 0 {
+				return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, fmt.Errorf("proto: UnbondingIdRecord: illegal tag %d (wire type %d)", fieldNum, wire)
+			}
+			switch fieldNum {
+			case 1:
+				if wireType != 0 {
+					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, fmt.Errorf("proto: wrong wireType = %d for field Id", wireType)
+				}
+				x.Id = 0
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, runtime.ErrIntOverflow
+					}
+					if iNdEx >= l {
+						return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					x.Id |= uint64(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+			case 2:
+				if wireType != 0 {
+					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, fmt.Errorf("proto: wrong wireType = %d for field UnbondingType", wireType)
+				}
+				x.UnbondingType = 0
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, runtime.ErrIntOverflow
+					}
+					if iNdEx >= l {
+						return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					x.UnbondingType |= uint64(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+			case 3:
+				if wireType != 2 {
+					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, fmt.Errorf("proto: wrong wireType = %d for field Index", wireType)
+				}
+				var byteLen int
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, runtime.ErrIntOverflow
+					}
+					if iNdEx >= l {
+						return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					byteLen |= int(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				if byteLen < 0 {
+					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, runtime.ErrInvalidLength
+				}
+				postIndex := iNdEx + byteLen
+				if postIndex < 0 {
+					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, runtime.ErrInvalidLength
+				}
+				if postIndex > l {
+					return protoiface.UnmarshalOutput{NoUnkeyedLiterals: input.NoUnkeyedLiterals, Flags: input.Flags}, io.ErrUnexpectedEOF
+				}
+				x.Index = append(x.Index[:0], dAtA[iNdEx:postIndex]...)
+				if x.Index == nil {
+					x.Index = []byte{}
+				}
+				iNdEx = postIndex
 			default:
 				iNdEx = preIndex
 				skippy, err := runtime.Skip(dAtA[iNdEx:])
@@ -1282,7 +1986,7 @@ func (x *LastValidatorPower) ProtoReflect() protoreflect.Message {
 }
 
 func (x *LastValidatorPower) slowProtoReflect() protoreflect.Message {
-	mi := &file_cosmos_staking_v1beta1_genesis_proto_msgTypes[1]
+	mi := &file_cosmos_staking_v1beta1_genesis_proto_msgTypes[2]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1765,6 +2469,13 @@ type GenesisState struct {
 	Redelegations []*Redelegation `protobuf:"bytes,7,rep,name=redelegations,proto3" json:"redelegations,omitempty"`
 	// exported defines a bool to identify whether the chain dealing with exported or initialized genesis.
 	Exported bool `protobuf:"varint,8,opt,name=exported,proto3" json:"exported,omitempty"`
+	// last_unbonding_id is the last unbonding ID issued. The next unbonding
+	// operation gets last_unbonding_id + 1.
+	LastUnbondingId uint64 `protobuf:"varint,9,opt,name=last_unbonding_id,json=lastUnbondingId,proto3" json:"last_unbonding_id,omitempty"`
+	// unbonding_ids are the stored index and type of each unbonding ID, ordered
+	// by ID. The type of an ID stays after its unbonding completes, its index
+	// does not.
+	UnbondingIds []*UnbondingIdRecord `protobuf:"bytes,10,rep,name=unbonding_ids,json=unbondingIds,proto3" json:"unbonding_ids,omitempty"`
 }
 
 func (x *GenesisState) Reset() {
@@ -1843,6 +2554,77 @@ func (x *GenesisState) GetExported() bool {
 	return false
 }
 
+func (x *GenesisState) GetLastUnbondingId() uint64 {
+	if x != nil {
+		return x.LastUnbondingId
+	}
+	return 0
+}
+
+func (x *GenesisState) GetUnbondingIds() []*UnbondingIdRecord {
+	if x != nil {
+		return x.UnbondingIds
+	}
+	return nil
+}
+
+// UnbondingIdRecord is the stored index and type of one unbonding ID.
+type UnbondingIdRecord struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// id is the unbonding ID.
+	Id uint64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	// unbonding_type is the stored type: 1 for an unbonding delegation, 2 for
+	// a redelegation, 3 for a validator unbonding.
+	UnbondingType uint64 `protobuf:"varint,2,opt,name=unbonding_type,json=unbondingType,proto3" json:"unbonding_type,omitempty"`
+	// index is the store key of the unbonding operation the ID points to, empty
+	// if the ID has no index.
+	Index []byte `protobuf:"bytes,3,opt,name=index,proto3" json:"index,omitempty"`
+}
+
+func (x *UnbondingIdRecord) Reset() {
+	*x = UnbondingIdRecord{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_cosmos_staking_v1beta1_genesis_proto_msgTypes[1]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *UnbondingIdRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnbondingIdRecord) ProtoMessage() {}
+
+// Deprecated: Use UnbondingIdRecord.ProtoReflect.Descriptor instead.
+func (*UnbondingIdRecord) Descriptor() ([]byte, []int) {
+	return file_cosmos_staking_v1beta1_genesis_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *UnbondingIdRecord) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *UnbondingIdRecord) GetUnbondingType() uint64 {
+	if x != nil {
+		return x.UnbondingType
+	}
+	return 0
+}
+
+func (x *UnbondingIdRecord) GetIndex() []byte {
+	if x != nil {
+		return x.Index
+	}
+	return nil
+}
+
 // LastValidatorPower required for validator set update logic.
 type LastValidatorPower struct {
 	state         protoimpl.MessageState
@@ -1858,7 +2640,7 @@ type LastValidatorPower struct {
 func (x *LastValidatorPower) Reset() {
 	*x = LastValidatorPower{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_cosmos_staking_v1beta1_genesis_proto_msgTypes[1]
+		mi := &file_cosmos_staking_v1beta1_genesis_proto_msgTypes[2]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1872,7 +2654,7 @@ func (*LastValidatorPower) ProtoMessage() {}
 
 // Deprecated: Use LastValidatorPower.ProtoReflect.Descriptor instead.
 func (*LastValidatorPower) Descriptor() ([]byte, []int) {
-	return file_cosmos_staking_v1beta1_genesis_proto_rawDescGZIP(), []int{1}
+	return file_cosmos_staking_v1beta1_genesis_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *LastValidatorPower) GetAddress() string {
@@ -1902,7 +2684,7 @@ var file_cosmos_staking_v1beta1_genesis_proto_rawDesc = []byte{
 	0x6b, 0x69, 0x6e, 0x67, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x1a, 0x19, 0x63, 0x6f, 0x73, 0x6d,
 	0x6f, 0x73, 0x5f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2f, 0x63, 0x6f, 0x73, 0x6d, 0x6f, 0x73, 0x2e,
 	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x1a, 0x11, 0x61, 0x6d, 0x69, 0x6e, 0x6f, 0x2f, 0x61, 0x6d, 0x69,
-	0x6e, 0x6f, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x22, 0x97, 0x05, 0x0a, 0x0c, 0x47, 0x65, 0x6e,
+	0x6e, 0x6f, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x22, 0x9e, 0x06, 0x0a, 0x0c, 0x47, 0x65, 0x6e,
 	0x65, 0x73, 0x69, 0x73, 0x53, 0x74, 0x61, 0x74, 0x65, 0x12, 0x41, 0x0a, 0x06, 0x70, 0x61, 0x72,
 	0x61, 0x6d, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1e, 0x2e, 0x63, 0x6f, 0x73, 0x6d,
 	0x6f, 0x73, 0x2e, 0x73, 0x74, 0x61, 0x6b, 0x69, 0x6e, 0x67, 0x2e, 0x76, 0x31, 0x62, 0x65, 0x74,
@@ -1944,28 +2726,42 @@ var file_cosmos_staking_v1beta1_genesis_proto_rawDesc = []byte{
 	0x1f, 0x00, 0xa8, 0xe7, 0xb0, 0x2a, 0x01, 0x52, 0x0d, 0x72, 0x65, 0x64, 0x65, 0x6c, 0x65, 0x67,
 	0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x12, 0x1a, 0x0a, 0x08, 0x65, 0x78, 0x70, 0x6f, 0x72, 0x74,
 	0x65, 0x64, 0x18, 0x08, 0x20, 0x01, 0x28, 0x08, 0x52, 0x08, 0x65, 0x78, 0x70, 0x6f, 0x72, 0x74,
-	0x65, 0x64, 0x22, 0x68, 0x0a, 0x12, 0x4c, 0x61, 0x73, 0x74, 0x56, 0x61, 0x6c, 0x69, 0x64, 0x61,
-	0x74, 0x6f, 0x72, 0x50, 0x6f, 0x77, 0x65, 0x72, 0x12, 0x32, 0x0a, 0x07, 0x61, 0x64, 0x64, 0x72,
-	0x65, 0x73, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x42, 0x18, 0xd2, 0xb4, 0x2d, 0x14, 0x63,
-	0x6f, 0x73, 0x6d, 0x6f, 0x73, 0x2e, 0x41, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x53, 0x74, 0x72,
-	0x69, 0x6e, 0x67, 0x52, 0x07, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x12, 0x14, 0x0a, 0x05,
-	0x70, 0x6f, 0x77, 0x65, 0x72, 0x18, 0x02, 0x20, 0x01, 0x28, 0x03, 0x52, 0x05, 0x70, 0x6f, 0x77,
-	0x65, 0x72, 0x3a, 0x08, 0x88, 0xa0, 0x1f, 0x00, 0xe8, 0xa0, 0x1f, 0x00, 0x42, 0xdc, 0x01, 0x0a,
-	0x1a, 0x63, 0x6f, 0x6d, 0x2e, 0x63, 0x6f, 0x73, 0x6d, 0x6f, 0x73, 0x2e, 0x73, 0x74, 0x61, 0x6b,
-	0x69, 0x6e, 0x67, 0x2e, 0x76, 0x31, 0x62, 0x65, 0x74, 0x61, 0x31, 0x42, 0x0c, 0x47, 0x65, 0x6e,
-	0x65, 0x73, 0x69, 0x73, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x50, 0x01, 0x5a, 0x36, 0x63, 0x6f, 0x73,
-	0x6d, 0x6f, 0x73, 0x73, 0x64, 0x6b, 0x2e, 0x69, 0x6f, 0x2f, 0x61, 0x70, 0x69, 0x2f, 0x63, 0x6f,
-	0x73, 0x6d, 0x6f, 0x73, 0x2f, 0x73, 0x74, 0x61, 0x6b, 0x69, 0x6e, 0x67, 0x2f, 0x76, 0x31, 0x62,
-	0x65, 0x74, 0x61, 0x31, 0x3b, 0x73, 0x74, 0x61, 0x6b, 0x69, 0x6e, 0x67, 0x76, 0x31, 0x62, 0x65,
-	0x74, 0x61, 0x31, 0xa2, 0x02, 0x03, 0x43, 0x53, 0x58, 0xaa, 0x02, 0x16, 0x43, 0x6f, 0x73, 0x6d,
-	0x6f, 0x73, 0x2e, 0x53, 0x74, 0x61, 0x6b, 0x69, 0x6e, 0x67, 0x2e, 0x56, 0x31, 0x62, 0x65, 0x74,
-	0x61, 0x31, 0xca, 0x02, 0x16, 0x43, 0x6f, 0x73, 0x6d, 0x6f, 0x73, 0x5c, 0x53, 0x74, 0x61, 0x6b,
-	0x69, 0x6e, 0x67, 0x5c, 0x56, 0x31, 0x62, 0x65, 0x74, 0x61, 0x31, 0xe2, 0x02, 0x22, 0x43, 0x6f,
+	0x65, 0x64, 0x12, 0x2a, 0x0a, 0x11, 0x6c, 0x61, 0x73, 0x74, 0x5f, 0x75, 0x6e, 0x62, 0x6f, 0x6e,
+	0x64, 0x69, 0x6e, 0x67, 0x5f, 0x69, 0x64, 0x18, 0x09, 0x20, 0x01, 0x28, 0x04, 0x52, 0x0f, 0x6c,
+	0x61, 0x73, 0x74, 0x55, 0x6e, 0x62, 0x6f, 0x6e, 0x64, 0x69, 0x6e, 0x67, 0x49, 0x64, 0x12, 0x59,
+	0x0a, 0x0d, 0x75, 0x6e, 0x62, 0x6f, 0x6e, 0x64, 0x69, 0x6e, 0x67, 0x5f, 0x69, 0x64, 0x73, 0x18,
+	0x0a, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x29, 0x2e, 0x63, 0x6f, 0x73, 0x6d, 0x6f, 0x73, 0x2e, 0x73,
+	0x74, 0x61, 0x6b, 0x69, 0x6e, 0x67, 0x2e, 0x76, 0x31, 0x62, 0x65, 0x74, 0x61, 0x31, 0x2e, 0x55,
+	0x6e, 0x62, 0x6f, 0x6e, 0x64, 0x69, 0x6e, 0x67, 0x49, 0x64, 0x52, 0x65, 0x63, 0x6f, 0x72, 0x64,
+	0x42, 0x09, 0xc8, 0xde, 0x1f, 0x00, 0xa8, 0xe7, 0xb0, 0x2a, 0x01, 0x52, 0x0c, 0x75, 0x6e, 0x62,
+	0x6f, 0x6e, 0x64, 0x69, 0x6e, 0x67, 0x49, 0x64, 0x73, 0x22, 0x60, 0x0a, 0x11, 0x55, 0x6e, 0x62,
+	0x6f, 0x6e, 0x64, 0x69, 0x6e, 0x67, 0x49, 0x64, 0x52, 0x65, 0x63, 0x6f, 0x72, 0x64, 0x12, 0x0e,
+	0x0a, 0x02, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x02, 0x69, 0x64, 0x12, 0x25,
+	0x0a, 0x0e, 0x75, 0x6e, 0x62, 0x6f, 0x6e, 0x64, 0x69, 0x6e, 0x67, 0x5f, 0x74, 0x79, 0x70, 0x65,
+	0x18, 0x02, 0x20, 0x01, 0x28, 0x04, 0x52, 0x0d, 0x75, 0x6e, 0x62, 0x6f, 0x6e, 0x64, 0x69, 0x6e,
+	0x67, 0x54, 0x79, 0x70, 0x65, 0x12, 0x14, 0x0a, 0x05, 0x69, 0x6e, 0x64, 0x65, 0x78, 0x18, 0x03,
+	0x20, 0x01, 0x28, 0x0c, 0x52, 0x05, 0x69, 0x6e, 0x64, 0x65, 0x78, 0x22, 0x68, 0x0a, 0x12, 0x4c,
+	0x61, 0x73, 0x74, 0x56, 0x61, 0x6c, 0x69, 0x64, 0x61, 0x74, 0x6f, 0x72, 0x50, 0x6f, 0x77, 0x65,
+	0x72, 0x12, 0x32, 0x0a, 0x07, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x18, 0x01, 0x20, 0x01,
+	0x28, 0x09, 0x42, 0x18, 0xd2, 0xb4, 0x2d, 0x14, 0x63, 0x6f, 0x73, 0x6d, 0x6f, 0x73, 0x2e, 0x41,
+	0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x53, 0x74, 0x72, 0x69, 0x6e, 0x67, 0x52, 0x07, 0x61, 0x64,
+	0x64, 0x72, 0x65, 0x73, 0x73, 0x12, 0x14, 0x0a, 0x05, 0x70, 0x6f, 0x77, 0x65, 0x72, 0x18, 0x02,
+	0x20, 0x01, 0x28, 0x03, 0x52, 0x05, 0x70, 0x6f, 0x77, 0x65, 0x72, 0x3a, 0x08, 0x88, 0xa0, 0x1f,
+	0x00, 0xe8, 0xa0, 0x1f, 0x00, 0x42, 0xdc, 0x01, 0x0a, 0x1a, 0x63, 0x6f, 0x6d, 0x2e, 0x63, 0x6f,
+	0x73, 0x6d, 0x6f, 0x73, 0x2e, 0x73, 0x74, 0x61, 0x6b, 0x69, 0x6e, 0x67, 0x2e, 0x76, 0x31, 0x62,
+	0x65, 0x74, 0x61, 0x31, 0x42, 0x0c, 0x47, 0x65, 0x6e, 0x65, 0x73, 0x69, 0x73, 0x50, 0x72, 0x6f,
+	0x74, 0x6f, 0x50, 0x01, 0x5a, 0x36, 0x63, 0x6f, 0x73, 0x6d, 0x6f, 0x73, 0x73, 0x64, 0x6b, 0x2e,
+	0x69, 0x6f, 0x2f, 0x61, 0x70, 0x69, 0x2f, 0x63, 0x6f, 0x73, 0x6d, 0x6f, 0x73, 0x2f, 0x73, 0x74,
+	0x61, 0x6b, 0x69, 0x6e, 0x67, 0x2f, 0x76, 0x31, 0x62, 0x65, 0x74, 0x61, 0x31, 0x3b, 0x73, 0x74,
+	0x61, 0x6b, 0x69, 0x6e, 0x67, 0x76, 0x31, 0x62, 0x65, 0x74, 0x61, 0x31, 0xa2, 0x02, 0x03, 0x43,
+	0x53, 0x58, 0xaa, 0x02, 0x16, 0x43, 0x6f, 0x73, 0x6d, 0x6f, 0x73, 0x2e, 0x53, 0x74, 0x61, 0x6b,
+	0x69, 0x6e, 0x67, 0x2e, 0x56, 0x31, 0x62, 0x65, 0x74, 0x61, 0x31, 0xca, 0x02, 0x16, 0x43, 0x6f,
 	0x73, 0x6d, 0x6f, 0x73, 0x5c, 0x53, 0x74, 0x61, 0x6b, 0x69, 0x6e, 0x67, 0x5c, 0x56, 0x31, 0x62,
-	0x65, 0x74, 0x61, 0x31, 0x5c, 0x47, 0x50, 0x42, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61,
-	0xea, 0x02, 0x18, 0x43, 0x6f, 0x73, 0x6d, 0x6f, 0x73, 0x3a, 0x3a, 0x53, 0x74, 0x61, 0x6b, 0x69,
-	0x6e, 0x67, 0x3a, 0x3a, 0x56, 0x31, 0x62, 0x65, 0x74, 0x61, 0x31, 0x62, 0x06, 0x70, 0x72, 0x6f,
-	0x74, 0x6f, 0x33,
+	0x65, 0x74, 0x61, 0x31, 0xe2, 0x02, 0x22, 0x43, 0x6f, 0x73, 0x6d, 0x6f, 0x73, 0x5c, 0x53, 0x74,
+	0x61, 0x6b, 0x69, 0x6e, 0x67, 0x5c, 0x56, 0x31, 0x62, 0x65, 0x74, 0x61, 0x31, 0x5c, 0x47, 0x50,
+	0x42, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0xea, 0x02, 0x18, 0x43, 0x6f, 0x73, 0x6d,
+	0x6f, 0x73, 0x3a, 0x3a, 0x53, 0x74, 0x61, 0x6b, 0x69, 0x6e, 0x67, 0x3a, 0x3a, 0x56, 0x31, 0x62,
+	0x65, 0x74, 0x61, 0x31, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -1980,28 +2776,30 @@ func file_cosmos_staking_v1beta1_genesis_proto_rawDescGZIP() []byte {
 	return file_cosmos_staking_v1beta1_genesis_proto_rawDescData
 }
 
-var file_cosmos_staking_v1beta1_genesis_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_cosmos_staking_v1beta1_genesis_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_cosmos_staking_v1beta1_genesis_proto_goTypes = []interface{}{
 	(*GenesisState)(nil),        // 0: cosmos.staking.v1beta1.GenesisState
-	(*LastValidatorPower)(nil),  // 1: cosmos.staking.v1beta1.LastValidatorPower
-	(*Params)(nil),              // 2: cosmos.staking.v1beta1.Params
-	(*Validator)(nil),           // 3: cosmos.staking.v1beta1.Validator
-	(*Delegation)(nil),          // 4: cosmos.staking.v1beta1.Delegation
-	(*UnbondingDelegation)(nil), // 5: cosmos.staking.v1beta1.UnbondingDelegation
-	(*Redelegation)(nil),        // 6: cosmos.staking.v1beta1.Redelegation
+	(*UnbondingIdRecord)(nil),   // 1: cosmos.staking.v1beta1.UnbondingIdRecord
+	(*LastValidatorPower)(nil),  // 2: cosmos.staking.v1beta1.LastValidatorPower
+	(*Params)(nil),              // 3: cosmos.staking.v1beta1.Params
+	(*Validator)(nil),           // 4: cosmos.staking.v1beta1.Validator
+	(*Delegation)(nil),          // 5: cosmos.staking.v1beta1.Delegation
+	(*UnbondingDelegation)(nil), // 6: cosmos.staking.v1beta1.UnbondingDelegation
+	(*Redelegation)(nil),        // 7: cosmos.staking.v1beta1.Redelegation
 }
 var file_cosmos_staking_v1beta1_genesis_proto_depIdxs = []int32{
-	2, // 0: cosmos.staking.v1beta1.GenesisState.params:type_name -> cosmos.staking.v1beta1.Params
-	1, // 1: cosmos.staking.v1beta1.GenesisState.last_validator_powers:type_name -> cosmos.staking.v1beta1.LastValidatorPower
-	3, // 2: cosmos.staking.v1beta1.GenesisState.validators:type_name -> cosmos.staking.v1beta1.Validator
-	4, // 3: cosmos.staking.v1beta1.GenesisState.delegations:type_name -> cosmos.staking.v1beta1.Delegation
-	5, // 4: cosmos.staking.v1beta1.GenesisState.unbonding_delegations:type_name -> cosmos.staking.v1beta1.UnbondingDelegation
-	6, // 5: cosmos.staking.v1beta1.GenesisState.redelegations:type_name -> cosmos.staking.v1beta1.Redelegation
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	3, // 0: cosmos.staking.v1beta1.GenesisState.params:type_name -> cosmos.staking.v1beta1.Params
+	2, // 1: cosmos.staking.v1beta1.GenesisState.last_validator_powers:type_name -> cosmos.staking.v1beta1.LastValidatorPower
+	4, // 2: cosmos.staking.v1beta1.GenesisState.validators:type_name -> cosmos.staking.v1beta1.Validator
+	5, // 3: cosmos.staking.v1beta1.GenesisState.delegations:type_name -> cosmos.staking.v1beta1.Delegation
+	6, // 4: cosmos.staking.v1beta1.GenesisState.unbonding_delegations:type_name -> cosmos.staking.v1beta1.UnbondingDelegation
+	7, // 5: cosmos.staking.v1beta1.GenesisState.redelegations:type_name -> cosmos.staking.v1beta1.Redelegation
+	1, // 6: cosmos.staking.v1beta1.GenesisState.unbonding_ids:type_name -> cosmos.staking.v1beta1.UnbondingIdRecord
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_cosmos_staking_v1beta1_genesis_proto_init() }
@@ -2024,6 +2822,18 @@ func file_cosmos_staking_v1beta1_genesis_proto_init() {
 			}
 		}
 		file_cosmos_staking_v1beta1_genesis_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*UnbondingIdRecord); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_cosmos_staking_v1beta1_genesis_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*LastValidatorPower); i {
 			case 0:
 				return &v.state
@@ -2042,7 +2852,7 @@ func file_cosmos_staking_v1beta1_genesis_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_cosmos_staking_v1beta1_genesis_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

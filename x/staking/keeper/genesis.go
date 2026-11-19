@@ -151,6 +151,19 @@ func (k Keeper) InitGenesis(ctx context.Context, data *types.GenesisState) (res 
 		}
 	}
 
+	// The unbonding ID records as the exporting chain stored them, and its
+	// counter, so new unbonding operations do not reuse an ID.
+	for _, record := range data.UnbondingIds {
+		if err := k.SetUnbondingIDRecord(ctx, record); err != nil {
+			panic(err)
+		}
+	}
+	if data.LastUnbondingId > 0 {
+		if err := k.SetUnbondingID(ctx, data.LastUnbondingId); err != nil {
+			panic(err)
+		}
+	}
+
 	bondedCoins := sdk.NewCoins(sdk.NewCoin(data.Params.BondDenom, bondedTokens))
 	notBondedCoins := sdk.NewCoins(sdk.NewCoin(data.Params.BondDenom, notBondedTokens))
 
@@ -280,6 +293,15 @@ func (k Keeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
 		panic(err)
 	}
 
+	lastUnbondingID, err := k.GetUnbondingID(ctx)
+	if err != nil {
+		panic(err)
+	}
+	unbondingIDs, err := k.GetUnbondingIDRecords(ctx)
+	if err != nil {
+		panic(err)
+	}
+
 	return &types.GenesisState{
 		Params:               params,
 		LastTotalPower:       totalPower,
@@ -289,5 +311,7 @@ func (k Keeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
 		UnbondingDelegations: unbondingDelegations,
 		Redelegations:        redelegations,
 		Exported:             true,
+		LastUnbondingId:      lastUnbondingID,
+		UnbondingIds:         unbondingIDs,
 	}
 }

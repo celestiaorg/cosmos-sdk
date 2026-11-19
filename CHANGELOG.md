@@ -48,6 +48,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 * (baseapp) [#188](https://github.com/celestiaorg/cosmos-sdk/pull/188) `BaseApp.ReadCheckState` runs a function with the check state context under the lock `CheckTx` and `Commit` take, so apps can read check state outside `CheckTx` without racing `FinalizeBlock` and `Commit`.
 * (server/config) [#187](https://github.com/celestiaorg/cosmos-sdk/pull/187) Top-level `disable-optimistic-execution` app.toml key (`BaseConfig.DisableOptimisticExecution`, default `false`), read by the app to turn off optimistic execution on one node.
+* (baseapp) [#209](https://github.com/celestiaorg/cosmos-sdk/pull/209) `BaseApp.LockCheckState` takes the check state lock `CheckTx` and `Commit` take, so an app can read and write check state outside `CheckTx` without racing them, `FinalizeBlock` or `Simulate`.
 
 ### Improvements
 

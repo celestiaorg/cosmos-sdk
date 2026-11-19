@@ -318,6 +318,13 @@ func (app *BaseApp) ReadCheckState(fn func(sdk.Context)) bool {
 	return true
 }
 
+// LockCheckState takes the CheckTx/Commit lock on checkState exclusively, for an app that writes check
+// state outside CheckTx; Simulate and ReadCheckState wait. Same call restrictions as ReadCheckState until unlock.
+func (app *BaseApp) LockCheckState() (unlock func()) {
+	app.checkStateMu.Lock()
+	return app.checkStateMu.Unlock
+}
+
 // GRPCQueryRouter returns the GRPCQueryRouter of a BaseApp.
 func (app *BaseApp) GRPCQueryRouter() *GRPCQueryRouter { return app.grpcQueryRouter }
 
@@ -714,7 +721,12 @@ func (app *BaseApp) getContextForTx(mode execMode, txBytes []byte) sdk.Context {
 	if modeState == nil {
 		panic(fmt.Sprintf("state is nil for mode %v", mode))
 	}
-	ctx := modeState.Context().
+	return app.txContext(modeState.Context(), mode, txBytes)
+}
+
+// txContext derives the context of a tx in mode from base, a context of mode's state.
+func (app *BaseApp) txContext(base sdk.Context, mode execMode, txBytes []byte) sdk.Context {
+	ctx := base.
 		WithTxBytes(txBytes).
 		WithGasMeter(storetypes.NewInfiniteGasMeter())
 	// WithVoteInfos(app.voteInfos) // TODO: identify if this is needed
@@ -926,7 +938,12 @@ func (app *BaseApp) endBlock(_ context.Context) (sdk.EndBlock, error) {
 // delivery (deliverTx), and PrepareProposal/ProcessProposal tx validation,
 // where runMsgs skips message execution so effectively only the antes run.
 func (app *BaseApp) runTx(mode execMode, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
-	p, err := app.runTxAnte(mode, txBytes, nil)
+	return app.runTxOn(app.getContextForTx(mode, txBytes), mode, txBytes, nil)
+}
+
+// runTxOn is runTx on ctx, with tx the decode of txBytes unless nil.
+func (app *BaseApp) runTxOn(ctx sdk.Context, mode execMode, txBytes []byte, tx sdk.Tx) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
+	p, err := app.runTxAnte(ctx, mode, txBytes, tx)
 	if err == nil {
 		result, err = app.runTxMsgs(mode, p)
 	}

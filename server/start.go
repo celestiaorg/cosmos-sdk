@@ -105,6 +105,9 @@ const (
 	// FlagEnableSubspaceQueries is an app.toml key only; it has no CLI flag.
 	FlagEnableSubspaceQueries = "enable-subspace-queries"
 
+	// FlagRecheckWorkers is an app.toml key only; it has no CLI flag.
+	FlagRecheckWorkers = "recheck-workers"
+
 	// testnet keys
 	KeyIsTestnet             = "is-testnet"
 	KeyNewChainID            = "new-chain-ID"

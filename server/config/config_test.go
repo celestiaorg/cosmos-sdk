@@ -270,3 +270,20 @@ func TestEnableSubspaceQueriesKey(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, got.EnableSubspaceQueries)
 }
+
+func TestRecheckWorkersKey(t *testing.T) {
+	cfg := DefaultConfig()
+	require.Equal(t, DefaultRecheckWorkers, cfg.RecheckWorkers)
+	cfg.RecheckWorkers = 3
+	file := filepath.Join(t.TempDir(), "app.toml")
+	WriteConfigFile(file, cfg)
+
+	// Top-level key, read by the app under the same name.
+	v := viper.New()
+	v.SetConfigFile(file)
+	require.NoError(t, v.ReadInConfig())
+	require.Equal(t, 3, v.GetInt("recheck-workers"))
+	got, err := GetConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, 3, got.RecheckWorkers)
+}

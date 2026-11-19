@@ -33,7 +33,15 @@ type preparedTx struct {
 // is given), validation, ante handlers (writes committed on success) and mempool
 // bookkeeping. The returned preparedTx is never nil, so gas is reportable on failure.
 func (app *BaseApp) runTxAnte(mode execMode, txBytes []byte, tx sdk.Tx) (p *preparedTx, err error) {
-	ctx := app.getContextForTx(mode, txBytes)
+	if (mode == execModeCheck || mode == execModeReCheck) && !app.checkStateDirty {
+		// a parallel recheck can no longer read around checkState
+		app.checkStateDirty = true
+	}
+	return app.runTxAnteCtx(mode, app.getContextForTx(mode, txBytes), txBytes, tx)
+}
+
+// runTxAnteCtx is runTxAnte on a caller-built context, e.g. a parallel recheck branch.
+func (app *BaseApp) runTxAnteCtx(mode execMode, ctx sdk.Context, txBytes []byte, tx sdk.Tx) (p *preparedTx, err error) {
 	ms := ctx.MultiStore()
 
 	p = &preparedTx{

@@ -369,9 +369,20 @@ func (app *BaseApp) CheckTx(req *abci.RequestCheckTx) (*abci.ResponseCheckTx, er
 		return nil, fmt.Errorf("unknown RequestCheckTx type: %s", req.Type)
 	}
 
-	gInfo, result, anteEvents, priority, err := app.runTx(mode, req.Tx)
+	return app.checkTxResponse(app.runTx(mode, req.Tx)), nil
+}
+
+// RecheckTxOn is CheckTx(Type=Recheck) of txBytes (decoded as tx, if not nil) on ms instead of
+// checkState, so an app can recheck independent txs concurrently on its own branches of check state.
+// The caller must keep Commit from replacing checkState meanwhile.
+func (app *BaseApp) RecheckTxOn(ms storetypes.MultiStore, txBytes []byte, tx sdk.Tx) *abci.ResponseCheckTx {
+	base := app.checkState.Context().WithMultiStore(ms).WithEventManager(sdk.NewEventManager())
+	return app.checkTxResponse(app.runTxOn(app.txContext(base, execModeReCheck, txBytes), execModeReCheck, txBytes, tx))
+}
+
+func (app *BaseApp) checkTxResponse(gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) *abci.ResponseCheckTx {
 	if err != nil {
-		return sdkerrors.ResponseCheckTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, anteEvents, app.trace), nil
+		return sdkerrors.ResponseCheckTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, anteEvents, app.trace)
 	}
 
 	return &abci.ResponseCheckTx{
@@ -381,7 +392,7 @@ func (app *BaseApp) CheckTx(req *abci.RequestCheckTx) (*abci.ResponseCheckTx, er
 		Data:      result.Data,
 		Events:    sdk.MarkEventsToIndex(result.Events, app.indexEvents),
 		Priority:  priority,
-	}, nil
+	}
 }
 
 // PrepareProposal implements the PrepareProposal ABCI method and returns a

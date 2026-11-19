@@ -636,6 +636,50 @@ func TestABCI_CheckTx(t *testing.T) {
 	require.Nil(t, storedBytes)
 }
 
+// TestABCI_RecheckTxOn checks that RecheckTxOn on a branch of checkState answers and writes
+// as CheckTx(Type=Recheck) on checkState does, and leaves checkState untouched.
+func TestABCI_RecheckTxOn(t *testing.T) {
+	counterKey := []byte("counter-key")
+	anteOpt := func(bapp *baseapp.BaseApp) { bapp.SetAnteHandler(anteHandlerTxTest(t, capKey1, counterKey)) }
+	suite := NewBaseAppSuite(t, anteOpt)
+	baseapptestutil.RegisterCounterServer(suite.baseApp.MsgServiceRouter(), CounterServerImpl{t, capKey1, counterKey})
+	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{ConsensusParams: &cmtproto.ConsensusParams{}})
+	require.NoError(t, err)
+
+	encode := func(tx sdk.Tx) []byte {
+		bz, err := suite.txConfig.TxEncoder()(tx)
+		require.NoError(t, err)
+		return bz
+	}
+	r, err := suite.baseApp.CheckTx(&abci.RequestCheckTx{Tx: encode(newTxCounter(t, suite.txConfig, 0, 0))})
+	require.NoError(t, err)
+	require.True(t, r.IsOK())
+
+	branch := getCheckStateCtx(suite.baseApp).MultiStore().CacheMultiStore()
+	for _, tc := range []struct {
+		tx      signing.Tx
+		decoded bool
+	}{
+		{newTxCounter(t, suite.txConfig, 1, 0), false},
+		{newTxCounter(t, suite.txConfig, 2, 0), true},
+		{setFailOnAnte(t, suite.txConfig, newTxCounter(t, suite.txConfig, 3, 0), true), true},
+	} {
+		bz := encode(tc.tx)
+		var tx sdk.Tx
+		if tc.decoded {
+			tx = tc.tx
+		}
+		before := getIntFromStore(t, getCheckStateCtx(suite.baseApp).KVStore(capKey1), counterKey)
+		got := suite.baseApp.RecheckTxOn(branch, bz, tx)
+		require.Equal(t, before, getIntFromStore(t, getCheckStateCtx(suite.baseApp).KVStore(capKey1), counterKey), "checkState written")
+		want, err := suite.baseApp.CheckTx(&abci.RequestCheckTx{Tx: bz, Type: abci.CheckTxType_Recheck})
+		require.NoError(t, err)
+		require.Equal(t, want, got)
+		require.Equal(t, getIntFromStore(t, getCheckStateCtx(suite.baseApp).KVStore(capKey1), counterKey),
+			getIntFromStore(t, branch.GetKVStore(capKey1), counterKey))
+	}
+}
+
 func TestABCI_FinalizeBlock_DeliverTx(t *testing.T) {
 	anteKey := []byte("ante-key")
 	anteOpt := func(bapp *baseapp.BaseApp) { bapp.SetAnteHandler(anteHandlerTxTest(t, capKey1, anteKey)) }

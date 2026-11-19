@@ -3,6 +3,7 @@ package cachemulti
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"sync"
 	"testing"
 
@@ -112,6 +113,28 @@ func TestLazyBranchTraceContextStaysInChild(t *testing.T) {
 	cms.Write()
 	require.Contains(t, buf.String(), "blockHeight")
 	require.NotContains(t, buf.String(), "txHash")
+}
+
+// Concurrent txs on branches of one store, such as Simulate calls under the
+// check-state read lock, each set their own trace context.
+func TestTraceContextConcurrentBranches(t *testing.T) {
+	key := types.NewKVStoreKey("a")
+	stores := map[types.StoreKey]types.CacheWrapper{key: dbadapter.Store{DB: dbm.NewMemDB()}}
+	cms := NewStore(dbm.NewMemDB(), stores, nil, io.Discard, types.TraceContext{"blockHeight": 1})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				child := cms.CacheMultiStore().SetTracingContext(types.TraceContext{"txHash": fmt.Sprint(i, j)})
+				child.(types.CacheMultiStore).GetKVStore(key).Get([]byte("k"))
+			}
+		}()
+	}
+	wg.Wait()
+	require.NotContains(t, cms.traceContext, "txHash")
 }
 
 func TestLazyBranchConcurrentUse(t *testing.T) {

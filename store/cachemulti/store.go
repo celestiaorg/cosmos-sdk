@@ -70,19 +70,13 @@ func NewStore(
 }
 
 func newCacheMultiStoreFromCMS(cms Store) Store {
-	// SetTracingContext merges in place: a shared map would leak a child's txHash
-	// into the trace wrappers the parent branches later.
-	var tctx types.TraceContext
-	if cms.traceContext != nil {
-		tctx = cms.traceContext.Clone()
-	}
 	return Store{
 		db:           cachekv.NewStore(cms.db),
 		stores:       make(map[types.StoreKey]types.CacheWrap),
 		mu:           &sync.RWMutex{},
 		parent:       &cms,
 		traceWriter:  cms.traceWriter,
-		traceContext: tctx,
+		traceContext: cms.traceContext,
 	}
 }
 
@@ -93,19 +87,13 @@ func (cms Store) SetTracer(w io.Writer) types.MultiStore {
 	return cms
 }
 
-// SetTracingContext updates the tracing context for the MultiStore by merging
-// the given context with the existing context by key. Any existing keys will
-// be overwritten. It is implied that the caller should update the context when
-// necessary between tracing operations. It returns a modified MultiStore.
+// SetTracingContext returns the MultiStore with tc merged into a copy of its
+// tracing context. The map is shared with its branches and concurrent readers,
+// so it is never written in place.
 func (cms Store) SetTracingContext(tc types.TraceContext) types.MultiStore {
-	if cms.traceContext != nil {
-		for k, v := range tc {
-			cms.traceContext[k] = v
-		}
-	} else {
-		cms.traceContext = tc
+	if len(tc) > 0 {
+		cms.traceContext = cms.traceContext.Clone().Merge(tc)
 	}
-
 	return cms
 }
 

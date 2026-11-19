@@ -29,11 +29,10 @@ type preparedTx struct {
 	priority   int64
 }
 
-// runTxAnte runs the ante phase of a tx: decode (unless tx, the decode of txBytes,
+// runTxAnte runs the ante phase of a tx on ctx: decode (unless tx, the decode of txBytes,
 // is given), validation, ante handlers (writes committed on success) and mempool
 // bookkeeping. The returned preparedTx is never nil, so gas is reportable on failure.
-func (app *BaseApp) runTxAnte(mode execMode, txBytes []byte, tx sdk.Tx) (p *preparedTx, err error) {
-	ctx := app.getContextForTx(mode, txBytes)
+func (app *BaseApp) runTxAnte(ctx sdk.Context, mode execMode, txBytes []byte, tx sdk.Tx) (p *preparedTx, err error) {
 	ms := ctx.MultiStore()
 
 	p = &preparedTx{
@@ -263,7 +262,7 @@ func (app *BaseApp) executeTxsPhased(ctx context.Context, txs [][]byte) ([]*abci
 			continue
 		}
 
-		p, err := app.runTxAnte(execModeFinalize, rawTx, tx)
+		p, err := app.runTxAnte(app.getContextForTx(execModeFinalize, rawTx), execModeFinalize, rawTx, tx)
 		if err != nil {
 			execTxResults[i] = app.phasedTxResult(p, nil, err)
 			continue

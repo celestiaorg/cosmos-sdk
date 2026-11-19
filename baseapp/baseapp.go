@@ -591,6 +591,17 @@ func (app *BaseApp) GetConsensusParams(ctx sdk.Context) cmtproto.ConsensusParams
 	return cp
 }
 
+// checkConsensusParams reads the consensus params once per check state, whose
+// store CheckTx never writes them to.
+func (app *BaseApp) checkConsensusParams(st *state, ctx sdk.Context) cmtproto.ConsensusParams {
+	if cp := st.consensusParams.Load(); cp != nil {
+		return *cp
+	}
+	cp := app.GetConsensusParams(ctx)
+	st.consensusParams.Store(&cp)
+	return cp
+}
+
 // StoreConsensusParams sets the consensus parameters to the BaseApp's param
 // store.
 func (app *BaseApp) StoreConsensusParams(ctx sdk.Context, cp cmtproto.ConsensusParams) error {
@@ -721,7 +732,11 @@ func (app *BaseApp) getContextForTx(mode execMode, txBytes []byte) sdk.Context {
 
 	ctx = ctx.WithIsSigverifyTx(app.sigverifyTx)
 
-	ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
+	if mode == execModeCheck || mode == execModeReCheck {
+		ctx = ctx.WithConsensusParams(app.checkConsensusParams(modeState, ctx))
+	} else {
+		ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
+	}
 
 	if mode == execModeReCheck {
 		ctx = ctx.WithIsReCheckTx(true)
@@ -927,7 +942,13 @@ func (app *BaseApp) endBlock(_ context.Context) (sdk.EndBlock, error) {
 // where runMsgs skips message execution so effectively only the antes run.
 func (app *BaseApp) runTx(mode execMode, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
 	p, err := app.runTxAnte(mode, txBytes, nil)
-	if err == nil {
+	switch {
+	case err != nil:
+	case mode == execModeReCheck && app.postHandler == nil:
+		// Check modes execute no message, and the rest of the message phase is pure
+		// and already ran when CheckTx admitted these bytes.
+		result = &sdk.Result{}
+	default:
 		result, err = app.runTxMsgs(mode, p)
 	}
 

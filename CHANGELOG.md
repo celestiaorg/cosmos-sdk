@@ -51,6 +51,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### Improvements
 
+* (baseapp) [#200](https://github.com/celestiaorg/cosmos-sdk/pull/200) Recheck skips work `CheckTx` already did on the same bytes: per-message `ValidateBasic`, the message phase when no post handler is set, building ante events (`sdk.DiscardEventManager`, honoured by the fee and bank emitters), and `SetPubKeyDecorator`'s signature decoding. `CheckTx` reads the consensus params once per check state.
 * (store) [#202](https://github.com/celestiaorg/cosmos-sdk/pull/202) A cache multistore branches each substore on first use instead of all of them when it is created, so a branch that touches a few stores no longer builds a cache for every mounted store. Reads, writes and the resulting state are unchanged.
 * (types) [#204](https://github.com/celestiaorg/cosmos-sdk/pull/204) `GetFromBech32` caches the bech32 decode of each address string, so `BaseAccount.GetAddress` no longer re-decodes its address on every call. The prefix and format checks still run on every call; `SetAddrCacheEnabled(false)` turns the cache off.
 * (x/auth) [#203](https://github.com/celestiaorg/cosmos-sdk/pull/203) The account keeper caches decoded base and module accounts by their stored bytes and gives each caller its own copy, so the ante handler no longer decodes the same signer account several times per tx.

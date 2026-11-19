@@ -57,8 +57,11 @@ func (app *BaseApp) runTxAnte(mode execMode, txBytes []byte, tx sdk.Tx) (p *prep
 	p.tx = tx
 
 	msgs := tx.GetMsgs()
-	if err := validateBasicTxMsgs(msgs); err != nil {
-		return p, err
+	// ValidateBasic is stateless and the tx passed it in CheckTx, so recheck skips it.
+	if mode != execModeReCheck {
+		if err := validateBasicTxMsgs(msgs); err != nil {
+			return p, err
+		}
 	}
 
 	for _, msg := range msgs {
@@ -82,7 +85,12 @@ func (app *BaseApp) runTxAnte(mode execMode, txBytes []byte, tx sdk.Tx) (p *prep
 		// writes do not happen if aborted/failed.  This may have some
 		// performance benefits, but it'll be more difficult to get right.
 		anteCtx, msCache = app.cacheTxContext(p.ctx, txBytes)
-		anteCtx = anteCtx.WithEventManager(sdk.NewEventManager())
+		if mode == execModeReCheck {
+			// nothing reads the events of a recheck
+			anteCtx = anteCtx.WithEventManager(sdk.DiscardEventManager{})
+		} else {
+			anteCtx = anteCtx.WithEventManager(sdk.NewEventManager())
+		}
 		newCtx, err := app.anteHandler(anteCtx, tx, mode == execModeSimulate)
 
 		if !newCtx.IsZero() {

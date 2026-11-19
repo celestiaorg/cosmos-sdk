@@ -111,6 +111,11 @@ func (spkd SetPubKeyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 		spkd.ak.SetAccount(ctx, acc)
 	}
 
+	// The signature decoding below is pure and passed when CheckTx admitted the tx.
+	if ctx.IsReCheckTx() {
+		return next(ctx, tx, simulate)
+	}
+
 	// Also emit the following events, so that txs can be indexed by these
 	// indices:
 	// - signature (via `tx.signature='<sig_as_base64>'`),

@@ -233,9 +233,12 @@ func (k BaseSendKeeper) SendCoins(ctx context.Context, fromAddr, toAddr sdk.AccA
 		k.ak.SetAccount(ctx, k.ak.NewAccountWithAddress(ctx, toAddr))
 	}
 
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	if sdk.EventsDiscarded(sdkCtx) {
+		return nil
+	}
 	// bech32 encoding is expensive! Only do it once for fromAddr
 	fromAddrString := fromAddr.String()
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	sdkCtx.EventManager().EmitEvents(sdk.Events{
 		sdk.NewEvent(
 			types.EventTypeTransfer,
@@ -290,10 +293,11 @@ func (k BaseSendKeeper) subUnlockedCoins(ctx context.Context, addr sdk.AccAddres
 		}
 	}
 
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	sdkCtx.EventManager().EmitEvent(
-		types.NewCoinSpentEvent(addr, amt),
-	)
+	if sdkCtx := sdk.UnwrapSDKContext(ctx); !sdk.EventsDiscarded(sdkCtx) {
+		sdkCtx.EventManager().EmitEvent(
+			types.NewCoinSpentEvent(addr, amt),
+		)
+	}
 
 	return nil
 }
@@ -316,10 +320,11 @@ func (k BaseSendKeeper) addCoins(ctx context.Context, addr sdk.AccAddress, amt s
 	}
 
 	// emit coin received event
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	sdkCtx.EventManager().EmitEvent(
-		types.NewCoinReceivedEvent(addr, amt),
-	)
+	if sdkCtx := sdk.UnwrapSDKContext(ctx); !sdk.EventsDiscarded(sdkCtx) {
+		sdkCtx.EventManager().EmitEvent(
+			types.NewCoinReceivedEvent(addr, amt),
+		)
+	}
 
 	return nil
 }

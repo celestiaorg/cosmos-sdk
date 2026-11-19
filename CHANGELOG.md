@@ -51,6 +51,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### Improvements
 
+* (x/auth) [#203](https://github.com/celestiaorg/cosmos-sdk/pull/203) The account keeper caches decoded base and module accounts by their stored bytes and gives each caller its own copy, so the ante handler no longer decodes the same signer account several times per tx.
 * (server) [#197](https://github.com/celestiaorg/cosmos-sdk/pull/197) `StartCmdOptions.ClientCreator` builds the in-process node's ABCI clients; the default keeps one mutex across all connections.
 * (server) [#168](https://github.com/celestiaorg/cosmos-sdk/pull/168) `StartCmdOptions.PreNodeStart` runs with the in-process CometBFT node after it is created and before it starts.
 * (baseapp) [#162](https://github.com/celestiaorg/cosmos-sdk/pull/162) Optimistic execution: `oe.WithTxsTransform` maps the `ProcessProposal` txs to the bytes `FinalizeBlock` will carry (celestia-core strips blobs between the two calls) and `FinalizeBlock` reuses a speculative result only if its txs match, `PrepareProposal` aborts a speculative run from a previous round, the speculative request carries the ProcessProposal `Header`, and `baseapp.DisableOptimisticExecution` turns it back off.

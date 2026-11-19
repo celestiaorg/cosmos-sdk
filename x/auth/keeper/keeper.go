@@ -134,7 +134,7 @@ func NewAccountKeeper(
 		authority:     authority,
 		Params:        collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
 		AccountNumber: collections.NewSequence(sb, types.GlobalAccountNumberKey, "account_number"),
-		Accounts:      collections.NewIndexedMap(sb, types.AddressStoreKeyPrefix, "accounts", sdk.AccAddressKey, codec.CollInterfaceValue[sdk.AccountI](cdc), NewAccountIndexes(sb)),
+		Accounts:      collections.NewIndexedMap(sb, types.AddressStoreKeyPrefix, "accounts", sdk.AccAddressKey, newAccountCodec(codec.CollInterfaceValue[sdk.AccountI](cdc)), NewAccountIndexes(sb)),
 	}
 	schema, err := sb.Build()
 	if err != nil {

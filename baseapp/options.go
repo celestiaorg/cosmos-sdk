@@ -409,6 +409,9 @@ func (app *BaseApp) SetStreamingManager(manager storetypes.StreamingManager) {
 	app.streamingManager = manager
 }
 
+// StreamingManager returns the streaming manager, so an app can add a listener to it.
+func (app *BaseApp) StreamingManager() storetypes.StreamingManager { return app.streamingManager }
+
 // SetDisableBlockGasMeter sets the disableBlockGasMeter flag for the BaseApp.
 func (app *BaseApp) SetDisableBlockGasMeter(disableBlockGasMeter bool) {
 	app.disableBlockGasMeter = disableBlockGasMeter

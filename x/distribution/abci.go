@@ -20,7 +20,13 @@ func BeginBlocker(ctx sdk.Context, k keeper.Keeper) error {
 
 	// TODO this is Tendermint-dependent
 	// ref https://github.com/cosmos/cosmos-sdk/issues/3095
-	if ctx.BlockHeight() > 1 {
+	//
+	// The first block of a chain has no previous commit. A chain that starts
+	// above height 1, such as one restarted from an export, would otherwise
+	// send the carried fees to the community pool: with no votes, the
+	// previous total power is zero. They stay in the fee collector and are
+	// allocated in the next block.
+	if ctx.BlockHeight() > 1 && len(ctx.VoteInfos()) > 0 {
 		if err := k.AllocateTokens(ctx, previousTotalPower, ctx.VoteInfos()); err != nil {
 			return err
 		}

@@ -7,10 +7,12 @@ import (
 	"testing"
 	"time"
 
+	abcicli "github.com/cometbft/cometbft/abci/client"
 	abci "github.com/cometbft/cometbft/abci/types"
 	cmtcfg "github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/node"
 	"github.com/cometbft/cometbft/privval"
+	"github.com/cometbft/cometbft/proxy"
 	cmttypes "github.com/cometbft/cometbft/types"
 	"github.com/cosmos/gogoproto/grpc"
 	"github.com/stretchr/testify/require"
@@ -66,9 +68,11 @@ func TestStartCmtNodeCallsPreNodeStart(t *testing.T) {
 		wasRunning bool
 		hadMempool bool
 	)
-	n, cleanup, err := startCmtNode(context.Background(), cfg, app, svrCtx, func(a types.Application, n *node.Node) error {
-		gotApp, wasRunning, hadMempool = a, n.IsRunning(), n.Mempool() != nil
-		return nil
+	n, cleanup, err := startCmtNode(context.Background(), cfg, app, svrCtx, StartCmdOptions{
+		PreNodeStart: func(a types.Application, n *node.Node) error {
+			gotApp, wasRunning, hadMempool = a, n.IsRunning(), n.Mempool() != nil
+			return nil
+		},
 	})
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
@@ -83,11 +87,39 @@ func TestStartCmtNodeCallsPreNodeStart(t *testing.T) {
 	abciApp2, err := mock.NewApp(cfg2.RootDir, log.NewNopLogger())
 	require.NoError(t, err)
 	hookErr := errors.New("hook failed")
-	n, _, err = startCmtNode(context.Background(), cfg2, hookTestApp{abciApp2}, svrCtx, func(types.Application, *node.Node) error {
-		return hookErr
+	n, _, err = startCmtNode(context.Background(), cfg2, hookTestApp{abciApp2}, svrCtx, StartCmdOptions{
+		PreNodeStart: func(types.Application, *node.Node) error { return hookErr },
 	})
 	require.ErrorIs(t, err, hookErr)
 	require.False(t, n.IsRunning())
+}
+
+func TestStartCmtNodeUsesClientCreator(t *testing.T) {
+	cfg := newHookTestConfig(t)
+	abciApp, err := mock.NewApp(cfg.RootDir, log.NewNopLogger())
+	require.NoError(t, err)
+
+	creator := &countingCreator{}
+	n, cleanup, err := startCmtNode(context.Background(), cfg, hookTestApp{abciApp}, NewDefaultContext(), StartCmdOptions{
+		ClientCreator: func(a abci.Application) proxy.ClientCreator {
+			creator.ClientCreator = proxy.NewConnSyncLocalClientCreator(a)
+			return creator
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+	require.Positive(t, creator.clients, "the node must open its connections through the option")
+	require.True(t, n.IsRunning())
+}
+
+type countingCreator struct {
+	proxy.ClientCreator
+	clients int
+}
+
+func (c *countingCreator) NewABCIClient() (abcicli.Client, error) {
+	c.clients++
+	return c.ClientCreator.NewABCIClient()
 }
 
 // The in-process start command passes StartCmdOptions.PreNodeStart through.

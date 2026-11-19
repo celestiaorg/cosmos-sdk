@@ -70,13 +70,19 @@ func NewStore(
 }
 
 func newCacheMultiStoreFromCMS(cms Store) Store {
+	// SetTracingContext merges in place: a shared map would leak a child's txHash
+	// into the trace wrappers the parent branches later.
+	var tctx types.TraceContext
+	if cms.traceContext != nil {
+		tctx = cms.traceContext.Clone()
+	}
 	return Store{
 		db:           cachekv.NewStore(cms.db),
 		stores:       make(map[types.StoreKey]types.CacheWrap),
 		mu:           &sync.RWMutex{},
 		parent:       &cms,
 		traceWriter:  cms.traceWriter,
-		traceContext: cms.traceContext,
+		traceContext: tctx,
 	}
 }
 

@@ -1,6 +1,7 @@
 package cachemulti
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 	"testing"
@@ -91,6 +92,26 @@ func TestLazyBranchCopiesShareSubstores(t *testing.T) {
 	child.Write()
 	cms.Write()
 	require.Equal(t, []byte("v"), base.Get([]byte("k")))
+}
+
+// A child's trace context does not reach the parent, whose substores may be
+// branched only once the child reads them.
+func TestLazyBranchTraceContextStaysInChild(t *testing.T) {
+	var buf bytes.Buffer
+	key := types.NewKVStoreKey("a")
+	stores := map[types.StoreKey]types.CacheWrapper{key: dbadapter.Store{DB: dbm.NewMemDB()}}
+	cms := NewStore(dbm.NewMemDB(), stores, nil, &buf, types.TraceContext{"blockHeight": 1})
+
+	child := cms.CacheMultiStore().SetTracingContext(types.TraceContext{"txHash": "A"}).(Store)
+	child.GetKVStore(key).Set([]byte("k"), []byte("v"))
+	child.Write()
+	require.NotContains(t, cms.traceContext, "txHash")
+
+	buf.Reset()
+	cms.GetKVStore(key).Get([]byte("missing"))
+	cms.Write()
+	require.Contains(t, buf.String(), "blockHeight")
+	require.NotContains(t, buf.String(), "txHash")
 }
 
 func TestLazyBranchConcurrentUse(t *testing.T) {

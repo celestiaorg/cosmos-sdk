@@ -112,7 +112,8 @@ func init() {
 	}
 }
 
-// SetAddrCacheEnabled enables or disables accAddrCache, consAddrCache, and valAddrCache. By default, caches are enabled.
+// SetAddrCacheEnabled enables or disables accAddrCache, consAddrCache, valAddrCache and the
+// bech32 decode cache. By default, caches are enabled.
 func SetAddrCacheEnabled(enabled bool) {
 	isCachingEnabled.Store(enabled)
 }
@@ -678,7 +679,7 @@ func GetFromBech32(bech32str, prefix string) ([]byte, error) {
 		return nil, errBech32EmptyAddress
 	}
 
-	hrp, bz, err := bech32.DecodeAndConvert(bech32str)
+	hrp, bz, err := decodeBech32Cached(bech32str)
 	if err != nil {
 		return nil, err
 	}

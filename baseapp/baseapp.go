@@ -910,7 +910,9 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 			msgResponses = append(msgResponses, msgResponse)
 		}
 
-		msgLogs = append(msgLogs, sdk.NewABCIMessageLog(uint32(i), msgResult.Log, msgEvents))
+		if !celestiaSkipMsgLogs(mode) {
+			msgLogs = append(msgLogs, sdk.NewABCIMessageLog(uint32(i), msgResult.Log, msgEvents))
+		}
 	}
 
 	data, err := makeABCIData(msgResponses)
@@ -918,9 +920,14 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 		return nil, sdkerrors.Wrap(err, "failed to marshal tx data")
 	}
 
+	var log string
+	if !celestiaSkipMsgLogs(mode) {
+		log = strings.TrimSpace(msgLogs.String())
+	}
+
 	return &sdk.Result{
 		Data:         data,
-		Log:          strings.TrimSpace(msgLogs.String()),
+		Log:          log,
 		Events:       events.ToABCIEvents(),
 		MsgResponses: msgResponses,
 	}, nil

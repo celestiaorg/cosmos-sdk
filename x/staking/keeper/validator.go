@@ -15,12 +15,16 @@ import (
 func (k Keeper) GetValidator(ctx sdk.Context, addr sdk.ValAddress) (validator types.Validator, found bool) {
 	store := ctx.KVStore(k.storeKey)
 
-	value := store.Get(types.GetValidatorKey(addr))
+	key := types.GetValidatorKey(addr)
+	value := store.Get(key)
 	if value == nil {
 		return validator, false
 	}
 
-	validator = types.MustUnmarshalValidator(k.cdc, value)
+	validator, err := k.unmarshalValidator(key, value)
+	if err != nil {
+		panic(err)
+	}
 	return validator, true
 }
 

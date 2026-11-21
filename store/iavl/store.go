@@ -66,7 +66,7 @@ func LoadStoreWithInitialVersion(db dbm.DB, logger log.Logger, key types.StoreKe
 // LoadStoreWithOpts opens the store's IAVL tree at id.Version. Version 0 means
 // the newest on disk, or an empty tree if there is none.
 func LoadStoreWithOpts(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, cacheSize int, disableFastNode bool, metrics metrics.StoreMetrics, opts LoadStoreOptions) (types.CommitKVStore, error) {
-	tree := iavl.NewMutableTree(wrapper.NewDBWrapper(db), cacheSize, disableFastNode, logger, iavl.InitialVersionOption(opts.InitialVersion))
+	tree := iavl.NewMutableTree(wrapper.NewDBWrapper(db), cacheSize, disableFastNode, logger, celestiaTreeOptions(iavl.InitialVersionOption(opts.InitialVersion))...)
 
 	isUpgradeable, err := tree.IsUpgradeable()
 	if err != nil {

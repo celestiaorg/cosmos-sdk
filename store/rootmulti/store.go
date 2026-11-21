@@ -504,12 +504,19 @@ func (rs *Store) Commit() types.CommitID {
 		rs.logger.Debug("commit header and version mismatch", "header_height", rs.commitHeader.Height, "version", version)
 	}
 
+	tm := celestiaStartCommitTiming(version)
 	newCommitInfo := commitStores(version, rs.stores, rs.removalMap)
 	newCommitInfo.Timestamp = rs.commitHeader.Time
+	tm.mark(&tm.commitStores)
 
 	rs.setLastCommitInfo(newCommitInfo)
 
-	defer rs.flushMetadata(rs.db, version, newCommitInfo)
+	defer tm.done()
+	defer func() {
+		tm.mark(&tm.prune)
+		rs.flushMetadata(rs.db, version, newCommitInfo)
+		tm.mark(&tm.flushMeta)
+	}()
 
 	// remove remnants of removed stores
 	for sk := range rs.removalMap {
@@ -542,6 +549,7 @@ func (rs *Store) WorkingHash() []byte {
 	storeInfos := make([]types.StoreInfo, 0, len(rs.stores))
 	storeKeys := keysFromStoreKeyMap(rs.stores)
 
+	var wantHash []types.StoreKey
 	for _, key := range storeKeys {
 		store := rs.stores[key]
 
@@ -550,14 +558,18 @@ func (rs *Store) WorkingHash() []byte {
 		}
 
 		if !rs.removalMap[key] {
-			si := types.StoreInfo{
-				Name: key.Name(),
-				CommitId: types.CommitID{
-					Hash: store.WorkingHash(),
-				},
-			}
-			storeInfos = append(storeInfos, si)
+			wantHash = append(wantHash, key)
 		}
+	}
+	hashes := celestiaWorkingHashes(rs.stores, wantHash)
+	for i, key := range wantHash {
+		si := types.StoreInfo{
+			Name: key.Name(),
+			CommitId: types.CommitID{
+				Hash: hashes[i],
+			},
+		}
+		storeInfos = append(storeInfos, si)
 	}
 
 	sort.SliceStable(storeInfos, func(i, j int) bool {
@@ -581,16 +593,23 @@ func (rs *Store) CacheWrapWithTrace(_ io.Writer, _ types.TraceContext) types.Cac
 // It implements the MultiStore interface.
 func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 	stores := make(map[types.StoreKey]types.CacheWrapper)
+	listening := false
 	for k, v := range rs.stores {
 		store := types.KVStore(v)
 		// Wire the listenkv.Store to allow listeners to observe the writes from the cache store,
 		// set same listeners on cache store will observe duplicated writes.
 		if rs.ListeningEnabled(k) {
 			store = listenkv.NewStore(store, k, rs.listeners[k])
+			listening = true
 		}
 		stores[k] = store
 	}
-	return cachemulti.NewStore(rs.db, stores, rs.keysByName, rs.traceWriter, rs.getTracingContext())
+	cms := cachemulti.NewStore(rs.db, stores, rs.keysByName, rs.traceWriter, rs.getTracingContext())
+	if !listening {
+		// celestia: lets Write() of this branch use the parallel/timed path (env-gated).
+		cms = cachemulti.MarkRoot(cms)
+	}
+	return cms
 }
 
 // CacheMultiStoreWithVersion is analogous to CacheMultiStore except that it
@@ -1229,9 +1248,20 @@ func GetLatestVersion(db dbm.DB) int64 {
 func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore, removalMap map[types.StoreKey]bool) *types.CommitInfo {
 	storeInfos := make([]types.StoreInfo, 0, len(storeMap))
 	storeKeys := keysFromStoreKeyMap(storeMap)
+	commitIDs := celestiaParallelCommit(version, storeMap, storeKeys)
 
-	for _, key := range storeKeys {
+	for i, key := range storeKeys {
 		store := storeMap[key]
+		if commitIDs != nil {
+			storeType := store.GetStoreType()
+			if storeType == types.StoreTypeTransient || storeType == types.StoreTypeMemory {
+				continue
+			}
+			if !removalMap[key] {
+				storeInfos = append(storeInfos, types.StoreInfo{Name: key.Name(), CommitId: commitIDs[i]})
+			}
+			continue
+		}
 		last := store.LastCommitID()
 
 		// If a commit event execution is interrupted, a new iavl store's version

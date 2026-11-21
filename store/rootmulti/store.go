@@ -75,6 +75,7 @@ type Store struct {
 	listeners           map[types.StoreKey]*types.MemoryListener
 	metrics             metrics.StoreMetrics
 	commitHeader        cmtproto.Header
+	celestiaDeferred    *deferredDriver // celestia: CELESTIA_IAVL_FLUSH_EVERY (see celestia_deferred.go)
 }
 
 var (
@@ -99,6 +100,7 @@ func NewStore(db dbm.DB, logger log.Logger, metricGatherer metrics.StoreMetrics)
 		removalMap:          make(map[types.StoreKey]bool),
 		pruningManager:      pruning.NewManager(db, logger),
 		metrics:             metricGatherer,
+		celestiaDeferred:    newDeferredDriver(),
 	}
 }
 
@@ -204,11 +206,19 @@ func (rs *Store) LoadVersion(ver int64) error {
 // version does not remove newer state.
 func (rs *Store) loadLatestVersion(upgrades *types.StoreUpgrades) error {
 	ver := GetLatestVersion(rs.db)
-	return rs.loadVersion(ver, upgrades, iavl.LoadStoreOptions{DiscardVersionsAboveTarget: true})
+	deferred := rs.deferredWanted()
+	err := rs.loadVersion(ver, upgrades, iavl.LoadStoreOptions{DiscardVersionsAboveTarget: true, Deferred: deferred})
+	if deferred && deferredLegacyFallback(err) {
+		err = rs.loadVersion(ver, upgrades, iavl.LoadStoreOptions{DiscardVersionsAboveTarget: true})
+	}
+	return err
 }
 
 // loadVersion loads every mounted store at ver.
 func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades, opts iavl.LoadStoreOptions) error {
+	if err := rs.deferredBeforeLoad(); err != nil {
+		return err
+	}
 	infos := make(map[string]types.StoreInfo)
 
 	rs.logger.Trace("loadVersion", "ver", ver)
@@ -303,6 +313,7 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades, opts iavl
 		return err
 	}
 
+	rs.deferredAfterLoad(ver, opts.Deferred)
 	return nil
 }
 
@@ -484,6 +495,9 @@ func (rs *Store) LastCommitID() types.CommitID {
 
 // Commit implements Committer/CommitStore.
 func (rs *Store) Commit() types.CommitID {
+	if rs.celestiaDeferred.isActive() {
+		return rs.commitDeferred()
+	}
 	var previousHeight, version int64
 	lastCommitInfo := rs.getLastCommitInfo()
 	if lastCommitInfo.GetVersion() == 0 && rs.initialVersion > 1 {
@@ -1141,6 +1155,9 @@ func (rs *Store) buildCommitInfo(version int64) *types.CommitInfo {
 func (rs *Store) RollbackToVersion(target int64) error {
 	if target <= 0 {
 		return fmt.Errorf("invalid rollback height target: %d", target)
+	}
+	if err := rs.deferredBeforeLoad(); err != nil {
+		return err
 	}
 
 	for key, store := range rs.stores {

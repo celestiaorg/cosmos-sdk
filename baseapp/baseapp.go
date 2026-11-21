@@ -65,6 +65,9 @@ type BaseApp struct { // nolint: maligned
 	interfaceRegistry codectypes.InterfaceRegistry
 	txDecoder         sdk.TxDecoder // unmarshal []byte into sdk.Tx
 
+	// batchSigPreverifier is an optional sync-speedup hook, see PrepareDeliverTxBatch.
+	batchSigPreverifier func(ctx sdk.Context, txs []sdk.Tx)
+
 	anteHandler sdk.AnteHandler // ante handler for fee and auth
 	postHandler sdk.AnteHandler // post handler, optional, e.g. for tips
 
@@ -931,7 +934,19 @@ func makeABCIData(msgResponses []*codectypes.Any) ([]byte, error) {
 	return proto.Marshal(&sdk.TxMsgData{MsgResponses: msgResponses})
 }
 
+// deferredFlusher is implemented by rootmulti.Store (deferred IAVL persistence,
+// CELESTIA_IAVL_FLUSH_EVERY). FlushDeferred is a no-op when the mode is off.
+type deferredFlusher interface {
+	FlushDeferred() error
+	ForceFlushNextCommit()
+}
+
 // Close is called in start cmd to gracefully cleanup resources.
 func (app *BaseApp) Close() error {
+	// deferred persistence: write the last committed block so a graceful
+	// shutdown restarts from it instead of replaying from the last flush.
+	if d, ok := app.cms.(deferredFlusher); ok {
+		return d.FlushDeferred()
+	}
 	return nil
 }

@@ -61,6 +61,8 @@ type Store struct {
 	interBlockCache types.MultiStorePersistentCache
 
 	listeners map[types.StoreKey][]types.WriteListener
+
+	deferred deferredState // deferred persistence (deferred.go); disabled unless CELESTIA_IAVL_FLUSH_EVERY > 1
 }
 
 var (
@@ -74,7 +76,7 @@ var (
 // a store is created, KVStores must be mounted and finally LoadLatestVersion or
 // LoadVersion must be called.
 func NewStore(db dbm.DB, logger log.Logger) *Store {
-	return &Store{
+	rs := &Store{
 		db:                  db,
 		logger:              logger,
 		iavlCacheSize:       iavl.DefaultIAVLCacheSize,
@@ -85,7 +87,15 @@ func NewStore(db dbm.DB, logger log.Logger) *Store {
 		listeners:           make(map[types.StoreKey][]types.WriteListener),
 		removalMap:          make(map[types.StoreKey]bool),
 		pruningManager:      pruning.NewManager(db, logger),
+		deferred:            deferredState{every: flushEveryFromEnv()},
 	}
+	if rs.deferredEnabled() {
+		// fast-node index writes are part of SaveVersion; not supported with soft commits
+		rs.iavlDisableFastNode = true
+		logger.Info("IAVL deferred persistence enabled (fast node disabled)", "flush_every", rs.deferred.every)
+		rs.registerShutdownFlush()
+	}
+	return rs
 }
 
 // GetPruning fetches the pruning strategy from the root store.
@@ -111,7 +121,7 @@ func (rs *Store) SetIAVLCacheSize(cacheSize int) {
 }
 
 func (rs *Store) SetIAVLDisableFastNode(disableFastNode bool) {
-	rs.iavlDisableFastNode = disableFastNode
+	rs.iavlDisableFastNode = disableFastNode || rs.deferredEnabled()
 }
 
 // SetLazyLoading sets if the iavl store should be loaded lazily or not
@@ -167,23 +177,35 @@ func (rs *Store) StoreKeysByName() map[string]types.StoreKey {
 
 // LoadLatestVersionAndUpgrade implements CommitMultiStore
 func (rs *Store) LoadLatestVersionAndUpgrade(upgrades *types.StoreUpgrades) error {
+	if err := rs.FlushDeferred(); err != nil { // deferred persistence: disk must hold lastCommitInfo
+		return err
+	}
 	ver := GetLatestVersion(rs.db)
 	return rs.loadVersion(ver, upgrades)
 }
 
 // LoadVersionAndUpgrade allows us to rename substores while loading an older version
 func (rs *Store) LoadVersionAndUpgrade(ver int64, upgrades *types.StoreUpgrades) error {
+	if err := rs.FlushDeferred(); err != nil {
+		return err
+	}
 	return rs.loadVersion(ver, upgrades)
 }
 
 // LoadLatestVersion implements CommitMultiStore.
 func (rs *Store) LoadLatestVersion() error {
+	if err := rs.FlushDeferred(); err != nil { // deferred persistence: disk must hold lastCommitInfo
+		return err
+	}
 	ver := GetLatestVersion(rs.db)
 	return rs.loadVersion(ver, nil)
 }
 
 // LoadVersion implements CommitMultiStore.
 func (rs *Store) LoadVersion(ver int64) error {
+	if err := rs.FlushDeferred(); err != nil {
+		return err
+	}
 	return rs.loadVersion(ver, nil)
 }
 
@@ -223,6 +245,12 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 		})
 	}
 
+	// Rolling back IAVL stores that are ahead of the commit info is only valid
+	// when loading the latest committed version (not for explicit historic
+	// loads such as export --height).
+	rs.deferred.rollbackAhead = ver == GetLatestVersion(rs.db)
+	defer func() { rs.deferred.rollbackAhead = false }()
+
 	for _, key := range storesKeys {
 		storeParams := rs.storesParams[key]
 		commitID := rs.getCommitID(infos, key.Name())
@@ -236,7 +264,8 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 
 		store, err := rs.loadCommitStoreFromParams(key, commitID, storeParams)
 		if err != nil {
-			return errors.Wrap(err, "failed to load store")
+			// e.g. an IAVL store behind the commit info ("wanted to load target ...")
+			return errors.Wrapf(err, "failed to load store %s at commit info version %d", key.Name(), commitID.Version)
 		}
 
 		newStores[key] = store
@@ -273,6 +302,7 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 
 	rs.lastCommitInfo = cInfo
 	rs.stores = newStores
+	rs.deferred.lastFlushed = ver
 
 	// load any pruned heights we missed from disk to be pruned on the next run
 	if err := rs.pruningManager.LoadPruningHeights(rs.db); err != nil {
@@ -411,6 +441,10 @@ func (rs *Store) LastCommitID() types.CommitID {
 
 // Commit implements Committer/CommitStore.
 func (rs *Store) Commit() types.CommitID {
+	if rs.deferredEnabled() {
+		return rs.commitDeferred()
+	}
+
 	var previousHeight, version int64
 	if rs.lastCommitInfo.GetVersion() == 0 && rs.initialVersion > 1 {
 		// This case means that no commit has been made in the store, we
@@ -925,6 +959,21 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 
 		if err != nil {
 			return nil, err
+		}
+
+		// Crash recovery for deferred persistence: roll back IAVL versions written
+		// by a flush whose commit info never made it to disk (also when the mode
+		// is now off, if the gap is one upstream cannot handle). Must happen
+		// before deferred mode is enabled / the store is used.
+		if rs.deferred.rollbackAhead {
+			if err := rs.rollbackStoreAhead(key, store.(*iavl.Store), id.Version); err != nil {
+				return nil, err
+			}
+		}
+		if rs.deferredEnabled() {
+			if err := store.(*iavl.Store).EnableDeferredPersistence(); err != nil {
+				return nil, err
+			}
 		}
 
 		if rs.interBlockCache != nil {

@@ -1,0 +1,105 @@
+package ante
+
+import (
+	"runtime"
+	"sync"
+
+	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/tx/signing"
+	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
+)
+
+// NewBatchSigPreverifier returns a BaseApp batch hook (sync-speedup prototype)
+// that predicts each single-key secp256k1 signature's sign bytes from the state
+// at the start of the batch and verifies all of them in parallel, recording
+// only VALID (pubkey, signBytes, sig) triples in the secp256k1 signature cache.
+// SigVerificationDecorator still recomputes sign bytes from the live state and
+// calls VerifySignature; a cache hit only skips re-doing a verification that
+// already succeeded for exactly the same inputs.
+func NewBatchSigPreverifier(ak AccountKeeper, handler authsigning.SignModeHandler) func(sdk.Context, []sdk.Tx) {
+	type job struct {
+		tx   sdk.Tx
+		pk   cryptotypes.PubKey
+		sd   authsigning.SignerData
+		mode signing.SignMode
+		sig  []byte
+	}
+	return func(ctx sdk.Context, txs []sdk.Tx) {
+		if !secp256k1.SigCacheEnabled {
+			return
+		}
+		secp256k1.SigCacheReset()
+		jobs := make([]job, 0, len(txs))
+		for _, tx := range txs {
+			sigTx, ok := tx.(authsigning.SigVerifiableTx)
+			if !ok {
+				continue
+			}
+			sigs, err := sigTx.GetSignaturesV2()
+			if err != nil {
+				continue
+			}
+			signers := sigTx.GetSigners()
+			if len(sigs) != len(signers) {
+				continue
+			}
+			for i, sig := range sigs {
+				single, ok := sig.Data.(*signing.SingleSignatureData)
+				if !ok {
+					continue
+				}
+				acc := ak.GetAccount(ctx, signers[i])
+				if acc == nil {
+					continue
+				}
+				pk := acc.GetPubKey()
+				if pk == nil {
+					pk = sig.PubKey
+				}
+				if _, ok := pk.(*secp256k1.PubKey); !ok {
+					continue
+				}
+				accNum := acc.GetAccountNumber()
+				if ctx.BlockHeight() == 0 {
+					accNum = 0
+				}
+				jobs = append(jobs, job{tx: tx, pk: pk, mode: single.SignMode, sig: single.Signature, sd: authsigning.SignerData{
+					Address:       acc.GetAddress().String(),
+					ChainID:       ctx.ChainID(),
+					AccountNumber: accNum,
+					Sequence:      sig.Sequence,
+					PubKey:        pk,
+				}})
+			}
+		}
+		workers := runtime.GOMAXPROCS(0)
+		if workers > 16 {
+			workers = 16
+		}
+		ch := make(chan job, len(jobs))
+		for _, j := range jobs {
+			ch <- j
+		}
+		close(ch)
+		var wg sync.WaitGroup
+		for w := 0; w < workers; w++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer func() { _ = recover() }()
+				for j := range ch {
+					msg, err := handler.GetSignBytes(j.mode, j.sd, j.tx)
+					if err != nil {
+						continue
+					}
+					if j.pk.VerifySignature(msg, j.sig) {
+						secp256k1.SigCacheAdd(j.pk.Bytes(), msg, j.sig)
+					}
+				}
+			}()
+		}
+		wg.Wait()
+	}
+}

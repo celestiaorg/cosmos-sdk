@@ -22,6 +22,9 @@ func (privKey *PrivKey) Sign(msg []byte) ([]byte, error) {
 // VerifyBytes verifies a signature of the form R || S.
 // It rejects signatures which are not in lower-S form.
 func (pubKey *PubKey) VerifySignature(msg []byte, sigStr []byte) bool {
+	if SigCacheEnabled && sigCacheConsume(pubKey.Key, msg, sigStr) {
+		return true
+	}
 	if len(sigStr) != 64 {
 		return false
 	}

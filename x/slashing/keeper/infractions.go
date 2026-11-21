@@ -15,7 +15,13 @@ func (k Keeper) HandleValidatorSignature(ctx sdk.Context, addr cryptotypes.Addre
 
 	// fetch the validator public key
 	consAddr := sdk.ConsAddress(addr)
-	if _, err := k.GetPubkey(ctx, addr); err != nil {
+	if sdk.CelestiaExecShortcuts {
+		// CELESTIA_EXEC_SHORTCUTS: same store read (same gas), the decoded pubkey
+		// is discarded so it is not decoded.
+		if ctx.KVStore(k.storeKey).Get(types.AddrPubkeyRelationKey(addr)) == nil {
+			panic(fmt.Sprintf("Validator consensus-address %s not found", consAddr))
+		}
+	} else if _, err := k.GetPubkey(ctx, addr); err != nil {
 		panic(fmt.Sprintf("Validator consensus-address %s not found", consAddr))
 	}
 

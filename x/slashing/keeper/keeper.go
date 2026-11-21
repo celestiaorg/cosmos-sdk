@@ -27,6 +27,8 @@ type Keeper struct {
 	// the address capable of executing a MsgUpdateParams message. Typically, this
 	// should be the x/gov module account.
 	authority string
+
+	celestiaParams *sdk.CelestiaDecodeMemo[types.Params] // CELESTIA_PARAMS_CACHE
 }
 
 // NewKeeper creates a slashing keeper
@@ -37,6 +39,8 @@ func NewKeeper(cdc codec.BinaryCodec, legacyAmino *codec.LegacyAmino, storeServi
 		legacyAmino:  legacyAmino,
 		sk:           sk,
 		authority:    authority,
+
+		celestiaParams: &sdk.CelestiaDecodeMemo[types.Params]{},
 	}
 }
 

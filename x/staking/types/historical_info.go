@@ -12,15 +12,20 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 // NewHistoricalInfo will create a historical information struct from header and valset
 // it will first sort valset before inclusion into historical info
 func NewHistoricalInfo(header cmtproto.Header, valSet Validators, powerReduction math.Int) HistoricalInfo {
 	// Must sort in the same way that CometBFT does
-	sort.SliceStable(valSet.Validators, func(i, j int) bool {
-		return ValidatorsByVotingPower(valSet.Validators).Less(i, j, powerReduction)
-	})
+	if sdk.CelestiaExecShortcuts {
+		celestiaSortByVotingPower(valSet.Validators, powerReduction)
+	} else {
+		sort.SliceStable(valSet.Validators, func(i, j int) bool {
+			return ValidatorsByVotingPower(valSet.Validators).Less(i, j, powerReduction)
+		})
+	}
 
 	return HistoricalInfo{
 		Header: header,

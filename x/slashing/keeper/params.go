@@ -6,6 +6,7 @@ import (
 
 	sdkmath "cosmossdk.io/math"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/slashing/types"
 )
 
@@ -59,8 +60,28 @@ func (k Keeper) GetParams(ctx context.Context) (params types.Params, err error) 
 		return params, nil
 	}
 
+	// CELESTIA_PARAMS_CACHE: same store read (same gas); reuse the decode of
+	// byte-identical params (returned as a copy).
+	var memo *sdk.CelestiaDecodeMemo[types.Params]
+	if sdk.CelestiaParamsCache {
+		memo = k.celestiaParams
+		if p, ok := memo.Get(bz, celestiaCloneParams); ok {
+			return p, nil
+		}
+	}
 	err = k.cdc.Unmarshal(bz, &params)
+	if err == nil {
+		memo.Put(bz, params, celestiaCloneParams)
+	}
 	return params, err
+}
+
+func celestiaCloneParams(p types.Params) types.Params {
+	c := p
+	c.MinSignedPerWindow = sdk.CelestiaCloneLegacyDec(p.MinSignedPerWindow)
+	c.SlashFractionDoubleSign = sdk.CelestiaCloneLegacyDec(p.SlashFractionDoubleSign)
+	c.SlashFractionDowntime = sdk.CelestiaCloneLegacyDec(p.SlashFractionDowntime)
+	return c
 }
 
 // SetParams sets the x/slashing module parameters.

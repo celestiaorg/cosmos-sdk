@@ -99,7 +99,18 @@ func (k Keeper) TrackHistoricalInfo(ctx context.Context) error {
 	// over the historical entries starting from the most recent version to be pruned
 	// and then return at the first empty entry.
 	for i := sdkCtx.BlockHeight() - int64(entryNum); i >= 0; i-- {
-		_, err := k.GetHistoricalInfo(ctx, i)
+		var err error
+		if sdk.CelestiaExecShortcuts {
+			// CELESTIA_EXEC_SHORTCUTS: same store read (same gas), no decode of the
+			// discarded HistoricalInfo.
+			var value []byte
+			value, err = k.storeService.OpenKVStore(ctx).Get(types.GetHistoricalInfoKey(i))
+			if err == nil && value == nil {
+				err = types.ErrNoHistoricalInfo
+			}
+		} else {
+			_, err = k.GetHistoricalInfo(ctx, i)
+		}
 		if err != nil {
 			if errors.Is(err, types.ErrNoHistoricalInfo) {
 				break

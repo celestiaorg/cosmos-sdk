@@ -32,6 +32,8 @@ type Keeper struct {
 	authority             string
 	validatorAddressCodec addresscodec.Codec
 	consensusAddressCodec addresscodec.Codec
+
+	celestiaCaches *celestiaCaches // CELESTIA_VALIDATOR_CACHE / CELESTIA_PARAMS_CACHE
 }
 
 // NewKeeper creates a new staking Keeper instance
@@ -71,6 +73,7 @@ func NewKeeper(
 		authority:             authority,
 		validatorAddressCodec: validatorAddressCodec,
 		consensusAddressCodec: consensusAddressCodec,
+		celestiaCaches:        newCelestiaCaches(),
 	}
 }
 

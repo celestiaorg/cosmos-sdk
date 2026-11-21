@@ -97,7 +97,7 @@ func (k Keeper) AllocateTokensToValidator(ctx context.Context, val stakingtypes.
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			types.EventTypeCommission,
-			sdk.NewAttribute(sdk.AttributeKeyAmount, commission.String()),
+			sdk.NewAttribute(sdk.AttributeKeyAmount, celestiaEventDecCoins(commission)),
 			sdk.NewAttribute(types.AttributeKeyValidator, val.GetOperator()),
 		),
 	)
@@ -128,7 +128,7 @@ func (k Keeper) AllocateTokensToValidator(ctx context.Context, val stakingtypes.
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			types.EventTypeRewards,
-			sdk.NewAttribute(sdk.AttributeKeyAmount, tokens.String()),
+			sdk.NewAttribute(sdk.AttributeKeyAmount, celestiaEventDecCoins(tokens)),
 			sdk.NewAttribute(types.AttributeKeyValidator, val.GetOperator()),
 		),
 	)
@@ -140,4 +140,14 @@ func (k Keeper) AllocateTokensToValidator(ctx context.Context, val stakingtypes.
 
 	outstanding.Rewards = outstanding.Rewards.Add(tokens...)
 	return k.SetValidatorOutstandingRewards(ctx, valBz, outstanding)
+}
+
+// celestiaEventDecCoins renders an event amount attribute. With
+// CELESTIA_BLOCKSYNC_EVENTS_OFF the (costly, never hashed, never read by state
+// logic) DecCoins string is left empty; the event and its keys are unchanged.
+func celestiaEventDecCoins(c sdk.DecCoins) string {
+	if sdk.CelestiaBlocksyncEventsOff {
+		return ""
+	}
+	return c.String()
 }

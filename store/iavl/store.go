@@ -15,6 +15,7 @@ import (
 
 	pruningtypes "github.com/cosmos/cosmos-sdk/pruning/types"
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
+	"github.com/cosmos/cosmos-sdk/store/changeset"
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/telemetry"
@@ -38,6 +39,11 @@ var (
 type Store struct {
 	tree   Tree
 	logger log.Logger
+
+	// changeset recording (changeset.go)
+	cs     *changeset.Recorder
+	csName string
+	csOps  []changeset.Op
 }
 
 // LoadStore returns an IAVL Store as a CommitKVStore. Internally, it will load the
@@ -133,6 +139,9 @@ func (st *Store) Commit() types.CommitID {
 	if err != nil {
 		panic(err)
 	}
+	if st.cs != nil {
+		st.flushRecordedOps()
+	}
 
 	return types.CommitID{
 		Version: version,
@@ -198,6 +207,9 @@ func (st *Store) Set(key, value []byte) {
 	if err != nil && st.logger != nil {
 		st.logger.Error("iavl set error", "error", err.Error())
 	}
+	if st.cs != nil {
+		st.recordOp(changeset.OpSet, key, value)
+	}
 }
 
 // Implements types.KVStore.
@@ -224,6 +236,9 @@ func (st *Store) Has(key []byte) (exists bool) {
 func (st *Store) Delete(key []byte) {
 	defer telemetry.MeasureSince(time.Now(), "store", "iavl", "delete")
 	st.tree.Remove(key)
+	if st.cs != nil {
+		st.recordOp(changeset.OpDelete, key, nil)
+	}
 }
 
 // DeleteVersions deletes a series of versions from the MutableTree. An error

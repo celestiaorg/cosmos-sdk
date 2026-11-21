@@ -18,7 +18,8 @@ import (
 var celestiaAsyncPruning = os.Getenv("CELESTIA_IAVL_ASYNC_PRUNING") == "1"
 
 func celestiaTreeOptions(opts ...iavl.Option) []iavl.Option {
-	if celestiaAsyncPruning {
+	// Deferred persistence prunes inside its flush; async pruning is ignored.
+	if celestiaAsyncPruning && CelestiaFlushEvery() <= 1 {
 		opts = append(opts, iavl.AsyncPruningOption(true))
 	}
 	return opts

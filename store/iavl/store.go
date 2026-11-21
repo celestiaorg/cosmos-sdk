@@ -51,6 +51,11 @@ type LoadStoreOptions struct {
 	// left by a commit killed mid-write. Set it on normal startup only. Leave it
 	// unset when loading an older version, where newer versions are real state.
 	DiscardVersionsAboveTarget bool
+
+	// Deferred (celestia) loads the tree with deferred persistence: id.Version
+	// is the multistore's committed version, newer on-disk versions are
+	// deleted and older ones pruned (see celestia_deferred.go).
+	Deferred bool
 }
 
 // LoadStore opens the store's IAVL tree at id.Version with default options.
@@ -80,6 +85,14 @@ func LoadStoreWithOpts(db dbm.DB, logger log.Logger, key types.StoreKey, id type
 			"version", opts.InitialVersion,
 			"commit", fmt.Sprintf("%X", id),
 		)
+	}
+
+	if opts.Deferred {
+		// celestia: deferred persistence (CELESTIA_IAVL_FLUSH_EVERY); see celestia_deferred.go.
+		if _, err := tree.LoadVersionDeferred(id.Version); err != nil {
+			return nil, fmt.Errorf("deferred persistence: loading store %s at %d: %w", key.Name(), id.Version, err)
+		}
+		return &Store{tree: tree, logger: logger, metrics: metrics}, nil
 	}
 
 	// IAVL derives latest from node keys, which may belong to an incomplete version.

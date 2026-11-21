@@ -30,6 +30,8 @@ type Store struct {
 
 	traceWriter  io.Writer
 	traceContext types.TraceContext
+
+	root bool // celestia: branch created by rootmulti.CacheMultiStore
 }
 
 var _ types.CacheMultiStore = Store{}
@@ -121,6 +123,10 @@ func (cms Store) GetStoreType() types.StoreType {
 
 // Write calls Write on each underlying store.
 func (cms Store) Write() {
+	if cms.root {
+		cms.writeRoot()
+		return
+	}
 	cms.db.Write()
 	for _, store := range cms.stores {
 		store.Write()

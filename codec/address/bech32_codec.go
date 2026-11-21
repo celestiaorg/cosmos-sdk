@@ -28,6 +28,15 @@ func (bc Bech32Codec) StringToBytes(text string) ([]byte, error) {
 		return []byte{}, errors.New("empty address string is not allowed")
 	}
 
+	if celestiaBech32CodecCacheEnabled {
+		if hrp, bz, ok := celestiaBech32LookupDecode(text); ok && hrp == bc.Bech32Prefix {
+			if err := sdk.VerifyAddressFormat(bz); err != nil {
+				return nil, err
+			}
+			return bz, nil
+		}
+	}
+
 	hrp, bz, err := bech32.DecodeAndConvert(text)
 	if err != nil {
 		return nil, err
@@ -41,6 +50,9 @@ func (bc Bech32Codec) StringToBytes(text string) ([]byte, error) {
 		return nil, err
 	}
 
+	if celestiaBech32CodecCacheEnabled {
+		celestiaBech32StoreDecode(text, hrp, bz)
+	}
 	return bz, nil
 }
 
@@ -50,10 +62,19 @@ func (bc Bech32Codec) BytesToString(bz []byte) (string, error) {
 		return "", nil
 	}
 
+	if celestiaBech32CodecCacheEnabled {
+		if text, ok := celestiaBech32LookupEncode(bc.Bech32Prefix, bz); ok {
+			return text, nil
+		}
+	}
+
 	text, err := bech32.ConvertAndEncode(bc.Bech32Prefix, bz)
 	if err != nil {
 		return "", err
 	}
 
+	if celestiaBech32CodecCacheEnabled {
+		celestiaBech32StoreEncode(bc.Bech32Prefix, bz, text)
+	}
 	return text, nil
 }

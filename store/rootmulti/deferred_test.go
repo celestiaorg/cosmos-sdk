@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/libs/log"
@@ -248,4 +249,153 @@ func TestDeferredPersistenceDirtyReloadFails(t *testing.T) {
 	}
 	def.rs.GetKVStore(defKey1).Set([]byte("dirty"), []byte("x"))
 	require.Error(t, def.rs.LoadLatestVersion())
+}
+
+// --- crash / shutdown recovery -------------------------------------------
+
+// lockstep commits heights from..to on both nodes and checks equal CommitIDs.
+func lockstep(t *testing.T, up, def *defNode, from, to int64, hashes map[int64]types.CommitID) {
+	for h := from; h <= to; h++ {
+		up.applyBlock(h)
+		def.applyBlock(h)
+		cu := up.rs.Commit()
+		require.Equal(t, cu, def.rs.Commit(), "height %d", h)
+		hashes[h] = cu
+	}
+}
+
+// replay re-executes heights after def's loaded version up to target (what the
+// consensus handshake does) and checks the hashes.
+func replay(t *testing.T, def *defNode, target int64, hashes map[int64]types.CommitID) {
+	for h := def.rs.LastCommitID().Version + 1; h <= target; h++ {
+		def.applyBlock(h)
+		require.Equal(t, hashes[h], def.rs.Commit(), "replayed height %d", h)
+	}
+}
+
+func onDiskVersions(t *testing.T, n *defNode) map[string][]int {
+	out := map[string][]int{}
+	for _, k := range n.keys {
+		out[k.Name()] = n.rs.GetCommitKVStore(k).(*iavl.Store).GetAllVersions()
+	}
+	return out
+}
+
+func requireAllOnDisk(t *testing.T, n *defNode, versions ...int) {
+	for name, vs := range onDiskVersions(t, n) {
+		require.Equal(t, versions, vs, "store %s", name)
+	}
+}
+
+// (a) SIGTERM while a block is half applied (deliverState written into the
+// IAVL working trees, Commit not yet called): the shutdown flush must write
+// the previous height for every store, and Commit must never return.
+func TestDeferredPersistenceShutdownMidBlock(t *testing.T) {
+	for _, cacheOn := range []bool{true, false} {
+		t.Run(fmt.Sprintf("interBlockCache=%v", cacheOn), func(t *testing.T) {
+			keys := []types.StoreKey{defKey1, defKey2, defKey3}
+			up := &defNode{t: t, db: dbm.NewMemDB(), cacheOn: cacheOn, keys: keys}
+			def := &defNode{t: t, db: dbm.NewMemDB(), flushK: 7, cacheOn: cacheOn, keys: keys}
+			up.open()
+			def.open()
+			hashes := map[int64]types.CommitID{}
+			lockstep(t, up, def, 1, 20, hashes)
+			require.Equal(t, int64(14), GetLatestVersion(def.db))
+
+			// block 21 half applied: every store dirty
+			blockOps(21, def.rs.GetKVStore, keys)
+			for _, k := range keys {
+				def.rs.GetKVStore(k).Set([]byte("inflight"), []byte("21"))
+			}
+			// the strict flush refuses and writes nothing
+			require.Error(t, def.rs.FlushDeferred())
+			require.Equal(t, int64(14), GetLatestVersion(def.db))
+			requireAllOnDisk(t, def, 14)
+
+			require.NoError(t, def.rs.ShutdownFlush())
+			require.NoError(t, def.rs.ShutdownFlush()) // idempotent (Close after hook)
+			require.Equal(t, int64(20), GetLatestVersion(def.db))
+			requireAllOnDisk(t, def, 20)
+
+			// Commit of block 21 must not return a hash the DB will never contain.
+			done := make(chan struct{})
+			go func() { def.rs.Commit(); close(done) }()
+			select {
+			case <-done:
+				t.Fatal("Commit returned after ShutdownFlush")
+			case <-time.After(200 * time.Millisecond):
+			}
+
+			// restart: height 20, block 21 is replayed, then normal operation
+			def.open()
+			require.Equal(t, hashes[20], def.rs.LastCommitID())
+			lockstep(t, up, def, 21, 45, hashes)
+			require.NoError(t, def.rs.ShutdownFlush())
+			def.open()
+			require.Equal(t, hashes[45], def.rs.LastCommitID())
+		})
+	}
+}
+
+// (b) process killed during phase 1 (a subset of stores wrote version V, no
+// commit info for V): reload must roll those stores back and replay, in
+// deferred mode and also when restarted without the env var (the incident:
+// "must save consecutive versions; expected 350034, got 350001").
+func TestDeferredPersistenceKillDuringStoreFlush(t *testing.T) {
+	for _, restartK := range []int64{1000, 0} {
+		for _, lastHeight := range []int64{30, 2} { // gap 29 / gap 1 (upstream idempotent path)
+			t.Run(fmt.Sprintf("restartK=%d/gap=%d", restartK, lastHeight-1), func(t *testing.T) {
+				keys := []types.StoreKey{defKey1, defKey2, defKey3}
+				up := &defNode{t: t, db: dbm.NewMemDB(), keys: keys}
+				def := &defNode{t: t, db: dbm.NewMemDB(), flushK: 1000, keys: keys}
+				up.open()
+				def.open()
+				hashes := map[int64]types.CommitID{}
+				lockstep(t, up, def, 1, lastHeight, hashes)
+				require.Equal(t, int64(1), GetLatestVersion(def.db))
+
+				// phase 1 for two of three stores, then kill
+				require.NoError(t, def.rs.GetCommitKVStore(defKey1).(*iavl.Store).FlushDeferred())
+				require.NoError(t, def.rs.GetCommitKVStore(defKey3).(*iavl.Store).FlushDeferred())
+
+				def.flushK = restartK
+				def.open()
+				require.Equal(t, hashes[1], def.rs.LastCommitID())
+				if restartK > 0 || lastHeight > 2 {
+					requireAllOnDisk(t, def, 1) // rolled back
+				}
+				replay(t, def, lastHeight, hashes)
+				lockstep(t, up, def, lastHeight+1, lastHeight+20, hashes)
+				require.NoError(t, def.rs.ShutdownFlush())
+				def.open()
+				require.Equal(t, hashes[lastHeight+20], def.rs.LastCommitID())
+			})
+		}
+	}
+}
+
+// (c) process killed after the commit info was written but before the old
+// versions were deleted: loads the new version, old versions go at the next
+// flush.
+func TestDeferredPersistenceKillBeforeDeletions(t *testing.T) {
+	keys := []types.StoreKey{defKey1, defKey2, defKey3}
+	up := &defNode{t: t, db: dbm.NewMemDB(), keys: keys}
+	def := &defNode{t: t, db: dbm.NewMemDB(), flushK: 7, keys: keys}
+	up.open()
+	def.open()
+	hashes := map[int64]types.CommitID{}
+	lockstep(t, up, def, 1, 12, hashes)
+	requireAllOnDisk(t, def, 7)
+
+	// phases 1 and 2 only
+	for _, k := range keys {
+		require.NoError(t, def.rs.GetCommitKVStore(k).(*iavl.Store).FlushDeferred())
+	}
+	def.rs.flushMetadata(def.db, 12, def.rs.lastCommitInfo)
+
+	def.open()
+	require.Equal(t, hashes[12], def.rs.LastCommitID())
+	requireAllOnDisk(t, def, 7, 12)
+	lockstep(t, up, def, 13, 30, hashes)
+	requireAllOnDisk(t, def, 28)
 }

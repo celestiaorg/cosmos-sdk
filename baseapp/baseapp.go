@@ -939,14 +939,16 @@ func makeABCIData(msgResponses []*codectypes.Any) ([]byte, error) {
 type deferredFlusher interface {
 	FlushDeferred() error
 	ForceFlushNextCommit()
+	ShutdownFlush() error
 }
 
 // Close is called in start cmd to gracefully cleanup resources.
 func (app *BaseApp) Close() error {
 	// deferred persistence: write the last committed block so a graceful
-	// shutdown restarts from it instead of replaying from the last flush.
+	// shutdown restarts from it instead of replaying from the last flush
+	// (usually already done by the quit-signal hook; idempotent).
 	if d, ok := app.cms.(deferredFlusher); ok {
-		return d.FlushDeferred()
+		return d.ShutdownFlush()
 	}
 	return nil
 }

@@ -245,6 +245,12 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 		})
 	}
 
+	// Rolling back IAVL stores that are ahead of the commit info is only valid
+	// when loading the latest committed version (not for explicit historic
+	// loads such as export --height).
+	rs.deferred.rollbackAhead = ver == GetLatestVersion(rs.db)
+	defer func() { rs.deferred.rollbackAhead = false }()
+
 	for _, key := range storesKeys {
 		storeParams := rs.storesParams[key]
 		commitID := rs.getCommitID(infos, key.Name())
@@ -258,7 +264,8 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 
 		store, err := rs.loadCommitStoreFromParams(key, commitID, storeParams)
 		if err != nil {
-			return errors.Wrap(err, "failed to load store")
+			// e.g. an IAVL store behind the commit info ("wanted to load target ...")
+			return errors.Wrapf(err, "failed to load store %s at commit info version %d", key.Name(), commitID.Version)
 		}
 
 		newStores[key] = store
@@ -954,8 +961,17 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 			return nil, err
 		}
 
+		// Crash recovery for deferred persistence: roll back IAVL versions written
+		// by a flush whose commit info never made it to disk (also when the mode
+		// is now off, if the gap is one upstream cannot handle). Must happen
+		// before deferred mode is enabled / the store is used.
+		if rs.deferred.rollbackAhead {
+			if err := rs.rollbackStoreAhead(key, store.(*iavl.Store), id.Version); err != nil {
+				return nil, err
+			}
+		}
 		if rs.deferredEnabled() {
-			if err := store.(*iavl.Store).EnableDeferredPersistence(id.Version); err != nil {
+			if err := store.(*iavl.Store).EnableDeferredPersistence(); err != nil {
 				return nil, err
 			}
 		}

@@ -42,7 +42,10 @@ type deferredState struct {
 	every       int64 // flush interval; <= 1 means upstream behaviour
 	lastFlushed int64 // latest version whose state + metadata are on disk
 	forceNext   bool  // make the next Commit a flush
-	mtx         sync.Mutex
+	closed      bool  // ShutdownFlush ran: no further commits
+	// set by loadVersion while loading the latest committed version
+	rollbackAhead bool
+	mtx           sync.Mutex
 }
 
 func flushEveryFromEnv() int64 {
@@ -57,20 +60,62 @@ func flushEveryFromEnv() int64 {
 	return k
 }
 
-// registerShutdownFlush flushes on SIGINT/SIGTERM (server.WaitForQuitSignals).
-// The node may still be processing a block at that moment: the flush is
-// serialised with Commit by the mutex and refuses to run while a working tree
-// is dirty (then the restart simply replays from the previous flush). Output
-// goes to stderr because the multistore logger is a no-op logger in baseapp.
+// registerShutdownFlush runs ShutdownFlush on SIGINT/SIGTERM
+// (server.WaitForQuitSignals). Output goes to stderr because the multistore
+// logger is a no-op logger in baseapp.
 func (rs *Store) registerShutdownFlush() {
 	fmt.Fprintf(os.Stderr, "IAVL deferred persistence enabled: %s=%d (fast node disabled)\n", FlushEveryEnv, rs.deferred.every)
 	shutdown.Register(func() {
-		if err := rs.FlushDeferred(); err != nil {
-			fmt.Fprintf(os.Stderr, "deferred persistence: flush on shutdown failed (restart will replay from the last flush): %v\n", err)
-			return
+		if err := rs.ShutdownFlush(); err != nil {
+			fmt.Fprintf(os.Stderr, "deferred persistence: flush on shutdown failed (restart rolls back to the last complete flush and replays): %v\n", err)
 		}
-		fmt.Fprintf(os.Stderr, "deferred persistence: flushed version %d on shutdown\n", rs.deferred.lastFlushed)
 	})
+}
+
+// ShutdownFlush writes the latest soft-committed version and its metadata and
+// then closes the store for commits. It works in the middle of a block: the
+// node may be anywhere in block H (e.g. between deliverState.ms.Write() and
+// Commit), so IAVL working trees can be dirty. Their changes belong to block
+// H, which the consensus engine replays after restart, so they are simply not
+// written (FlushDeferredIgnoringWorking flushes lastSaved = H-1 for every
+// store, all at the same version). Any later Commit blocks forever: it must
+// not return an app hash for block H that the DB will never contain, and the
+// working trees must not be committed after the flush (see
+// FlushDeferredIgnoringWorking). The process is exiting anyway.
+// Idempotent; no-op when deferred persistence is disabled.
+func (rs *Store) ShutdownFlush() error {
+	if !rs.deferredEnabled() {
+		return nil
+	}
+	rs.deferred.mtx.Lock()
+	defer rs.deferred.mtx.Unlock()
+	if rs.deferred.closed {
+		return nil
+	}
+	rs.deferred.closed = true
+	if rs.lastCommitInfo == nil || rs.lastCommitInfo.Version <= rs.deferred.lastFlushed {
+		return nil
+	}
+	if err := rs.flushDeferredLocked(rs.lastCommitInfo.Version, rs.lastCommitInfo, true); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "deferred persistence: flushed version %d on shutdown\n", rs.deferred.lastFlushed)
+	return nil
+}
+
+// rollbackStoreAhead rolls back a freshly loaded IAVL store whose on-disk
+// versions are ahead of the commit info version (see
+// iavl.Store.RollbackVersionsAbove).
+func (rs *Store) rollbackStoreAhead(key types.StoreKey, st *iavl.Store, version int64) error {
+	latest, rolled, err := st.RollbackVersionsAbove(version, rs.deferredEnabled())
+	if err != nil {
+		return fmt.Errorf("store %s: %w", key.Name(), err)
+	}
+	if rolled {
+		rs.logger.Info("rolled back IAVL store ahead of commit info", "store", key.Name(), "on_disk", latest, "commit_info", version)
+		fmt.Fprintf(os.Stderr, "deferred persistence: store %s had versions up to %d on disk, rolled back to commit info version %d\n", key.Name(), latest, version)
+	}
+	return nil
 }
 
 // DeferredPersistence returns the flush interval (0 or 1 = disabled).
@@ -95,28 +140,50 @@ func (rs *Store) FlushDeferred() error {
 	}
 	rs.deferred.mtx.Lock()
 	defer rs.deferred.mtx.Unlock()
-	if rs.lastCommitInfo == nil || rs.lastCommitInfo.Version <= rs.deferred.lastFlushed {
+	if rs.deferred.closed || rs.lastCommitInfo == nil || rs.lastCommitInfo.Version <= rs.deferred.lastFlushed {
 		return nil
 	}
-	return rs.flushDeferredLocked(rs.lastCommitInfo.Version, rs.lastCommitInfo)
+	return rs.flushDeferredLocked(rs.lastCommitInfo.Version, rs.lastCommitInfo, false)
 }
 
-func (rs *Store) flushDeferredLocked(version int64, cInfo *types.CommitInfo) error {
-	// Phase 1: IAVL nodes/orphans/roots of every store.
-	var flushed []*iavl.Store
+// flushDeferredLocked: phase 0 checks every store before anything is written
+// (all-or-nothing for the dirty-tree case); if a write fails or the process
+// dies during phase 1, some stores are ahead of the commit info on disk and
+// are rolled back on the next load (rollbackStoreAhead).
+func (rs *Store) flushDeferredLocked(version int64, cInfo *types.CommitInfo, ignoreWorking bool) error {
+	// Phase 0: collect the IAVL stores (unwrapping the inter-block cache) and
+	// refuse up front if any working tree is dirty.
+	type named struct {
+		key types.StoreKey
+		st  *iavl.Store
+	}
+	var stores []named
 	for key, store := range rs.stores {
 		if store.GetStoreType() != types.StoreTypeIAVL {
 			continue
 		}
-		// unwrap the inter-block cache
 		st, ok := rs.GetCommitKVStore(key).(*iavl.Store)
 		if !ok {
 			continue
 		}
-		if err := st.FlushDeferred(); err != nil {
-			return fmt.Errorf("deferred flush of store %s at version %d: %w", key.Name(), version, err)
+		if !ignoreWorking && st.IsDirty() {
+			return fmt.Errorf("deferred flush at version %d: store %s has uncommitted changes; nothing written", version, key.Name())
 		}
-		flushed = append(flushed, st)
+		stores = append(stores, named{key, st})
+	}
+
+	// Phase 1: IAVL nodes/orphans/roots of every store (one atomic batch per
+	// store).
+	var flushed []*iavl.Store
+	for _, n := range stores {
+		flush := n.st.FlushDeferred
+		if ignoreWorking {
+			flush = n.st.FlushDeferredIgnoringWorking
+		}
+		if err := flush(); err != nil {
+			return fmt.Errorf("deferred flush of store %s at version %d: %w", n.key.Name(), version, err)
+		}
+		flushed = append(flushed, n.st)
 	}
 
 	// Phase 2: multistore metadata (WriteSync). From here on a restart loads
@@ -141,6 +208,12 @@ func (rs *Store) flushDeferredLocked(version int64, cInfo *types.CommitInfo) err
 func (rs *Store) commitDeferred() types.CommitID {
 	rs.deferred.mtx.Lock()
 	defer rs.deferred.mtx.Unlock()
+	if rs.deferred.closed {
+		// see ShutdownFlush: never answer for a block that is not on disk
+		fmt.Fprintf(os.Stderr, "deferred persistence: Commit after shutdown flush; blocking until the process exits\n")
+		rs.deferred.mtx.Unlock()
+		select {}
+	}
 
 	var version int64
 	if rs.lastCommitInfo.GetVersion() == 0 && rs.initialVersion > 1 {
@@ -159,7 +232,7 @@ func (rs *Store) commitDeferred() types.CommitID {
 	rs.deferred.forceNext = false
 	if flush {
 		// before removed stores leave rs.stores, so they are flushed too
-		if err := rs.flushDeferredLocked(version, rs.lastCommitInfo); err != nil {
+		if err := rs.flushDeferredLocked(version, rs.lastCommitInfo, false); err != nil {
 			panic(err)
 		}
 	}

@@ -3,11 +3,14 @@ package cachemulti
 import (
 	"fmt"
 	"io"
+	"os"
+	"sync"
 
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
+	"github.com/cosmos/cosmos-sdk/store/listenkv"
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
 	"github.com/cosmos/cosmos-sdk/store/types"
 )
@@ -30,6 +33,10 @@ type Store struct {
 
 	traceWriter  io.Writer
 	traceContext types.TraceContext
+
+	// hasListeners is set when a branched store streams writes to ADR-038
+	// listeners; Write then stays sequential so listeners see writes in order.
+	hasListeners bool
 }
 
 var _ types.CacheMultiStore = Store{}
@@ -50,6 +57,9 @@ func NewFromKVStore(
 	}
 
 	for key, store := range stores {
+		if _, ok := store.(*listenkv.Store); ok {
+			cms.hasListeners = true
+		}
 		if cms.TracingEnabled() {
 			tctx := cms.traceContext.Clone().Merge(types.TraceContext{
 				storeNameCtxKey: key.Name(),
@@ -122,10 +132,44 @@ func (cms Store) GetStoreType() types.StoreType {
 // Write calls Write on each underlying store.
 func (cms Store) Write() {
 	cms.db.Write()
+	if parallelStoresEnabled && len(cms.stores) > 1 && !cms.TracingEnabled() && !cms.hasListeners {
+		// Sync-speedup prototype (env CELESTIA_PARALLEL_STORES=1): each cache
+		// store writes into its own parent store, so the writes are independent.
+		// Panics are re-raised in the caller, preserving sequential semantics.
+		// Tracing and ADR-038 listeners keep the sequential path (ordered output).
+		var (
+			wg       sync.WaitGroup
+			panicMu  sync.Mutex
+			panicVal any
+		)
+		for _, store := range cms.stores {
+			wg.Add(1)
+			go func(st types.CacheWrap) {
+				defer wg.Done()
+				defer func() {
+					if r := recover(); r != nil {
+						panicMu.Lock()
+						if panicVal == nil {
+							panicVal = r
+						}
+						panicMu.Unlock()
+					}
+				}()
+				st.Write()
+			}(store)
+		}
+		wg.Wait()
+		if panicVal != nil {
+			panic(panicVal)
+		}
+		return
+	}
 	for _, store := range cms.stores {
 		store.Write()
 	}
 }
+
+var parallelStoresEnabled = os.Getenv("CELESTIA_PARALLEL_STORES") == "1"
 
 // Implements CacheWrapper.
 func (cms Store) CacheWrap() types.CacheWrap {

@@ -678,6 +678,15 @@ func GetFromBech32(bech32str, prefix string) ([]byte, error) {
 		return nil, errBech32EmptyAddress
 	}
 
+	if bech32DecodeCacheEnabled {
+		if v, ok := bech32DecodeCache.Load(bech32str); ok {
+			e := v.(bech32DecodeEntry)
+			if e.hrp == prefix {
+				return append([]byte(nil), e.bz...), nil
+			}
+		}
+	}
+
 	hrp, bz, err := bech32.DecodeAndConvert(bech32str)
 	if err != nil {
 		return nil, err
@@ -687,6 +696,9 @@ func GetFromBech32(bech32str, prefix string) ([]byte, error) {
 		return nil, fmt.Errorf("invalid Bech32 prefix; expected %s, got %s", prefix, hrp)
 	}
 
+	if bech32DecodeCacheEnabled {
+		bech32DecodeCacheStore(bech32str, hrp, bz)
+	}
 	return bz, nil
 }
 

@@ -3,6 +3,7 @@ package tx_test
 import (
 	"bytes"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -459,4 +460,37 @@ func TestStrictTxDecoderMultisig(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+// TestStrictTxDecoderNestedMultisigAllocation checks that the strict decoder
+// does not copy a nested multisignature at every level, so its memory use
+// stays in proportion to the tx size.
+func TestStrictTxDecoderNestedMultisigAllocation(t *testing.T) {
+	cfg := strictTestConfig()
+	strict := authtx.StrictTxDecoder(cfg.Codec)
+	p := newStrictTxParts(t)
+
+	pk, err := codectypes.NewAnyWithValue(multisig.NewLegacyAminoPubKey(1, []cryptotypes.PubKey{secp256k1.GenPrivKeyFromSecret([]byte("a")).PubKey()}))
+	require.NoError(t, err)
+	mode := &txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Single_{Single: &txtypes.ModeInfo_Single{Mode: signingtypes.SignMode_SIGN_MODE_DIRECT}}}
+	sig := bytes.Repeat([]byte{7}, 1<<20)
+	const depth = 30
+	for range depth {
+		bits := cryptotypes.NewCompactBitArray(1)
+		bits.SetIndex(0, true)
+		mode = &txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Multi_{Multi: &txtypes.ModeInfo_Multi{Bitarray: bits, ModeInfos: []*txtypes.ModeInfo{mode}}}}
+		sig = protoField(1, sig)
+	}
+	signer := mustMarshalProto(t, &txtypes.SignerInfo{PublicKey: pk, ModeInfo: mode, Sequence: 1})
+	raw := join(protoField(1, p.body), protoField(2, join(protoField(1, signer), protoField(2, p.fee))), protoField(3, sig))
+	_, err = strict(raw)
+	require.NoError(t, err)
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, err = strict(raw)
+	runtime.ReadMemStats(&after)
+	require.NoError(t, err)
+	// Decoding TxRaw copies the signature once. Thirty copies would be 30 MiB.
+	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(4*len(raw)))
 }

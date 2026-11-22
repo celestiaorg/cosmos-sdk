@@ -119,17 +119,27 @@ func rejectAmbiguousMultiSignature(mode *tx.ModeInfo, sig []byte, resolver jsonp
 	if err := unknownproto.RejectAmbiguousEncoding(sig, &cryptotypes.MultiSignature{}, resolver); err != nil {
 		return err
 	}
-	var multiSig cryptotypes.MultiSignature
-	if err := multiSig.Unmarshal(sig); err != nil {
-		return err
-	}
-	if len(multiSig.Signatures) != len(multi.ModeInfos) {
-		return fmt.Errorf("multisignature has %d signatures for %d mode infos", len(multiSig.Signatures), len(multi.ModeInfos))
-	}
-	for i, inner := range multi.ModeInfos {
-		if err := rejectAmbiguousMultiSignature(inner, multiSig.Signatures[i], resolver); err != nil {
-			return err
+	// The walk accepted sig, so it holds only signatures (field 1). Read them
+	// in place: Unmarshal would copy the signatures at each level of nesting.
+	n := 0
+	for rest := sig; len(rest) > 0; n++ {
+		_, _, tagLen := protowire.ConsumeTag(rest)
+		if tagLen < 0 {
+			return protowire.ParseError(tagLen)
 		}
+		inner, innerLen := protowire.ConsumeBytes(rest[tagLen:])
+		if innerLen < 0 {
+			return protowire.ParseError(innerLen)
+		}
+		rest = rest[tagLen+innerLen:]
+		if n < len(multi.ModeInfos) {
+			if err := rejectAmbiguousMultiSignature(multi.ModeInfos[n], inner, resolver); err != nil {
+				return err
+			}
+		}
+	}
+	if n != len(multi.ModeInfos) {
+		return fmt.Errorf("multisignature has %d signatures for %d mode infos", n, len(multi.ModeInfos))
 	}
 	return nil
 }

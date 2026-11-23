@@ -79,8 +79,9 @@ type Store struct {
 	// celestiaMarkerDeferred is true while the persisted marker says deferred.
 	celestiaMarkerDeferred bool
 	snapshotInterval       uint64
-	parallelCommit         bool // see SetParallelCommit
-	asyncPruning           bool // see SetAsyncPruning
+	parallelCommit         bool        // see SetParallelCommit
+	asyncPruning           bool        // see SetAsyncPruning
+	loadedStores           []io.Closer // stores opened by the running loadVersion
 }
 
 var (
@@ -221,7 +222,18 @@ func (rs *Store) loadLatestVersion(upgrades *types.StoreUpgrades) error {
 }
 
 // loadVersion loads every mounted store at ver.
-func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades, opts iavl.LoadStoreOptions) error {
+func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades, opts iavl.LoadStoreOptions) (err error) {
+	// On failure, stop the background pruning of the stores this call opened.
+	rs.loadedStores = nil
+	defer func() {
+		if err != nil {
+			if celestiaLoadHook != nil {
+				celestiaLoadHook(rs.loadedStores)
+			}
+			_ = closeAll(rs.loadedStores)
+		}
+		rs.loadedStores = nil
+	}()
 	if err := rs.deferredBeforeLoad(); err != nil {
 		return err
 	}
@@ -313,6 +325,7 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades, opts iavl
 
 	rs.setLastCommitInfo(cInfo)
 	rs.stores = newStores
+	rs.loadedStores = nil // in use now
 	rs.deferredAfterLoad(ver, opts.Deferred)
 
 	// load any snapshot heights we missed from disk to be pruned on the next run
@@ -1099,6 +1112,9 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 		store, err := iavl.LoadStoreWithOpts(db, rs.logger, key, id, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.metrics, opts)
 		if err != nil {
 			return nil, err
+		}
+		if c, ok := store.(io.Closer); ok {
+			rs.loadedStores = append(rs.loadedStores, c)
 		}
 
 		if rs.interBlockCache != nil {

@@ -1,6 +1,6 @@
 module cosmossdk.io/client/v2
 
-go 1.25.14
+go 1.26.11
 
 require (
 	cosmossdk.io/api v0.7.6

@@ -2,6 +2,7 @@ package address
 
 import (
 	"errors"
+	"slices"
 	"strings"
 
 	"cosmossdk.io/core/address"
@@ -28,6 +29,16 @@ func (bc Bech32Codec) StringToBytes(text string) ([]byte, error) {
 		return []byte{}, errors.New("empty address string is not allowed")
 	}
 
+	cache := sdk.IsAddrCacheEnabled() && len(text) <= codecCacheMaxLen
+	if cache {
+		if d, ok := decodeCache.get(text); ok && d.hrp == bc.Bech32Prefix {
+			if err := sdk.VerifyAddressFormat(d.bz); err != nil {
+				return nil, err
+			}
+			return slices.Clone(d.bz), nil
+		}
+	}
+
 	hrp, bz, err := bech32.DecodeAndConvert(text)
 	if err != nil {
 		return nil, err
@@ -41,6 +52,9 @@ func (bc Bech32Codec) StringToBytes(text string) ([]byte, error) {
 		return nil, err
 	}
 
+	if cache {
+		decodeCache.put(text, bech32Decoded{hrp: hrp, bz: slices.Clone(bz)})
+	}
 	return bz, nil
 }
 
@@ -50,9 +64,20 @@ func (bc Bech32Codec) BytesToString(bz []byte) (string, error) {
 		return "", nil
 	}
 
+	cache := sdk.IsAddrCacheEnabled() && len(bz) <= codecCacheMaxBytes
+	if cache {
+		if text, ok := encodeCache.get(encodeCacheKey(bc.Bech32Prefix, bz)); ok {
+			return text, nil
+		}
+	}
+
 	text, err := bech32.ConvertAndEncode(bc.Bech32Prefix, bz)
 	if err != nil {
 		return "", err
+	}
+
+	if cache && len(text) <= codecCacheMaxLen {
+		encodeCache.put(encodeCacheKey(bc.Bech32Prefix, bz), text)
 	}
 
 	return text, nil

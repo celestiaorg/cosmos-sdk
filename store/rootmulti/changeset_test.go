@@ -30,7 +30,7 @@ func TestChangesetRecordedBeforeCommitInfo(t *testing.T) {
 			rs.SetPruning(pruningtypes.NewPruningOptions(pruningtypes.PruningEverything))
 			rs.SetChangesetRecorder(rec)
 			if k > 0 {
-				require.NoError(t, rs.SetDeferredPersistence(DeferredAlways, k, 0))
+				require.NoError(t, rs.SetDeferredPersistence(DeferredSync, k, 0))
 			}
 			rs.MountStoreWithDB(defKey1, types.StoreTypeIAVL, nil)
 			require.NoError(t, rs.LoadLatestVersion())

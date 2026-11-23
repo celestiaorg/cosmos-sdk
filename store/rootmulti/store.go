@@ -471,7 +471,6 @@ func (rs *Store) Commit() types.CommitID {
 }
 
 func (rs *Store) commitUpstream() types.CommitID {
-
 	var previousHeight, version int64
 	if rs.lastCommitInfo.GetVersion() == 0 && rs.initialVersion > 1 {
 		// This case means that no commit has been made in the store, we

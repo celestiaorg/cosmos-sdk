@@ -52,7 +52,6 @@ type Recorder struct {
 	buf       []byte
 	compWG    sync.WaitGroup
 	closed    bool
-	failed    error
 	TotalOps  int64
 	TotalByte int64
 	Blocks    int64

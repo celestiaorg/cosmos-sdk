@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/spf13/viper"
 
@@ -308,6 +309,14 @@ func GetConfig(v *viper.Viper) (Config, error) {
 }
 
 func (c Config) ValidateBasic() error {
+	switch strings.ToLower(strings.TrimSpace(c.Performance.DeferredPersistence)) {
+	case "", "sync", "always", "off":
+	default:
+		return sdkerrors.ErrAppConfig.Wrapf("invalid performance.deferred-persistence %q: want \"sync\", \"always\" or \"off\"", c.Performance.DeferredPersistence)
+	}
+	if c.Performance.DeferredFlushInterval < 0 {
+		return sdkerrors.ErrAppConfig.Wrapf("invalid performance.deferred-flush-interval %d: must be positive (0 uses the default)", c.Performance.DeferredFlushInterval)
+	}
 	if c.Pruning == pruningtypes.PruningOptionEverything && c.StateSync.SnapshotInterval > 0 {
 		return sdkerrors.ErrAppConfig.Wrapf(
 			"cannot enable state sync snapshots with '%s' pruning setting", pruningtypes.PruningOptionEverything,

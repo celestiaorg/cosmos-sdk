@@ -54,6 +54,14 @@ func (st *Store) PruneDeferred() error {
 	return nil
 }
 
+// PruneDeferredBelow is PruneDeferred limited to the versions below limit.
+func (st *Store) PruneDeferredBelow(limit int64) error {
+	if t := st.mutableTree(); t != nil {
+		return t.PruneDeferredBelow(limit)
+	}
+	return nil
+}
+
 // DeferredPendingNodes returns the number of unflushed nodes held in memory.
 func (st *Store) DeferredPendingNodes() int {
 	if t := st.mutableTree(); t != nil {

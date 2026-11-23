@@ -4,7 +4,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -58,8 +60,6 @@ const (
 	// catchUpEnterLag and catchUpLeaveLag set when "sync" mode turns on and off.
 	catchUpEnterLag = 10 * time.Minute
 	catchUpLeaveLag = time.Minute
-	// shutdownBusyWait bounds how long a shutdown flush waits for readers.
-	shutdownBusyWait = 5 * time.Second
 )
 
 // ErrDeferredRollback is returned by RollbackToVersion on a DB last written in
@@ -84,11 +84,15 @@ type deferredDriver struct {
 	mu        sync.Mutex // orders Commit and flushes
 	forceNext bool
 	flushed   int64 // version recorded in the commit metadata
+
+	snapshotHold     int64        // snapshot version every store keeps until its export is done
+	snapshotsRunning atomic.Int32 // Snapshot calls in progress
 }
 
 // SetDeferredPersistence sets the deferred persistence mode and the number of
 // blocks between flushes. It applies from the next load.
 func (rs *Store) SetDeferredPersistence(mode string, flushInterval int64) error {
+	mode = strings.ToLower(strings.TrimSpace(mode))
 	switch mode {
 	case "", DeferredOff:
 		rs.celestiaDeferred = nil
@@ -108,17 +112,40 @@ func (d *deferredDriver) isActive() bool {
 	return d != nil && d.active.Load()
 }
 
-// ReadDeferredMarker returns the last flushed version and whether the DB was
-// last written in deferred mode. It does not write.
+// ReadDeferredMarker returns the last flushed version and whether the DB is
+// in deferred state: the marker says deferred and matches the latest commit
+// metadata (a stale marker left by an older binary is ignored). It does not write.
 func ReadDeferredMarker(db dbm.DB) (lastFlushed int64, deferred bool, err error) {
+	lastFlushed, deferred, err = readMarker(db)
+	if err != nil || !deferred {
+		return lastFlushed, false, err
+	}
+	return lastFlushed, lastFlushed == GetLatestVersion(db), nil
+}
+
+// readMarker decodes the persisted marker as written.
+func readMarker(db dbm.DB) (int64, bool, error) {
 	bz, err := db.Get([]byte(persistenceKey))
 	if err != nil || bz == nil {
 		return 0, false, err
 	}
-	if len(bz) != 9 {
+	if len(bz) != 9 || (bz[0] != markerStock && bz[0] != markerDeferred) {
 		return 0, false, fmt.Errorf("invalid deferred persistence marker %X", bz)
 	}
-	return int64(binary.BigEndian.Uint64(bz[1:])), bz[0] == markerDeferred, nil //nolint:gosec // written by setMarker
+	v := binary.BigEndian.Uint64(bz[1:])
+	if v > math.MaxInt64 {
+		return 0, false, fmt.Errorf("invalid deferred persistence marker %X", bz)
+	}
+	return int64(v), bz[0] == markerDeferred, nil
+}
+
+// markStock records an upstream commit in the marker of a DB last
+// written in deferred mode, so a later rollback does not trust a stale marker.
+func (rs *Store) markStock(batch dbm.Batch, version int64) {
+	if rs.celestiaMarkerDeferred {
+		setMarker(batch, markerStock, version)
+		rs.celestiaMarkerDeferred = false
+	}
 }
 
 func setMarker(batch dbm.Batch, mode byte, version int64) {
@@ -133,6 +160,11 @@ func setMarker(batch dbm.Batch, mode byte, version int64) {
 // deferredLoadOptions picks the store load options for loadLatestVersion.
 func (rs *Store) deferredLoadOptions() (iavl.LoadStoreOptions, error) {
 	opts := iavl.LoadStoreOptions{DiscardVersionsAboveTarget: true}
+	_, raw, err := readMarker(rs.db)
+	if err != nil {
+		return opts, err
+	}
+	rs.celestiaMarkerDeferred = raw
 	_, written, err := ReadDeferredMarker(rs.db)
 	if err != nil {
 		return opts, err
@@ -143,8 +175,12 @@ func (rs *Store) deferredLoadOptions() (iavl.LoadStoreOptions, error) {
 		opts.RefuseVersionsAboveTarget = written
 		return opts, nil
 	}
-	if d.mode == DeferredAlways || written {
+	switch {
+	case d.mode == DeferredAlways:
 		opts.Deferred = true
+	case written:
+		// "sync": repair what deferred mode left, never delete other history.
+		opts.Deferred, opts.DeferredKeepHistory = true, true
 	}
 	return opts, nil
 }
@@ -186,13 +222,10 @@ func (rs *Store) ForceFlushNextCommit() {
 	}
 }
 
-// FlushDeferred durably writes the last soft-committed version. Safe to call
-// mid-block and from another goroutine; it never runs at the same time as Commit.
+// FlushDeferred durably writes the last soft-committed version. It never
+// waits for readers, may run mid-block and from another goroutine, and never
+// runs at the same time as Commit.
 func (rs *Store) FlushDeferred() error {
-	return rs.flushDeferredWait(0)
-}
-
-func (rs *Store) flushDeferredWait(maxWait time.Duration) error {
 	d := rs.celestiaDeferred
 	if !d.isActive() {
 		return nil
@@ -203,7 +236,7 @@ func (rs *Store) flushDeferredWait(maxWait time.Duration) error {
 	if ci == nil || ci.Version <= d.flushed {
 		return nil
 	}
-	return rs.flushDeferredLocked(ci.Version, ci, true, maxWait)
+	return rs.flushDeferredLocked(ci.Version, ci)
 }
 
 // deferredRollbackCheck refuses an app-state rollback on a DB last written in
@@ -272,16 +305,12 @@ func (rs *Store) commitDeferred() types.CommitID {
 	rs.setLastCommitInfo(newCommitInfo)
 
 	leave := d.mode == DeferredSync && !d.catchingUp(rs.commitHeader.Time, catchUpLeaveLag)
-	reason, mandatory := rs.deferredFlushReason(version)
+	reason := rs.deferredFlushReason(version)
 	if leave {
-		reason, mandatory = "caught up", true
+		reason = "caught up"
 	}
 	if reason != "" {
-		wait := time.Duration(0)
-		if !mandatory {
-			wait = -1 // skip this flush if a reader blocks the prune
-		}
-		if err := rs.flushDeferredLocked(version, newCommitInfo, false, wait); err != nil {
+		if err := rs.flushDeferredLocked(version, newCommitInfo); err != nil {
 			panic(fmt.Errorf("deferred persistence: flush at %d (%s): %w", version, reason, err))
 		}
 		rs.logger.Debug("deferred IAVL flush", "version", version, "reason", reason)
@@ -303,11 +332,17 @@ func (rs *Store) commitDeferred() types.CommitID {
 }
 
 // leaveDeferredLocked returns every tree to upstream persistence after a full
-// flush and records it in the marker. d.mu is held.
+// flush and records it in the marker. d.mu is held. While a snapshot or a
+// reader still holds an older version it stays deferred, flushing every
+// block, and retries on the next commit.
 func (rs *Store) leaveDeferredLocked(version int64) {
 	d := rs.celestiaDeferred
-	if _, err := rs.pruneDeferred(rs.deferredStores(), 0); err != nil {
+	done, err := rs.pruneDeferred(rs.deferredStores())
+	if err != nil {
 		panic(fmt.Errorf("deferred persistence: leaving at %d: %w", version, err))
+	}
+	if !done {
+		return
 	}
 	for _, st := range rs.iavlStores() {
 		if err := st.DisableDeferred(); err != nil {
@@ -320,36 +355,40 @@ func (rs *Store) leaveDeferredLocked(version int64) {
 	if err := batch.WriteSync(); err != nil {
 		panic(fmt.Errorf("deferred persistence: marker at %d: %w", version, err))
 	}
+	rs.celestiaMarkerDeferred = false
 	d.active.Store(false)
 	rs.logger.Info("deferred IAVL persistence off: caught up", "version", version)
 }
 
-// deferredFlushReason returns why this commit must flush, if at all, and
-// whether the flush must wait for readers instead of being skipped.
-func (rs *Store) deferredFlushReason(version int64) (string, bool) {
+// deferredFlushReason returns why this commit must flush, if at all.
+func (rs *Store) deferredFlushReason(version int64) string {
 	d := rs.celestiaDeferred
 	switch {
 	case d.forceNext:
-		return "forced", true
+		return "forced"
 	case d.flushed == 0:
-		return "first commit", true
+		return "first commit"
 	case len(rs.removalMap) > 0:
-		return "store removal", true
+		return "store removal"
 	case rs.upgradePlanPending():
-		return "upgrade plan pending", true
-	case rs.snapshotInterval > 0 && uint64(version)%rs.snapshotInterval == 0: //nolint:gosec // version > 0
-		return "snapshot height", true
+		return "upgrade plan pending"
+	case rs.isSnapshotHeight(version):
+		return "snapshot height"
 	case version%d.every == 0:
-		return "periodic", false
+		return "periodic"
 	}
 	n := 0
 	for _, st := range rs.iavlStores() {
 		n += st.DeferredPendingNodes()
 	}
 	if n > d.maxPending {
-		return fmt.Sprintf("%d pending nodes", n), true
+		return fmt.Sprintf("%d pending nodes", n)
 	}
-	return "", false
+	return ""
+}
+
+func (rs *Store) isSnapshotHeight(version int64) bool {
+	return rs.snapshotInterval > 0 && version > 0 && uint64(version)%rs.snapshotInterval == 0
 }
 
 // upgradePlanPending reports whether x/upgrade has a plan stored, so the
@@ -395,41 +434,32 @@ func (rs *Store) forEachStore(stores []*iavl.Store, f func(*iavl.Store) error) e
 	return errors.Join(errs...)
 }
 
-// pruneDeferred finishes the previous flush's deletions. With maxWait < 0 it
-// returns false at once if a reader blocks them; otherwise it waits up to
-// maxWait (0 means no limit).
-func (rs *Store) pruneDeferred(stores []*iavl.Store, maxWait time.Duration) (bool, error) {
-	start := time.Now()
-	for {
-		err := rs.forEachStore(stores, (*iavl.Store).PruneDeferred)
-		if !errors.Is(err, iavltree.ErrDeferredBusy) {
-			return err == nil, err
-		}
-		if maxWait < 0 || (maxWait > 0 && time.Since(start) > maxWait) {
-			return false, nil
-		}
-		time.Sleep(20 * time.Millisecond)
+// pruneDeferred deletes the versions each store left below its flushed one.
+// It never waits: it does nothing while a snapshot runs, keeps the latest
+// snapshot height (and later versions) until its snapshot is taken, and
+// leaves a version that has readers for a later flush. It reports whether
+// every store is down to its flushed version.
+func (rs *Store) pruneDeferred(stores []*iavl.Store) (bool, error) {
+	d := rs.celestiaDeferred
+	if d.snapshotsRunning.Load() > 0 {
+		return false, nil
 	}
+	limit := int64(math.MaxInt64)
+	if d.snapshotHold != 0 {
+		limit = d.snapshotHold
+	}
+	err := rs.forEachStore(stores, func(st *iavl.Store) error { return st.PruneDeferredBelow(limit) })
+	if errors.Is(err, iavltree.ErrDeferredBusy) {
+		return false, nil
+	}
+	return err == nil && d.snapshotHold == 0, err
 }
 
-// flushDeferredLocked runs the flush phases for version. d.mu is held. With
-// maxWait < 0 the flush is skipped while a reader blocks the previous prune.
-func (rs *Store) flushDeferredLocked(version int64, cInfo *types.CommitInfo, explicit bool, maxWait time.Duration) error {
+// flushDeferredLocked runs the flush phases for version. d.mu is held. It
+// never waits for readers.
+func (rs *Store) flushDeferredLocked(version int64, cInfo *types.CommitInfo) error {
 	d := rs.celestiaDeferred
 	stores := rs.deferredStores()
-
-	// (0) finish the previous deletions, so each store keeps at most two versions.
-	ok, err := rs.pruneDeferred(stores, maxWait)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		if explicit {
-			return fmt.Errorf("deferred persistence: version %d not flushed: a reader holds version %d", version, d.flushed)
-		}
-		rs.logger.Debug("deferred IAVL flush postponed: a reader holds the previous version", "version", version)
-		return nil
-	}
 
 	// (1) stores. A failure leaves the metadata at d.flushed; the stores that
 	// did write are rolled back on the next load.
@@ -444,15 +474,41 @@ func (rs *Store) flushDeferredLocked(version int64, cInfo *types.CommitInfo, exp
 	rs.flushDeferredMetadata(version, cInfo)
 	d.flushed = version
 	d.forceNext = false
+	if rs.isSnapshotHeight(version) {
+		// Keep this version in every store until its snapshot is taken.
+		d.snapshotHold = version
+	}
 	if celestiaDeferredTestHook != nil {
 		celestiaDeferredTestHook("metadata", version)
 	}
 
-	// (3) deletions; a reader or failure postpones them to the next flush or load.
-	if _, err := rs.pruneDeferred(stores, -1); err != nil {
-		rs.logger.Error("deferred persistence: pruning the previous version failed; will retry", "err", err)
+	// (3) deletions; a snapshot or a reader postpones them to a later flush or load.
+	if _, err := rs.pruneDeferred(stores); err != nil {
+		rs.logger.Error("deferred persistence: pruning older versions failed; will retry", "err", err)
 	}
 	return nil
+}
+
+// deferredSnapshotStart and deferredSnapshotDone bracket Snapshot(height), so
+// deferred pruning keeps the snapshot version in every store until the
+// export is done.
+func (rs *Store) deferredSnapshotStart() {
+	if d := rs.celestiaDeferred; d != nil {
+		d.snapshotsRunning.Add(1)
+	}
+}
+
+func (rs *Store) deferredSnapshotDone(height int64) {
+	d := rs.celestiaDeferred
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	if height >= d.snapshotHold {
+		d.snapshotHold = 0
+	}
+	d.mu.Unlock()
+	d.snapshotsRunning.Add(-1)
 }
 
 func (rs *Store) flushDeferredMetadata(version int64, cInfo *types.CommitInfo) {
@@ -461,6 +517,7 @@ func (rs *Store) flushDeferredMetadata(version int64, cInfo *types.CommitInfo) {
 	flushCommitInfo(batch, version, cInfo)
 	flushLatestVersion(batch, version)
 	setMarker(batch, markerDeferred, version)
+	rs.celestiaMarkerDeferred = true
 	if err := batch.WriteSync(); err != nil {
 		panic(fmt.Errorf("error on batch write %w", err))
 	}

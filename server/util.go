@@ -584,13 +584,15 @@ func boolDefaultTrue(appOpts types.AppOptions, key string) bool {
 
 // deferredPersistenceOpts reads the deferred persistence mode and flush
 // interval; missing keys mean "sync" and 100 blocks.
+// A negative interval is passed through and rejected by the store; Config.ValidateBasic
+// reports it at startup.
 func deferredPersistenceOpts(appOpts types.AppOptions) (string, int64) {
-	mode := cast.ToString(appOpts.Get(FlagDeferredPersistence))
+	mode := strings.ToLower(strings.TrimSpace(cast.ToString(appOpts.Get(FlagDeferredPersistence))))
 	if mode == "" {
 		mode = config.DefaultDeferredPersistence
 	}
 	interval := cast.ToInt64(appOpts.Get(FlagDeferredFlushInterval))
-	if interval <= 0 {
+	if interval == 0 {
 		interval = config.DefaultDeferredFlushInterval
 	}
 	return mode, interval

@@ -28,6 +28,13 @@ func TestCelestiaDeferredCommitNeverWaits(t *testing.T) {
 	st := ms.GetCommitKVStore(testStoreKey1).(*iavl.Store)
 	exp, err := st.Export(5)
 	require.NoError(t, err)
+	// Drain first: IAVL's exporter goroutine races with tree mutations
+	// (upstream). The exporter holds version 5 as read until Close.
+	for {
+		if _, err := exp.Next(); err != nil {
+			break
+		}
+	}
 	for h := int64(6); h <= 9; h++ {
 		commitBlock(ms, r, h)
 	}

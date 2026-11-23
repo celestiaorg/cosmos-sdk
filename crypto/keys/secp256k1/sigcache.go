@@ -17,12 +17,16 @@ var (
 	sigCache        sync.Map // [32]byte -> struct{}
 )
 
-// EnableSigCache turns the pre-verification cache on or off (process-wide).
-func EnableSigCache(enabled bool) {
+// EnableSigCache turns the pre-verification cache on or off (process-wide)
+// and returns whether it is on. It is never on in the libsecp256k1 (cgo)
+// build, whose VerifySignature does not consult the cache.
+func EnableSigCache(enabled bool) bool {
+	enabled = enabled && sigCacheSupported
 	sigCacheEnabled.Store(enabled)
 	if !enabled {
 		SigCacheReset()
 	}
+	return enabled
 }
 
 // SigCacheEnabled reports whether the pre-verification cache is on.
@@ -58,11 +62,4 @@ func SigCacheReset() { sigCache.Range(func(k, _ any) bool { sigCache.Delete(k); 
 func sigCacheConsume(pub, msg, sig []byte) bool {
 	_, ok := sigCache.LoadAndDelete(sigCacheKey(pub, msg, sig))
 	return ok
-}
-
-// SigCacheLen returns the number of cached triples (tests and metrics).
-func SigCacheLen() int {
-	n := 0
-	sigCache.Range(func(_, _ any) bool { n++; return true })
-	return n
 }

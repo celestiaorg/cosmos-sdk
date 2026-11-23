@@ -19,6 +19,9 @@ func (privKey *PrivKey) Sign(msg []byte) ([]byte, error) {
 	return sig[1:], nil
 }
 
+// sigCacheSupported: this VerifySignature consults the pre-verification cache.
+const sigCacheSupported = true
+
 // VerifyBytes verifies a signature of the form R || S.
 // It rejects signatures which are not in lower-S form.
 func (pubKey *PubKey) VerifySignature(msg []byte, sigStr []byte) bool {

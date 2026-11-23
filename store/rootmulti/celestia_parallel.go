@@ -42,6 +42,20 @@ func (rs *Store) Close() error {
 	return errors.Join(errs...)
 }
 
+// celestiaLoadHook, if set (tests only), sees the stores a failed load closes.
+var celestiaLoadHook func([]io.Closer)
+
+// closeAll closes every store in cs.
+func closeAll(cs []io.Closer) error {
+	var errs []error
+	for _, c := range cs {
+		if err := c.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // runParallel runs f(i) for i in [0,n) concurrently and re-panics the first
 // panic on the calling goroutine.
 func runParallel(n int, f func(i int)) {

@@ -678,4 +678,166 @@ func TestApplierRejectsBadNamesAndRenames(t *testing.T) {
 		})
 		require.ErrorContains(t, err, "store name")
 	}
+
+}
+
+// Mutations of the log must be caught exactly at the mutated height.
+func TestTamperedChangesetDetected(t *testing.T) {
+	dir, c, _ := record(t, "", 1000)
+	blocks := readAll(t, dir)
+
+	// locate a same-value rewrite, a block with >=10 sorted inserts, and a value set
+	model := map[string]map[string]string{}
+	var sameH, sameS, sameI = int64(-1), -1, -1
+	var revH, revS = int64(-1), -1
+	for _, b := range blocks {
+		for si, s := range b.Stores {
+			m := model[s.Name]
+			if m == nil {
+				m = map[string]string{}
+				model[s.Name] = m
+			}
+			inserts := 0
+			for oi, op := range s.Ops {
+				k := string(op.Key)
+				old, had := m[k]
+				if op.Kind == changeset.OpSet {
+					if had && old == string(op.Value) && sameH < 0 && b.Height > 5 {
+						sameH, sameS, sameI = b.Height, si, oi
+					}
+					if !had {
+						inserts++
+					}
+					m[k] = string(op.Value)
+				} else {
+					delete(m, k)
+				}
+			}
+			if inserts >= 10 && revH < 0 && b.Height > 50 {
+				revH, revS = b.Height, si
+			}
+		}
+	}
+	require.Positive(t, sameH)
+	require.Positive(t, revH)
+
+	tamper := func(name string, h int64, mut func(b *changeset.Block)) {
+		t.Run(name, func(t *testing.T) {
+			out := t.TempDir()
+			fw, err := changeset.CreateFile(filepath.Join(out, "cs-000000000001.bin"))
+			require.NoError(t, err)
+			for _, b := range readAll(t, dir) {
+				if b.Height == h {
+					mut(b)
+				}
+				require.NoError(t, fw.Write(b))
+			}
+			require.NoError(t, fw.Close())
+			for _, exp := range []func(int64) ([]byte, bool, error){c.expected, nil} {
+				for _, dstK := range []string{"", "7"} {
+					db := dbm.NewMemDB()
+					a, err := apply(t, db, out, dstK, exp, false)
+					var mm *applier.MismatchError
+					require.True(t, errors.As(err, &mm), "expected mismatch, got %v", err)
+					require.Equal(t, h, mm.Height)
+					require.EqualValues(t, h, a.Applied) // Applied counts the failing block
+					// the unverified height must not stay on disk silently
+					if latest := rootmulti.GetLatestVersion(db); latest >= h {
+						require.Contains(t, mm.Error(), "discard this DB", "dst K=%q", dstK)
+					} else if dstK == "" {
+						require.Equal(t, h-1, latest)
+					}
+					t.Log(mm.Error())
+				}
+			}
+		})
+	}
+	tamper("drop_same_value_set", sameH, func(b *changeset.Block) {
+		ops := b.Stores[sameS].Ops
+		b.Stores[sameS].Ops = append(append([]changeset.Op{}, ops[:sameI]...), ops[sameI+1:]...)
+	})
+	tamper("reverse_insert_order", revH, func(b *changeset.Block) {
+		ops := b.Stores[revS].Ops
+		for i, j := 0, len(ops)-1; i < j; i, j = i+1, j-1 {
+			ops[i], ops[j] = ops[j], ops[i]
+		}
+	})
+	tamper("alter_value", 77, func(b *changeset.Block) {
+		for si := range b.Stores {
+			for oi := range b.Stores[si].Ops {
+				if b.Stores[si].Ops[oi].Kind == changeset.OpSet {
+					b.Stores[si].Ops[oi].Value = append([]byte("tampered"), b.Stores[si].Ops[oi].Value...)
+					return
+				}
+			}
+		}
+	})
+	// the recorded app hash itself is not trusted when a header hash is given
+	t.Run("dropped_store_ops_trusted_header", func(t *testing.T) {
+		out := t.TempDir()
+		fw, err := changeset.CreateFile(filepath.Join(out, "cs-000000000001.bin"))
+		require.NoError(t, err)
+		for _, b := range readAll(t, dir) {
+			if b.Height == 91 {
+				b.Stores = b.Stores[1:]
+			}
+			require.NoError(t, fw.Write(b))
+		}
+		require.NoError(t, fw.Close())
+		_, err = apply(t, dbm.NewMemDB(), out, "", c.expected, false)
+		var mm *applier.MismatchError
+		require.True(t, errors.As(err, &mm))
+		require.EqualValues(t, 91, mm.Height)
+		require.Equal(t, "trusted header", mm.Source)
+	})
+}
+
+// InitChain with initial height > 1 (SetInitialVersion) is recorded and replayed.
+func TestInitialVersion(t *testing.T) {
+	dir := t.TempDir()
+	rec, err := changeset.New(dir, changeset.Options{BlocksPerFile: 10})
+	require.NoError(t, err)
+	c := newChain(t, dbm.NewMemDB(), rec, "", 1)
+	require.NoError(t, c.rs.SetInitialVersion(1000))
+	for h := int64(1000); h < 1030; h++ {
+		c.block(h)
+	}
+	require.NoError(t, rec.Close())
+	a, err := apply(t, dbm.NewMemDB(), dir, "", c.expected, false)
+	require.NoError(t, err)
+	require.EqualValues(t, 30, a.CheckedExt)
+}
+
+// Blocks recorded by the SDK v0.50 store (app v4+) end a v0.46 run: Run stops
+// before the first one and reports it as the handover height.
+func TestStopsAtStoreV1Handover(t *testing.T) {
+	dir, c, _ := record(t, "", 1000)
+	out := t.TempDir()
+	fw, err := changeset.CreateFile(filepath.Join(out, "cs-000000000001.bin"))
+	require.NoError(t, err)
+	for _, b := range readAll(t, dir) {
+		if b.Height > 100 {
+			b.StoreV1 = true
+			if b.Height == 101 {
+				b.Upgrade, b.UpgradeAtLoad = &changeset.Upgrade{Added: []string{"consensus"}}, true
+			}
+		}
+		require.NoError(t, fw.Write(b))
+	}
+	require.NoError(t, fw.Close())
+	// flags survive the round trip
+	bs := readAll(t, out)
+	require.True(t, bs[100].StoreV1 && bs[100].UpgradeAtLoad && !bs[99].StoreV1 && !bs[101].UpgradeAtLoad)
+	db := dbm.NewMemDB()
+	a, err := apply(t, db, out, "7", c.expected, false)
+	require.NoError(t, err)
+	require.EqualValues(t, 100, a.Applied)
+	require.EqualValues(t, 101, a.HandoverAt)
+	require.Equal(t, c.hashes[100], a.RS.LastCommitID().Hash)
+	// a second run on the handed-over DB applies nothing and reports the same height
+	a, err = apply(t, db, out, "", c.expected, false)
+	require.NoError(t, err)
+	require.EqualValues(t, 0, a.Applied)
+	require.EqualValues(t, 101, a.HandoverAt)
+	require.EqualValues(t, 100, rootmulti.GetLatestVersion(db))
 }

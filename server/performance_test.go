@@ -60,4 +60,5 @@ func TestBoolDefaultTrue(t *testing.T) {
 	require.False(t, boolDefaultTrue(v, FlagParallelCommit))
 	v.Set(FlagParallelCommit, "true")
 	require.True(t, boolDefaultTrue(v, FlagParallelCommit))
+	require.True(t, boolDefaultTrue(v, FlagExecutionCaches), "a missing key means true")
 }

@@ -262,6 +262,9 @@ deferred-flush-interval = {{ .Performance.DeferredFlushInterval }}
 # parallel-commit writes and commits the stores in parallel.
 parallel-commit = {{ .Performance.ParallelCommit }}
 
+# execution-caches memoizes decodes (params, validators, bech32 addresses) after each store read.
+execution-caches = {{ .Performance.ExecutionCaches }}
+
 ###############################################################################
 ###                         Store / State Streaming                         ###
 ###############################################################################

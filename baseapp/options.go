@@ -67,6 +67,12 @@ func SetIAVLCacheSize(size int) func(*BaseApp) {
 	return func(bapp *BaseApp) { bapp.cms.SetIAVLCacheSize(size) }
 }
 
+// SetExecutionCaches turns the execution caches on or off for the process
+// (see sdk.ExecutionCachesEnabled). Gas and results do not change.
+func SetExecutionCaches(enabled bool) func(*BaseApp) {
+	return func(*BaseApp) { sdk.SetExecutionCaches(enabled) }
+}
+
 // SetParallelCommit makes the multistore write and commit its stores
 // concurrently. The app hash does not change.
 func SetParallelCommit(enabled bool) func(*BaseApp) {

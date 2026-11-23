@@ -266,6 +266,10 @@ type PerformanceConfig struct {
 
 	// ParallelCommit writes and commits the stores concurrently.
 	ParallelCommit bool `mapstructure:"parallel-commit"`
+
+	// ExecutionCaches memoizes decodes (params, validators, bech32) after the
+	// store read, so gas and results are unchanged.
+	ExecutionCaches bool `mapstructure:"execution-caches"`
 }
 
 // MaxIAVLCacheSize caps iavl-cache-size, the per-store IAVL node cache. At a
@@ -360,6 +364,7 @@ func DefaultConfig() *Config {
 			DeferredPersistence:   rootmulti.DeferredSync,
 			DeferredFlushInterval: rootmulti.DefaultDeferredFlushInterval,
 			ParallelCommit:        true,
+			ExecutionCaches:       true,
 		},
 		Streamers: StreamersConfig{
 			File: FileStreamerConfig{

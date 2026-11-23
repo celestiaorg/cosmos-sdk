@@ -471,6 +471,7 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 		baseapp.SetStoreRepairAhead(!cast.ToBool(appOpts.Get(KeyReadOnlyLoad))),
 		baseapp.SetDeferredPersistence(deferredPersistenceOptions(appOpts)),
 		baseapp.SetParallelCommit(boolDefaultTrue(appOpts, FlagParallelCommit)),
+		baseapp.SetExecutionCaches(boolDefaultTrue(appOpts, FlagExecutionCaches)),
 	}
 }
 

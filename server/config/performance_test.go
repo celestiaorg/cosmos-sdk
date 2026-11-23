@@ -11,6 +11,7 @@ import (
 func TestPerformanceConfigDefaultsAndTemplate(t *testing.T) {
 	cfg := DefaultConfig()
 	require.True(t, cfg.Performance.ParallelCommit)
+	require.True(t, cfg.Performance.ExecutionCaches)
 
 	var buf bytes.Buffer
 	require.NoError(t, configTemplate.Execute(&buf, cfg))
@@ -31,6 +32,7 @@ func TestPerformanceConfigDefaultsAndTemplate(t *testing.T) {
 	read, err = GetConfig(v)
 	require.NoError(t, err)
 	require.False(t, read.Performance.ParallelCommit)
+	require.True(t, read.Performance.ExecutionCaches)
 }
 
 func TestValidateIAVLCacheSize(t *testing.T) {

@@ -12,11 +12,11 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
-// celestiaValidatorCacheMax bounds the decoded-validator cache; a full cache
-// is cleared.
+// celestiaValidatorCacheMax and celestiaHistoricalCacheMax bound the two
+// caches below; a full cache is cleared.
 const (
-	celestiaValidatorCacheMax  = 4096
-	celestiaHistoricalCacheMax = 1 << 16
+	celestiaValidatorCacheMax  = 4096    // decoded validators
+	celestiaHistoricalCacheMax = 1 << 16 // historical-info hashes, keyed by height
 )
 
 // celestiaCaches holds decoded validators by store key, and the decoded

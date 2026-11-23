@@ -115,7 +115,7 @@ func celestiaRunDiffChild(t *testing.T, mode string) *celestiaDiffRun {
 	cmd.Env = append(os.Environ(), celestiaDiffOutEnv+"="+out, celestiaDiffModeEnv+"="+mode)
 	bz, err := cmd.CombinedOutput()
 	require.NoError(t, err, "child %s failed:\n%s", mode, bz)
-	raw, err := os.ReadFile(out)
+	raw, err := os.ReadFile(out) //nolint:gosec // path is the temp file this test created
 	require.NoError(t, err)
 	var run celestiaDiffRun
 	require.NoError(t, json.Unmarshal(raw, &run))
@@ -292,7 +292,7 @@ func TestCelestiaExecCachesDifferentialChild(t *testing.T) {
 	}()
 	defer func() { close(stop); wg.Wait() }()
 
-	r := rand.New(rand.NewSource(7))
+	r := rand.New(rand.NewSource(7)) //nolint:gosec // deterministic test input
 	txCfg := app.TxConfig()
 	fee := sdk.NewCoins(sdk.NewCoin(denom, sdkmath.NewInt(2000)))
 	govAuthority := authtypes.NewModuleAddress(govtypes.ModuleName).String()

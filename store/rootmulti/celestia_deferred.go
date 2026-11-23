@@ -57,6 +57,9 @@ const (
 
 	// defaultDeferredMaxPending bounds unflushed nodes (roughly 1-2 GB).
 	defaultDeferredMaxPending = 4_000_000
+	// maxHeldFlushes bounds the versions a snapshot keeps on disk: after this
+	// many flushes it is ignored (a Snapshot call that never returns).
+	maxHeldFlushes = 16
 	// catchUpEnterLag and catchUpLeaveLag set when "sync" mode turns on and off.
 	catchUpEnterLag = 10 * time.Minute
 	catchUpLeaveLag = time.Minute
@@ -86,6 +89,7 @@ type deferredDriver struct {
 
 	snapshotHold     int64        // snapshot version every store keeps until its export is done
 	snapshotsRunning atomic.Int32 // Snapshot calls in progress
+	heldFlushes      int          // flushes whose pruning a snapshot held back
 }
 
 // SetDeferredPersistence sets the deferred persistence mode and the number of
@@ -327,7 +331,7 @@ func (rs *Store) commitDeferred() types.CommitID {
 // block, and retries on the next commit.
 func (rs *Store) leaveDeferredLocked(version int64) {
 	d := rs.celestiaDeferred
-	done, err := rs.pruneDeferred(rs.deferredStores())
+	done, err := rs.pruneDeferred(rs.deferredStores(), false)
 	if err != nil {
 		panic(fmt.Errorf("deferred persistence: leaving at %d: %w", version, err))
 	}
@@ -425,22 +429,53 @@ func (rs *Store) forEachStore(stores []*iavl.Store, f func(*iavl.Store) error) e
 // pruneDeferred deletes the versions each store left below its flushed one.
 // It never waits: it does nothing while a snapshot runs, keeps the latest
 // snapshot height (and later versions) until its snapshot is taken, and
-// leaves a version that has readers for a later flush. It reports whether
+// leaves a version that has readers for a later flush. After
+// maxHeldFlushes flushes held back by a snapshot, or with force (shutdown:
+// the snapshot cannot finish), it ignores the snapshot. It reports whether
 // every store is down to its flushed version.
-func (rs *Store) pruneDeferred(stores []*iavl.Store) (bool, error) {
+func (rs *Store) pruneDeferred(stores []*iavl.Store, force bool) (bool, error) {
 	d := rs.celestiaDeferred
-	if d.snapshotsRunning.Load() > 0 {
+	if !force && (d.snapshotsRunning.Load() > 0 || d.snapshotHold != 0) && d.heldFlushes >= maxHeldFlushes {
+		rs.logger.Info("deferred persistence: a snapshot held old versions too long; pruning them", "snapshot_height", d.snapshotHold)
+		force = true
+	}
+	if force {
+		d.snapshotHold = 0
+	} else if d.snapshotsRunning.Load() > 0 {
+		d.heldFlushes++
 		return false, nil
 	}
 	limit := int64(math.MaxInt64)
 	if d.snapshotHold != 0 {
 		limit = d.snapshotHold
+		d.heldFlushes++
+	} else {
+		d.heldFlushes = 0
 	}
 	err := rs.forEachStore(stores, func(st *iavl.Store) error { return st.PruneDeferredBelow(limit) })
 	if errors.Is(err, iavltree.ErrDeferredBusy) {
 		return false, nil
 	}
-	return err == nil && d.snapshotHold == 0, err
+	return err == nil && limit == math.MaxInt64, err
+}
+
+// closeDeferred flushes and prunes for a shutdown: a running snapshot cannot
+// finish, so its hold is dropped; only versions with readers stay queued
+// (IAVL finishes such a queue on the next prune or load).
+func (rs *Store) closeDeferred() error {
+	d := rs.celestiaDeferred
+	if !d.isActive() {
+		return nil
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if ci := rs.getLastCommitInfo(); ci != nil && ci.Version > d.flushed {
+		if err := rs.flushDeferredLocked(ci.Version, ci); err != nil {
+			return err
+		}
+	}
+	_, err := rs.pruneDeferred(rs.deferredStores(), true)
+	return err
 }
 
 // flushDeferredLocked runs the flush phases for version. d.mu is held. It
@@ -470,7 +505,7 @@ func (rs *Store) flushDeferredLocked(version int64, cInfo *types.CommitInfo) err
 	}
 
 	// (3) deletions; a snapshot or a reader postpones them to a later flush or load.
-	if _, err := rs.pruneDeferred(stores); err != nil {
+	if _, err := rs.pruneDeferred(stores, false); err != nil {
 		rs.logger.Error("deferred persistence: pruning older versions failed; will retry", "err", err)
 	}
 	return nil

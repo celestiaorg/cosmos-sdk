@@ -80,4 +80,4 @@ require (
 
 replace cosmossdk.io/log => ../log
 
-replace github.com/cosmos/iavl => github.com/celestiaorg/iavl v0.0.0-20261123152812-9ed117626120
+replace github.com/cosmos/iavl => github.com/celestiaorg/iavl v0.0.0-20261123165557-92c18b120688

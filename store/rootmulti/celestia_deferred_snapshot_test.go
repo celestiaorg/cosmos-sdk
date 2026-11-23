@@ -12,8 +12,12 @@ import (
 	"github.com/cosmos/gogoproto/proto"
 	"github.com/stretchr/testify/require"
 
+	"cosmossdk.io/log"
 	"cosmossdk.io/store/iavl"
+	"cosmossdk.io/store/metrics"
+	pruningtypes "cosmossdk.io/store/pruning/types"
 	snapshottypes "cosmossdk.io/store/snapshots/types"
+	"cosmossdk.io/store/types"
 )
 
 // Commit never waits for a snapshot exporter, even on a mandatory flush.
@@ -189,4 +193,116 @@ func commitStore1(ms *Store, r *rand.Rand, h int64) {
 	cms.GetKVStore(testStoreKey1).Set([]byte(fmt.Sprintf("k%03d", r.Intn(150))), []byte(fmt.Sprintf("v%d", h)))
 	cms.Write()
 	ms.Commit()
+}
+
+// storeNodes returns the node records of a store on disk and the node count
+// of its latest version (an export emits every node once).
+func storeNodes(t *testing.T, db dbm.DB, ms *Store, key types.StoreKey) (onDisk, live int) {
+	t.Helper()
+	it, err := dbm.NewPrefixDB(db, []byte("s/k:"+key.Name()+"/")).Iterator([]byte{'s'}, []byte{'t'})
+	require.NoError(t, err)
+	for ; it.Valid(); it.Next() {
+		if v := it.Value(); len(v) > 0 && v[0] != 's' { // not a root reference
+			onDisk++
+		}
+	}
+	require.NoError(t, it.Close())
+	exp, err := ms.GetCommitKVStore(key).(*iavl.Store).Export(ms.LastCommitID().Version)
+	require.NoError(t, err)
+	defer exp.Close()
+	for {
+		if _, err := exp.Next(); err != nil {
+			return onDisk, live
+		}
+		live++
+	}
+}
+
+// A shutdown while a snapshot is running leaves deferred prunes queued. A
+// later upstream run must finish them without leaking nodes, and "sync" must
+// be able to turn on again.
+func TestCelestiaDeferredQueueAfterShutdownDuringSnapshot(t *testing.T) {
+	r := rand.New(rand.NewSource(7))
+	db := dbm.NewMemDB()
+	ms := openDeferredTest(t, db, DeferredAlways, 3, nil)
+	ms.SetSnapshotInterval(5)
+	for h := int64(1); h <= 5; h++ {
+		commitBlock(ms, r, h)
+	}
+	w := &blockingWriter{started: make(chan struct{}), release: make(chan struct{})}
+	errc := make(chan error, 1)
+	go func() { errc <- ms.Snapshot(5, w) }()
+	<-w.started
+	for h := int64(6); h <= 8; h++ {
+		commitStore1(ms, r, h)
+	}
+	require.NoError(t, ms.Close()) // graceful stop while the snapshot runs
+	close(w.release)
+	<-errc
+
+	// Upstream run with keep-recent 0.
+	up := NewStore(db, log.NewNopLogger(), metrics.NewNoOpMetrics())
+	up.SetPruning(pruningtypes.NewCustomPruningOptions(0, 1))
+	up.SetAsyncPruning(false)
+	for _, key := range deferredTestKeys {
+		up.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+	}
+	require.NoError(t, up.LoadLatestVersion())
+	for h := int64(9); h <= 42; h++ {
+		commitBlock(up, r, h)
+	}
+	// Same blocks, upstream from the start: stock pruning has its own small
+	// leak, so compare against it rather than against the live node count.
+	rr := rand.New(rand.NewSource(7))
+	refDB := dbm.NewMemDB()
+	ref := NewStore(refDB, log.NewNopLogger(), metrics.NewNoOpMetrics())
+	ref.SetPruning(pruningtypes.NewCustomPruningOptions(0, 1))
+	ref.SetAsyncPruning(false)
+	for _, key := range deferredTestKeys {
+		ref.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+	}
+	require.NoError(t, ref.LoadLatestVersion())
+	for h := int64(1); h <= 42; h++ {
+		if h >= 6 && h <= 8 {
+			commitStore1(ref, rr, h)
+		} else {
+			commitBlock(ref, rr, h)
+		}
+	}
+	require.Equal(t, ref.LastCommitID(), up.LastCommitID())
+	for _, key := range deferredTestKeys {
+		onDisk, live := storeNodes(t, db, up, key)
+		refDisk, _ := storeNodes(t, refDB, ref, key)
+		require.LessOrEqual(t, onDisk, refDisk, "store %s leaks nodes (live %d)", key.Name(), live)
+	}
+	require.NoError(t, up.Close())
+
+	// "sync" while catching up turns on again.
+	now := func() time.Time { return headerTime(1000) }
+	ms = openDeferredTest(t, db, DeferredSync, 3, now)
+	commitBlock(ms, r, 43)
+	require.True(t, ms.celestiaDeferred.isActive())
+}
+
+// A Snapshot call that never returns holds old versions only for a bounded
+// number of flushes.
+func TestCelestiaDeferredStuckSnapshotIsBounded(t *testing.T) {
+	r := rand.New(rand.NewSource(8))
+	db := dbm.NewMemDB()
+	ms := openDeferredTest(t, db, DeferredAlways, 3, nil)
+	ms.SetSnapshotInterval(5)
+	for h := int64(1); h <= 5; h++ {
+		commitBlock(ms, r, h)
+	}
+	w := &blockingWriter{started: make(chan struct{}), release: make(chan struct{})}
+	errc := make(chan error, 1)
+	go func() { errc <- ms.Snapshot(5, w) }()
+	<-w.started
+	for h := int64(6); h <= 120; h++ {
+		commitStore1(ms, r, h)
+	}
+	st := ms.GetCommitKVStore(testStoreKey3).(*iavl.Store)
+	require.LessOrEqual(t, len(st.GetAllVersions()), 18, "at most 16 held flushes plus the latest")
+	close(w.release)
+	<-errc
 }

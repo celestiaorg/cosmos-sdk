@@ -57,6 +57,10 @@ type LoadStoreOptions struct {
 	// interrupted deferred prune is finished and older versions are pruned.
 	Deferred bool
 
+	// DeferredKeepHistory makes a Deferred load refuse, without writing, a
+	// tree holding versions older than the ones deferred mode left.
+	DeferredKeepHistory bool
+
 	// RefuseVersionsAboveTarget fails the load when the tree has any version
 	// above id.Version, without writing. It is set when the DB was last written
 	// in deferred mode, whose leftovers only a deferred load may repair.
@@ -110,7 +114,11 @@ func loadTree(tree *iavl.MutableTree, logger log.Logger, key types.StoreKey, id 
 	}
 
 	if opts.Deferred {
-		if _, err := tree.LoadVersionDeferred(id.Version); err != nil {
+		load := tree.LoadVersionDeferred
+		if opts.DeferredKeepHistory {
+			load = tree.LoadVersionDeferredKeepHistory
+		}
+		if _, err := load(id.Version); err != nil {
 			return nil, fmt.Errorf("deferred persistence: loading store %s at %d: %w", key.Name(), id.Version, err)
 		}
 		return &Store{tree: tree, logger: logger, metrics: metrics}, nil

@@ -28,7 +28,7 @@ func (rs *Store) SetAsyncPruning(enabled bool) {
 func (rs *Store) Close() error {
 	var errs []error
 	// Persist soft commits first; this never waits for readers.
-	if err := rs.FlushDeferred(); err != nil {
+	if err := rs.closeDeferred(); err != nil {
 		errs = append(errs, err)
 	}
 	for key := range rs.stores {

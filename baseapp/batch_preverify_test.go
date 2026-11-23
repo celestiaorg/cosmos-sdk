@@ -26,3 +26,24 @@ func TestPrepareDeliverTxBatchRecoversDecoderPanic(t *testing.T) {
 	require.NotPanics(t, func() { app.PrepareDeliverTxBatch([][]byte{{1}, {2}}) })
 	require.False(t, called)
 }
+
+// The signature-preverify option alone switches the whole path: the batch
+// hook and the secp256k1 cache.
+func TestSignaturePreverifyOptionControlsPath(t *testing.T) {
+	defer secp256k1.EnableSigCache(false)
+	for _, enabled := range []bool{true, false} {
+		decoder := func([]byte) (sdk.Tx, error) { return nil, nil }
+		app := NewBaseApp("preverify", log.NewNopLogger(), dbm.NewMemDB(), decoder, SetSignaturePreverify(enabled))
+		require.NoError(t, app.LoadLatestVersion())
+		var got int
+		app.SetBatchSigPreverifier(func(_ sdk.Context, txs []sdk.Tx) { got = len(txs) })
+		app.setDeliverState(tmproto.Header{Height: 1})
+		app.PrepareDeliverTxBatch([][]byte{{1}, {2}, {3}})
+		require.Equal(t, enabled, secp256k1.SigCacheEnabled())
+		if enabled {
+			require.Equal(t, 3, got)
+		} else {
+			require.Zero(t, got)
+		}
+	}
+}

@@ -826,8 +826,16 @@ func (app *BaseApp) extractSigners(txBytes []byte) ([]string, error) {
 	return app.extractTxSigners(tx)
 }
 
-// extractTxSigners extracts the actual signers of an already decoded tx.
-func (app *BaseApp) extractTxSigners(tx sdk.Tx) ([]string, error) {
+// extractTxSigners extracts the actual signers of an already decoded tx. A
+// panic while reading them becomes an error, since FinalizeBlock calls this
+// outside any recover and a malformed tx must not halt the node.
+func (app *BaseApp) extractTxSigners(tx sdk.Tx) (signers []string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			signers, err = nil, errorsmod.Wrapf(sdkerrors.ErrTxDecode, "panic extracting signers: %v", r)
+		}
+	}()
+
 	sigTx, ok := tx.(signing.SigVerifiableTx)
 	if !ok {
 		// If transaction doesn't implement SigVerifiableTx, return empty slice

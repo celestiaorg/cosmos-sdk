@@ -238,7 +238,9 @@ func (w *wrapper) GetSignaturesV2() ([]signing.SignatureV2, error) {
 				PubKey: pubKeys[i],
 			}
 		} else {
-			var err error
+			if i >= len(sigs) {
+				return nil, fmt.Errorf("tx has %d signatures for %d signer infos", len(sigs), n)
+			}
 			sigData, err := ModeInfoAndSigToSignatureData(si.ModeInfo, sigs[i])
 			if err != nil {
 				return nil, err

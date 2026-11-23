@@ -206,6 +206,9 @@ type Config struct {
 type PerformanceConfig struct {
 	// ExecutionCaches caches decoded validators and params during execution.
 	ExecutionCaches bool `mapstructure:"execution-caches"`
+	// BlocksyncEventsOff drops event index flags and distribution amounts from
+	// FinalizeBlock responses. For syncing nodes without an indexer only.
+	BlocksyncEventsOff bool `mapstructure:"blocksync-events-off"`
 }
 
 // SetMinGasPrices sets the validator's minimum gas prices.

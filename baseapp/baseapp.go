@@ -782,7 +782,7 @@ func (app *BaseApp) beginBlock(_ *abci.RequestFinalizeBlock) (sdk.BeginBlock, er
 			)
 		}
 
-		resp.Events = sdk.MarkEventsToIndex(resp.Events, app.indexEvents)
+		resp.Events = app.celestiaMarkEventsToIndex(resp.Events, app.indexEvents)
 	}
 
 	return resp, nil
@@ -847,7 +847,7 @@ func (app *BaseApp) deliverTx(tx []byte) *abci.ExecTxResult {
 			err,
 			gInfo.GasWanted,
 			gInfo.GasUsed,
-			sdk.MarkEventsToIndex(anteEvents, app.indexEvents),
+			app.celestiaMarkEventsToIndex(anteEvents, app.indexEvents),
 			app.trace,
 		)
 		resp.Signers = signers
@@ -859,7 +859,7 @@ func (app *BaseApp) deliverTx(tx []byte) *abci.ExecTxResult {
 		GasUsed:   int64(gInfo.GasUsed),
 		Log:       result.Log,
 		Data:      result.Data,
-		Events:    sdk.MarkEventsToIndex(result.Events, app.indexEvents),
+		Events:    app.celestiaMarkEventsToIndex(result.Events, app.indexEvents),
 		Signers:   signers,
 	}
 
@@ -885,7 +885,7 @@ func (app *BaseApp) endBlock(_ context.Context) (sdk.EndBlock, error) {
 			)
 		}
 
-		eb.Events = sdk.MarkEventsToIndex(eb.Events, app.indexEvents)
+		eb.Events = app.celestiaMarkEventsToIndex(eb.Events, app.indexEvents)
 		endblock = eb
 	}
 

@@ -215,7 +215,7 @@ func (app *BaseApp) phasedTxResult(p *preparedTx, result *sdk.Result, err error)
 			err,
 			gInfo.GasWanted,
 			gInfo.GasUsed,
-			sdk.MarkEventsToIndex(p.anteEvents, app.indexEvents),
+			app.celestiaMarkEventsToIndex(p.anteEvents, app.indexEvents),
 			app.trace,
 		)
 		resp.Signers = signers
@@ -227,7 +227,7 @@ func (app *BaseApp) phasedTxResult(p *preparedTx, result *sdk.Result, err error)
 		GasUsed:   int64(gInfo.GasUsed),
 		Log:       result.Log,
 		Data:      result.Data,
-		Events:    sdk.MarkEventsToIndex(result.Events, app.indexEvents),
+		Events:    app.celestiaMarkEventsToIndex(result.Events, app.indexEvents),
 		Signers:   signers,
 	}
 }

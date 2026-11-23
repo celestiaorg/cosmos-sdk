@@ -70,7 +70,7 @@ inter-block-cache = {{ .BaseConfig.InterBlockCache }}
 # ["message.sender", "message.recipient"]
 index-events = [{{ range .BaseConfig.IndexEvents }}{{ printf "%q, " . }}{{end}}]
 
-# IavlCacheSize set the size of the iavl tree cache. 
+# IavlCacheSize set the size of the iavl tree cache, in nodes per store (at most 100000000).
 # Default cache size is 50mb.
 iavl-cache-size = {{ .BaseConfig.IAVLCacheSize }}
 
@@ -262,6 +262,16 @@ stop-node-on-error = "{{ .Streamers.File.StopNodeOnError }}"
 
 # fsync specifies if call fsync after writing the files.
 fsync = "{{ .Streamers.File.Fsync }}"
+
+###############################################################################
+###                         Performance                                     ###
+###############################################################################
+
+# Speedups that never change the app hash, events or gas. A missing key means true.
+[performance]
+
+# Write and commit the stores in parallel.
+parallel-commit = {{ .Performance.ParallelCommit }}
 `
 
 var configTemplate *template.Template

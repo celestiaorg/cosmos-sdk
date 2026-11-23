@@ -67,6 +67,16 @@ func SetIAVLCacheSize(size int) func(*BaseApp) {
 	return func(bapp *BaseApp) { bapp.cms.SetIAVLCacheSize(size) }
 }
 
+// SetParallelCommit makes the multistore write and commit its stores
+// concurrently. The app hash does not change.
+func SetParallelCommit(enabled bool) func(*BaseApp) {
+	return func(bapp *BaseApp) {
+		if s, ok := bapp.cms.(interface{ SetParallelCommit(bool) }); ok {
+			s.SetParallelCommit(enabled)
+		}
+	}
+}
+
 // SetIAVLDisableFastNode enables(false)/disables(true) fast node usage from the IAVL store.
 func SetIAVLDisableFastNode(disable bool) func(*BaseApp) {
 	return func(bapp *BaseApp) { bapp.cms.SetIAVLDisableFastNode(disable) }

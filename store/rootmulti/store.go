@@ -22,6 +22,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/cachemulti"
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
 	"github.com/cosmos/cosmos-sdk/store/iavl"
+	"github.com/cosmos/cosmos-sdk/store/internal/parallel"
 	"github.com/cosmos/cosmos-sdk/store/listenkv"
 	"github.com/cosmos/cosmos-sdk/store/mem"
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
@@ -47,6 +48,7 @@ type Store struct {
 	pruningManager      *pruning.Manager
 	iavlCacheSize       int
 	iavlDisableFastNode bool
+	parallelCommit      bool // see SetParallelCommit
 	storesParams        map[types.StoreKey]storeParams
 	stores              map[types.StoreKey]types.CommitKVStore
 	keysByName          map[string]types.StoreKey
@@ -79,6 +81,7 @@ func NewStore(db dbm.DB, logger log.Logger) *Store {
 		logger:              logger,
 		iavlCacheSize:       iavl.DefaultIAVLCacheSize,
 		iavlDisableFastNode: iavlDisablefastNodeDefault,
+		parallelCommit:      true,
 		storesParams:        make(map[types.StoreKey]storeParams),
 		stores:              make(map[types.StoreKey]types.CommitKVStore),
 		keysByName:          make(map[string]types.StoreKey),
@@ -104,6 +107,12 @@ func (rs *Store) SetPruning(pruningOpts pruningtypes.PruningOptions) {
 // It is used by the store to determine which heights to retain until after the snapshot is complete.
 func (rs *Store) SetSnapshotInterval(snapshotInterval uint64) {
 	rs.pruningManager.SetSnapshotInterval(snapshotInterval)
+}
+
+// SetParallelCommit makes the store write and commit its substores
+// concurrently. The commit hash does not change. It is on by default.
+func (rs *Store) SetParallelCommit(enabled bool) {
+	rs.parallelCommit = enabled
 }
 
 func (rs *Store) SetIAVLCacheSize(cacheSize int) {
@@ -426,7 +435,7 @@ func (rs *Store) Commit() types.CommitID {
 		version = previousHeight + 1
 	}
 
-	rs.lastCommitInfo = commitStores(version, rs.stores, rs.removalMap)
+	rs.lastCommitInfo = commitStores(version, rs.stores, rs.removalMap, rs.parallelCommit)
 	defer rs.flushMetadata(rs.db, version, rs.lastCommitInfo)
 
 	// remove remnants of removed stores
@@ -464,16 +473,23 @@ func (rs *Store) CacheWrapWithTrace(_ io.Writer, _ types.TraceContext) types.Cac
 // It implements the MultiStore interface.
 func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 	stores := make(map[types.StoreKey]types.CacheWrapper)
+	listening := false
 	for k, v := range rs.stores {
 		store := types.KVStore(v)
 		// Wire the listenkv.Store to allow listeners to observe the writes from the cache store,
 		// set same listeners on cache store will observe duplicated writes.
 		if rs.ListeningEnabled(k) {
 			store = listenkv.NewStore(store, k, rs.listeners[k])
+			listening = true
 		}
 		stores[k] = store
 	}
-	return cachemulti.NewStore(rs.db, stores, rs.keysByName, rs.traceWriter, rs.getTracingContext())
+	cms := cachemulti.NewStore(rs.db, stores, rs.keysByName, rs.traceWriter, rs.getTracingContext())
+	if rs.parallelCommit && !listening {
+		// Listeners expect writes one at a time, so they keep the sequential Write.
+		cms = cachemulti.WithParallelWrite(cms)
+	}
+	return cms
 }
 
 // CacheMultiStoreWithVersion is analogous to CacheMultiStore except that it
@@ -1057,30 +1073,28 @@ func GetLatestVersion(db dbm.DB) int64 {
 }
 
 // Commits each store and returns a new commitInfo.
-func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore, removalMap map[types.StoreKey]bool) *types.CommitInfo {
-	storeInfos := make([]types.StoreInfo, 0, len(storeMap))
-
-	for key, store := range storeMap {
-		last := store.LastCommitID()
-
-		// If a commit event execution is interrupted, a new iavl store's version will be larger than the rootmulti's metadata, when the block is replayed, we should avoid committing that iavl store again.
-		var commitID types.CommitID
-		if last.Version >= version {
-			last.Version = version
-			commitID = last
-		} else {
-			commitID = store.Commit()
+func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore, removalMap map[types.StoreKey]bool, parallelCommit bool) *types.CommitInfo {
+	keys := make([]types.StoreKey, 0, len(storeMap))
+	for key := range storeMap {
+		keys = append(keys, key)
+	}
+	commitIDs := make([]types.CommitID, len(keys))
+	commit := func(i int) { commitIDs[i] = commitStore(version, storeMap[keys[i]]) }
+	if parallelCommit && len(keys) > 1 {
+		// Substores are independent trees, and the infos are sorted below.
+		parallel.Run(len(keys), commit)
+	} else {
+		for i := range keys {
+			commit(i)
 		}
-		if store.GetStoreType() == types.StoreTypeTransient {
+	}
+
+	storeInfos := make([]types.StoreInfo, 0, len(storeMap))
+	for i, key := range keys {
+		if storeMap[key].GetStoreType() == types.StoreTypeTransient || removalMap[key] {
 			continue
 		}
-
-		if !removalMap[key] {
-			si := types.StoreInfo{}
-			si.Name = key.Name()
-			si.CommitId = commitID
-			storeInfos = append(storeInfos, si)
-		}
+		storeInfos = append(storeInfos, types.StoreInfo{Name: key.Name(), CommitId: commitIDs[i]})
 	}
 
 	sort.SliceStable(storeInfos, func(i, j int) bool {
@@ -1091,6 +1105,18 @@ func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore
 		Version:    version,
 		StoreInfos: storeInfos,
 	}
+}
+
+// commitStore commits one substore at version and returns its CommitID.
+func commitStore(version int64, store types.CommitKVStore) types.CommitID {
+	last := store.LastCommitID()
+
+	// If a commit event execution is interrupted, a new iavl store's version will be larger than the rootmulti's metadata, when the block is replayed, we should avoid committing that iavl store again.
+	if last.Version >= version {
+		last.Version = version
+		return last
+	}
+	return store.Commit()
 }
 
 func (rs *Store) GetCommitInfo(ver int64) (*types.CommitInfo, error) {

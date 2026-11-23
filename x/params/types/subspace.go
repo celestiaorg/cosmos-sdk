@@ -71,16 +71,21 @@ func (s Subspace) WithKeyTable(table KeyTable) Subspace {
 
 // Returns a KVStore identical with ctx.KVStore(s.key).Prefix()
 func (s Subspace) kvStore(ctx sdk.Context) sdk.KVStore {
-	// append here is safe, appends within a function won't cause
-	// weird side effects when its singlethreaded
-	return prefix.NewStore(ctx.KVStore(s.key), append(s.name, '/'))
+	return prefix.NewStore(ctx.KVStore(s.key), s.storePrefix())
 }
 
 // Returns a transient store for modification
 func (s Subspace) transientStore(ctx sdk.Context) sdk.KVStore {
-	// append here is safe, appends within a function won't cause
-	// weird side effects when its singlethreaded
-	return prefix.NewStore(ctx.TransientStore(s.tkey), append(s.name, '/'))
+	return prefix.NewStore(ctx.TransientStore(s.tkey), s.storePrefix())
+}
+
+// storePrefix returns name + "/" in a new slice. Appending to s.name directly
+// would write into its spare capacity, which every copy of the Subspace
+// shares, a data race when params are read concurrently (e.g. by queries).
+func (s Subspace) storePrefix() []byte {
+	p := make([]byte, 0, len(s.name)+1)
+	p = append(p, s.name...)
+	return append(p, '/')
 }
 
 // Validate attempts to validate a parameter value by its key. If the key is not

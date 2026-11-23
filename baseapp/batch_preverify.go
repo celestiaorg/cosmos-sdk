@@ -18,8 +18,7 @@ func (app *BaseApp) SetBatchSigPreverifier(f func(ctx sdk.Context, txs []sdk.Tx)
 // signature-preverify). It also switches the process-wide secp256k1 cache.
 func SetSignaturePreverify(enabled bool) func(*BaseApp) {
 	return func(app *BaseApp) {
-		app.sigPreverify = enabled
-		secp256k1.EnableSigCache(enabled)
+		app.sigPreverify = secp256k1.EnableSigCache(enabled) // never on in the cgo build
 	}
 }
 

@@ -26,6 +26,10 @@ func (pubKey *PubKey) VerifySignature(msg []byte, sigStr []byte) bool {
 	return secp256k1.VerifySignature(pubKey.Bytes(), crypto.Sha256(msg), sigStr)
 }
 
+// sigCacheSupported: the libsecp256k1 VerifySignature does not use the
+// pre-verification cache, so pre-verification would only double the work.
+const sigCacheSupported = false
+
 // verifySignatureUncached is VerifySignature; the libsecp256k1 path does not
 // use the pre-verification cache.
 func (pubKey *PubKey) verifySignatureUncached(msg []byte, sigStr []byte) bool {

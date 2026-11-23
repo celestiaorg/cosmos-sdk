@@ -566,7 +566,18 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 		defaultMempool,
 		baseapp.SetChainID(chainID),
 		baseapp.SetQueryGasLimit(cast.ToUint64(appOpts.Get(FlagQueryGasLimit))),
+		// SetExecutionCaches is process-global, so in-process test apps share it.
+		func(*baseapp.BaseApp) { sdk.SetExecutionCaches(boolDefaultTrue(appOpts, FlagExecutionCaches)) },
 	}
+}
+
+// boolDefaultTrue reads a bool option that is on unless set to false.
+func boolDefaultTrue(appOpts types.AppOptions, key string) bool {
+	v := appOpts.Get(key)
+	if v == nil {
+		return true
+	}
+	return cast.ToBool(v)
 }
 
 func GetSnapshotStore(appOpts types.AppOptions) (*snapshots.Store, error) {

@@ -85,6 +85,9 @@ type Store struct {
 	asyncPruning         bool            // see SetAsyncPruning
 	celestiaDeferred     *deferredDriver // see SetDeferredPersistence
 	snapshotInterval     uint64
+	loadedStores         []io.Closer // stores opened by the running loadVersion
+	// celestiaMarkerDeferred is true while the persisted marker says deferred.
+	celestiaMarkerDeferred bool
 }
 
 var (
@@ -252,7 +255,18 @@ func (rs *Store) loadLatestVersion(upgrades *types.StoreUpgrades) error {
 }
 
 // loadVersion loads every mounted store at ver.
-func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades, opts iavl.LoadStoreOptions) error {
+func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades, opts iavl.LoadStoreOptions) (err error) {
+	// On failure, stop the background pruning of the stores this call opened.
+	rs.loadedStores = nil
+	defer func() {
+		if err != nil {
+			if celestiaLoadHook != nil {
+				celestiaLoadHook(rs.loadedStores)
+			}
+			_ = closeAll(rs.loadedStores)
+		}
+		rs.loadedStores = nil
+	}()
 	if err := rs.deferredBeforeLoad(); err != nil {
 		return err
 	}
@@ -344,6 +358,7 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades, opts iavl
 
 	rs.setLastCommitInfo(cInfo)
 	rs.stores = newStores
+	rs.loadedStores = nil // in use now
 	rs.deferredAfterLoad(ver, opts.Deferred)
 
 	// load any snapshot heights we missed from disk to be pruned on the next run
@@ -921,6 +936,8 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 	if height > uint64(GetLatestVersion(rs.db)) {
 		return errorsmod.Wrapf(types.ErrLogic, "cannot snapshot future height %v", height)
 	}
+	rs.deferredSnapshotStart()
+	defer rs.deferredSnapshotDone(int64(height)) //nolint:gosec // checked against the latest version above
 
 	// Collect stores to snapshot (only IAVL stores are supported)
 	type namedStore struct {
@@ -1129,6 +1146,9 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 		if err != nil {
 			return nil, err
 		}
+		if c, ok := store.(io.Closer); ok {
+			rs.loadedStores = append(rs.loadedStores, c)
+		}
 
 		if rs.interBlockCache != nil {
 			// Wrap and get a CommitKVStore with inter-block caching. Note, this should
@@ -1308,6 +1328,13 @@ func (rs *Store) RollbackToVersion(target int64) error {
 	cInfo.Timestamp = timestamp
 	flushCommitInfo(batch, target, cInfo)
 	flushLatestVersion(batch, target)
+	if _, deferred, err := readMarker(rs.db); err != nil {
+		return err
+	} else if deferred {
+		// A stale deferred marker (CheckRollbackToVersion refuses a current one).
+		setMarker(batch, markerStock, target)
+		rs.celestiaMarkerDeferred = false
+	}
 	if err := batch.Delete([]byte(rollbackKey)); err != nil {
 		return err
 	}
@@ -1358,6 +1385,7 @@ func (rs *Store) flushMetadata(db dbm.DB, version int64, cInfo *types.CommitInfo
 	}
 
 	flushLatestVersion(batch, version)
+	rs.markStock(batch, version)
 
 	if err := batch.WriteSync(); err != nil {
 		panic(fmt.Errorf("error on batch write %w", err))

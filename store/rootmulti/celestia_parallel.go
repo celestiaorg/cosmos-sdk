@@ -27,9 +27,8 @@ func (rs *Store) SetAsyncPruning(enabled bool) {
 // are not closed, since callers may still hold them.
 func (rs *Store) Close() error {
 	var errs []error
-	// Persist soft commits first; a reader that outlasts the wait leaves them
-	// to be replayed, as after a kill.
-	if err := rs.flushDeferredWait(shutdownBusyWait); err != nil {
+	// Persist soft commits first; this never waits for readers.
+	if err := rs.FlushDeferred(); err != nil {
 		errs = append(errs, err)
 	}
 	for key := range rs.stores {
@@ -37,6 +36,20 @@ func (rs *Store) Close() error {
 			if err := c.Close(); err != nil {
 				errs = append(errs, err)
 			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// celestiaLoadHook, if set (tests only), sees the stores a failed load closes.
+var celestiaLoadHook func([]io.Closer)
+
+// closeAll closes every store in cs.
+func closeAll(cs []io.Closer) error {
+	var errs []error
+	for _, c := range cs {
+		if err := c.Close(); err != nil {
+			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)

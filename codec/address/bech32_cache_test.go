@@ -79,3 +79,9 @@ func TestBech32CodecCacheSkipsLongEntries(t *testing.T) {
 	require.True(t, ok)
 	require.LessOrEqual(t, len(short), codecCacheMaxLen)
 }
+
+func TestEncodeCacheKeyNoCollision(t *testing.T) {
+	if encodeCacheKey("a\x00", []byte("b")) == encodeCacheKey("a", []byte("\x00b")) {
+		t.Fatal("encode cache keys collide")
+	}
+}

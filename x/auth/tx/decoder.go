@@ -2,6 +2,7 @@ package tx
 
 import (
 	"fmt"
+	mathbits "math/bits"
 
 	"github.com/cosmos/gogoproto/jsonpb"
 	gogoproto "github.com/cosmos/gogoproto/proto"
@@ -109,12 +110,20 @@ func newTxDecoder(cdc codec.Codec, strict bool) sdk.TxDecoder {
 }
 
 // rejectAmbiguousMultiSignature applies the strict walk to sig when mode is a
-// multisig mode, at every level of nesting. No signature covers these bytes,
-// so sig must also hold exactly one signature per mode info.
+// multisig mode, at every level of nesting. With SIGN_MODE_LEGACY_AMINO_JSON no
+// signature covers these bytes or the mode info, so the bit array must be
+// canonical and sig must hold exactly one signature per selected key.
 func rejectAmbiguousMultiSignature(mode *tx.ModeInfo, sig []byte, resolver jsonpb.AnyResolver) error {
 	multi := mode.GetMulti()
 	if multi == nil {
 		return nil
+	}
+	selected, err := selectedBits(multi.Bitarray)
+	if err != nil {
+		return err
+	}
+	if len(multi.ModeInfos) != selected {
+		return fmt.Errorf("multisignature has %d mode infos for %d selected keys", len(multi.ModeInfos), selected)
 	}
 	if err := unknownproto.RejectAmbiguousEncoding(sig, &cryptotypes.MultiSignature{}, resolver); err != nil {
 		return err
@@ -142,6 +151,33 @@ func rejectAmbiguousMultiSignature(mode *tx.ModeInfo, sig []byte, resolver jsonp
 		return fmt.Errorf("multisignature has %d signatures for %d mode infos", n, len(multi.ModeInfos))
 	}
 	return nil
+}
+
+// selectedBits returns the number of set bits in bits. It rejects a bit array
+// that the multisig verifier would read the same way as a different one: an
+// ExtraBitsStored that is not below 8 or that has no byte to hold it, or a set
+// padding bit after the last logical bit.
+func selectedBits(bits *cryptotypes.CompactBitArray) (int, error) {
+	if bits == nil {
+		return 0, nil
+	}
+	extra := bits.ExtraBitsStored
+	if extra >= 8 {
+		return 0, fmt.Errorf("bit array has %d extra bits stored, want less than 8", extra)
+	}
+	if extra > 0 {
+		if len(bits.Elems) == 0 {
+			return 0, fmt.Errorf("bit array has %d extra bits stored and no elems", extra)
+		}
+		if padding := bits.Elems[len(bits.Elems)-1] & (0xff >> extra); padding != 0 {
+			return 0, fmt.Errorf("bit array has nonzero padding bits %#x", padding)
+		}
+	}
+	n := 0
+	for _, b := range bits.Elems {
+		n += mathbits.OnesCount8(b)
+	}
+	return n, nil
 }
 
 // DefaultJSONTxDecoder returns a default protobuf JSON TxDecoder using the provided Marshaler.

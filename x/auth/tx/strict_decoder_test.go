@@ -1,6 +1,7 @@
 package tx_test
 
 import (
+	"fmt"
 	"bytes"
 	"reflect"
 	"runtime"
@@ -418,6 +419,14 @@ func TestStrictTxDecoderMultisig(t *testing.T) {
 		}
 		return &txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Multi_{Multi: &txtypes.ModeInfo_Multi{Bitarray: bits, ModeInfos: infos}}}
 	}
+	// withBits returns mode with its bit array replaced.
+	withBits := func(mode *txtypes.ModeInfo, extra uint32, elems ...byte) *txtypes.ModeInfo {
+		m := mode.GetMulti()
+		return &txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Multi_{Multi: &txtypes.ModeInfo_Multi{
+			Bitarray:  &cryptotypes.CompactBitArray{ExtraBitsStored: extra, Elems: elems},
+			ModeInfos: m.ModeInfos,
+		}}}
+	}
 	rawTx := func(mode *txtypes.ModeInfo, sig []byte) []byte {
 		signer := mustMarshalProto(t, &txtypes.SignerInfo{PublicKey: pk, ModeInfo: mode, Sequence: 1})
 		return join(protoField(1, p.body), protoField(2, join(protoField(1, signer), protoField(2, p.fee))), protoField(3, sig))
@@ -446,6 +455,35 @@ func TestStrictTxDecoderMultisig(t *testing.T) {
 		{"more signatures than mode infos", two, join(protoField(1, sigA), protoField(1, sigB), protoField(1, sigB)), false},
 		{"nested non-minimal length", nested, join(protoField(1, sigA), protoField(1, longLen(sigB))), false},
 		{"nested fewer signatures", nested, join(protoField(1, sigA), protoField(1, nil)), false},
+		{"partial selection", withBits(multi(single), 2, 0x80), protoField(1, sigA), true},
+		// An unselected child is covered by no signature, so anyone could change it.
+		{"signature for unselected key", withBits(multi(single, single), 2, 0x80), join(protoField(1, sigA), protoField(1, sigB)), false},
+		{"nested signature for unselected key", multi(single, withBits(multi(single, single), 2, 0x80)), join(protoField(1, sigA), protoField(1, join(protoField(1, sigA), protoField(1, sigB)))), false},
+		{"mode info without signature for unselected key", withBits(multi(single, single), 2, 0x80), protoField(1, sigA), false},
+		{"nonzero padding bit", withBits(two, 2, 0xc1), join(protoField(1, sigA), protoField(1, sigB)), false},
+		{"nested nonzero padding bit", multi(single, withBits(multi(single), 1, 0x81)), join(protoField(1, sigA), protoField(1, protoField(1, sigB))), false},
+		{"extra bits stored is 8", withBits(two, 8, 0xc0), join(protoField(1, sigA), protoField(1, sigB)), false},
+		{"extra bits stored without elems", withBits(multi(), 2), nil, false},
+		{"two bytes, whole first byte", withBits(two, 1, 0xc0, 0x00), join(protoField(1, sigA), protoField(1, sigB)), true},
+		{"two bytes, nonzero padding in last byte", withBits(two, 1, 0xc0, 0x01), join(protoField(1, sigA), protoField(1, sigB)), false},
+	}
+	// Each logical length 1 to 7 in one byte: every padding bit must be zero.
+	for bitsLen := 1; bitsLen < 8; bitsLen++ {
+		last := byte(0x80) // select key 0 only
+		testCases = append(testCases, struct {
+			name     string
+			mode     *txtypes.ModeInfo
+			sig      []byte
+			strictOK bool
+		}{fmt.Sprintf("%d bits, zero padding", bitsLen), withBits(multi(single), uint32(bitsLen), last), protoField(1, sigA), true})
+		for pad := bitsLen; pad < 8; pad++ {
+			testCases = append(testCases, struct {
+				name     string
+				mode     *txtypes.ModeInfo
+				sig      []byte
+				strictOK bool
+			}{fmt.Sprintf("%d bits, padding bit %d set", bitsLen, pad), withBits(multi(single), uint32(bitsLen), last|1<<(7-pad)), protoField(1, sigA), false})
+		}
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {

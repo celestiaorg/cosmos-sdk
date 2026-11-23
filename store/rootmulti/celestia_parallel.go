@@ -27,9 +27,8 @@ func (rs *Store) SetAsyncPruning(enabled bool) {
 // are not closed, since callers may still hold them.
 func (rs *Store) Close() error {
 	var errs []error
-	// Persist soft commits first; a reader that outlasts the wait leaves them
-	// to be replayed, as after a kill.
-	if err := rs.flushDeferredWait(shutdownBusyWait); err != nil {
+	// Persist soft commits first; this never waits for readers.
+	if err := rs.FlushDeferred(); err != nil {
 		errs = append(errs, err)
 	}
 	for key := range rs.stores {

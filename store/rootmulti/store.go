@@ -47,6 +47,7 @@ type Store struct {
 	pruningManager      *pruning.Manager
 	iavlCacheSize       int
 	iavlDisableFastNode bool
+	parallelCommit      bool // see SetParallelCommit
 	storesParams        map[types.StoreKey]storeParams
 	stores              map[types.StoreKey]types.CommitKVStore
 	keysByName          map[string]types.StoreKey
@@ -79,6 +80,7 @@ func NewStore(db dbm.DB, logger log.Logger) *Store {
 		logger:              logger,
 		iavlCacheSize:       iavl.DefaultIAVLCacheSize,
 		iavlDisableFastNode: iavlDisablefastNodeDefault,
+		parallelCommit:      true,
 		storesParams:        make(map[types.StoreKey]storeParams),
 		stores:              make(map[types.StoreKey]types.CommitKVStore),
 		keysByName:          make(map[string]types.StoreKey),
@@ -104,6 +106,12 @@ func (rs *Store) SetPruning(pruningOpts pruningtypes.PruningOptions) {
 // It is used by the store to determine which heights to retain until after the snapshot is complete.
 func (rs *Store) SetSnapshotInterval(snapshotInterval uint64) {
 	rs.pruningManager.SetSnapshotInterval(snapshotInterval)
+}
+
+// SetParallelCommit makes the store write and commit its substores
+// concurrently. The commit hash does not change. It is on by default.
+func (rs *Store) SetParallelCommit(enabled bool) {
+	rs.parallelCommit = enabled
 }
 
 func (rs *Store) SetIAVLCacheSize(cacheSize int) {
@@ -426,7 +434,7 @@ func (rs *Store) Commit() types.CommitID {
 		version = previousHeight + 1
 	}
 
-	rs.lastCommitInfo = commitStores(version, rs.stores, rs.removalMap)
+	rs.lastCommitInfo = commitStores(version, rs.stores, rs.removalMap, rs.parallelCommit)
 	defer rs.flushMetadata(rs.db, version, rs.lastCommitInfo)
 
 	// remove remnants of removed stores
@@ -464,16 +472,23 @@ func (rs *Store) CacheWrapWithTrace(_ io.Writer, _ types.TraceContext) types.Cac
 // It implements the MultiStore interface.
 func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 	stores := make(map[types.StoreKey]types.CacheWrapper)
+	listening := false
 	for k, v := range rs.stores {
 		store := types.KVStore(v)
 		// Wire the listenkv.Store to allow listeners to observe the writes from the cache store,
 		// set same listeners on cache store will observe duplicated writes.
 		if rs.ListeningEnabled(k) {
 			store = listenkv.NewStore(store, k, rs.listeners[k])
+			listening = true
 		}
 		stores[k] = store
 	}
-	return cachemulti.NewStore(rs.db, stores, rs.keysByName, rs.traceWriter, rs.getTracingContext())
+	cms := cachemulti.NewStore(rs.db, stores, rs.keysByName, rs.traceWriter, rs.getTracingContext())
+	if rs.parallelCommit && !listening {
+		// Listeners expect writes one at a time, so they keep the sequential Write.
+		cms = cachemulti.WithParallelWrite(cms)
+	}
+	return cms
 }
 
 // CacheMultiStoreWithVersion is analogous to CacheMultiStore except that it
@@ -918,9 +933,9 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 		var err error
 
 		if params.initialVersion == 0 {
-			store, err = iavl.LoadStore(db, rs.logger, key, id, rs.lazyLoading, rs.effectiveIAVLCacheSize(), rs.iavlDisableFastNode)
+			store, err = iavl.LoadStore(db, rs.logger, key, id, rs.lazyLoading, rs.iavlCacheSize, rs.iavlDisableFastNode)
 		} else {
-			store, err = iavl.LoadStoreWithInitialVersion(db, rs.logger, key, id, rs.lazyLoading, params.initialVersion, rs.effectiveIAVLCacheSize(), rs.iavlDisableFastNode)
+			store, err = iavl.LoadStoreWithInitialVersion(db, rs.logger, key, id, rs.lazyLoading, params.initialVersion, rs.iavlCacheSize, rs.iavlDisableFastNode)
 		}
 
 		if err != nil {
@@ -1057,10 +1072,10 @@ func GetLatestVersion(db dbm.DB) int64 {
 }
 
 // Commits each store and returns a new commitInfo.
-func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore, removalMap map[types.StoreKey]bool) *types.CommitInfo {
+func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore, removalMap map[types.StoreKey]bool, parallel bool) *types.CommitInfo {
 	storeInfos := make([]types.StoreInfo, 0, len(storeMap))
 
-	if parallelCommitEnabled && len(storeMap) > 1 {
+	if parallel && len(storeMap) > 1 {
 		return commitStoresParallel(version, storeMap, removalMap)
 	}
 

@@ -1,7 +1,6 @@
 package rootmulti
 
 import (
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -9,12 +8,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/types"
 )
 
-// Sync-speedup prototype (env CELESTIA_PARALLEL_STORES=1): commit each
-// substore on its own goroutine. Substores are independent IAVL trees, and the
-// resulting StoreInfos are sorted by name exactly as in the sequential path, so
-// the commit hash is identical.
-var parallelCommitEnabled = os.Getenv("CELESTIA_PARALLEL_STORES") == "1"
-
+// commitStoresParallel is commitStores with each substore committed on its
+// own goroutine. Substores are independent trees and the StoreInfos are sorted
+// by name as in the sequential path, so the commit hash is identical.
 func commitStoresParallel(version int64, storeMap map[types.StoreKey]types.CommitKVStore, removalMap map[types.StoreKey]bool) *types.CommitInfo {
 	var (
 		mu         sync.Mutex

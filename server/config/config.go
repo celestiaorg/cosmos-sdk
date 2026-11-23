@@ -246,7 +246,21 @@ type Config struct {
 	StateSync StateSyncConfig  `mapstructure:"state-sync"`
 	Store     StoreConfig      `mapstructure:"store"`
 	Streamers StreamersConfig  `mapstructure:"streamers"`
+
+	// Performance holds speedups that never change the app hash.
+	Performance PerformanceConfig `mapstructure:"performance"`
 }
+
+// PerformanceConfig holds speedups that never change the app hash, events or
+// gas. Each can be turned off if it causes operational issues.
+type PerformanceConfig struct {
+	// ParallelCommit writes and commits the stores concurrently.
+	ParallelCommit bool `mapstructure:"parallel-commit"`
+}
+
+// MaxIAVLCacheSize caps iavl-cache-size, the per-store IAVL node cache. At a
+// few hundred bytes per node it is already tens of GB per store.
+const MaxIAVLCacheSize = 100_000_000
 
 // SetMinGasPrices sets the validator's minimum gas prices.
 func (c *Config) SetMinGasPrices(gasPrices sdk.DecCoins) {
@@ -342,6 +356,9 @@ func DefaultConfig() *Config {
 				Fsync: false,
 			},
 		},
+		Performance: PerformanceConfig{
+			ParallelCommit: true,
+		},
 	}
 }
 
@@ -363,6 +380,9 @@ func (c Config) ValidateBasic() error {
 		return sdkerrors.ErrAppConfig.Wrapf(
 			"cannot enable state sync snapshots with '%s' pruning setting", pruningtypes.PruningOptionEverything,
 		)
+	}
+	if c.IAVLCacheSize > MaxIAVLCacheSize {
+		return sdkerrors.ErrAppConfig.Wrapf("iavl-cache-size %d exceeds the maximum %d", c.IAVLCacheSize, MaxIAVLCacheSize)
 	}
 
 	return nil

@@ -12,17 +12,13 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/types"
 )
 
-// TestParallelCommitDeterminism checks that the CELESTIA_PARALLEL_STORES code
-// paths (parallel cachemulti Write and parallel commitStores) produce the same
-// CommitID sequence as the sequential paths. The parallel cachemulti Write is
-// covered when the test runs with CELESTIA_PARALLEL_STORES=1.
+// TestParallelCommitDeterminism checks that parallel commit (and the parallel
+// Write of the branch returned by CacheMultiStore) gives the same CommitID
+// sequence as the sequential paths.
 func TestParallelCommitDeterminism(t *testing.T) {
 	run := func(parallel bool) []types.CommitID {
-		prev := parallelCommitEnabled
-		parallelCommitEnabled = parallel
-		defer func() { parallelCommitEnabled = prev }()
-
 		ms := newMultiStoreWithMounts(dbm.NewMemDB(), pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+		ms.SetParallelCommit(parallel)
 		require.NoError(t, ms.LoadLatestVersion())
 
 		keys := []types.StoreKey{testStoreKey1, testStoreKey2, testStoreKey3}
@@ -52,11 +48,8 @@ func TestParallelCommitDeterminism(t *testing.T) {
 // memory stores mounted and a store pending removal, across many versions.
 func TestParallelCommitMixedStores(t *testing.T) {
 	run := func(parallel bool) []types.CommitID {
-		prev := parallelCommitEnabled
-		parallelCommitEnabled = parallel
-		defer func() { parallelCommitEnabled = prev }()
-
 		ms := NewStore(dbm.NewMemDB(), log.NewNopLogger())
+		ms.SetParallelCommit(parallel)
 		ms.SetPruning(pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
 		iavlKeys := make([]types.StoreKey, 6)
 		for i := range iavlKeys {
@@ -95,35 +88,39 @@ func TestParallelCommitMixedStores(t *testing.T) {
 	require.Equal(t, run(false), run(true))
 }
 
-// TestIAVLCacheBudgetDoesNotChangeHashes checks that CELESTIA_IAVL_CACHE_NODES
-// (node-local) only changes the IAVL cache size, never the commit hashes.
-func TestIAVLCacheBudgetDoesNotChangeHashes(t *testing.T) {
-	run := func(budget string) []types.CommitID {
-		t.Setenv("CELESTIA_IAVL_CACHE_NODES", budget)
-		ms := newMultiStoreWithMounts(dbm.NewMemDB(), pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
-		require.NoError(t, ms.LoadLatestVersion())
-		var ids []types.CommitID
-		for v := 1; v <= 20; v++ {
-			cms := ms.CacheMultiStore()
-			for _, key := range []types.StoreKey{testStoreKey1, testStoreKey2, testStoreKey3} {
-				for j := 0; j < 50; j++ {
-					cms.GetKVStore(key).Set([]byte(fmt.Sprintf("k%d", (j*v)%97)), []byte(fmt.Sprintf("v%d", v)))
-				}
-			}
-			cms.Write()
-			ids = append(ids, ms.Commit())
-		}
-		return ids
-	}
-	stock := run("")
-	require.Equal(t, stock, run("1"))         // clamped up to 10000 per store
-	require.Equal(t, stock, run("30"))        // tiny budget
-	require.Equal(t, stock, run("100000000")) // large budget
-	require.Equal(t, stock, run("garbage"))   // ignored
+// unsyncedListener records writes without locking, so -race reports any
+// concurrent OnWrite calls.
+type unsyncedListener struct {
+	writes []string
+}
 
+func (l *unsyncedListener) OnWrite(sk types.StoreKey, key, value []byte, del bool) error {
+	l.writes = append(l.writes, fmt.Sprintf("%s/%s=%s/%v", sk.Name(), key, value, del))
+	return nil
+}
+
+// TestParallelCommitKeepsListenersSequential checks that with ADR-038
+// listeners attached the branch from CacheMultiStore writes its stores one at
+// a time, so a listener shared by several stores is never called concurrently
+// (run with -race).
+func TestParallelCommitKeepsListenersSequential(t *testing.T) {
 	ms := newMultiStoreWithMounts(dbm.NewMemDB(), pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
-	t.Setenv("CELESTIA_IAVL_CACHE_NODES", "")
-	require.Equal(t, ms.iavlCacheSize, ms.effectiveIAVLCacheSize())
-	t.Setenv("CELESTIA_IAVL_CACHE_NODES", "300000")
-	require.Equal(t, 100000, ms.effectiveIAVLCacheSize())
+	ms.SetParallelCommit(true)
+	require.NoError(t, ms.LoadLatestVersion())
+	l := &unsyncedListener{}
+	keys := []types.StoreKey{testStoreKey1, testStoreKey2, testStoreKey3}
+	for _, k := range keys {
+		ms.AddListeners(k, []types.WriteListener{l})
+	}
+	for v := 0; v < 20; v++ {
+		cms := ms.CacheMultiStore()
+		for _, k := range keys {
+			for j := 0; j < 50; j++ {
+				cms.GetKVStore(k).Set([]byte(fmt.Sprintf("k%02d", j)), []byte{byte(v)})
+			}
+		}
+		cms.Write()
+		ms.Commit()
+	}
+	require.Len(t, l.writes, 20*3*50)
 }

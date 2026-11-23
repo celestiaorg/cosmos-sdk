@@ -1,8 +1,8 @@
 package tx_test
 
 import (
-	"fmt"
 	"bytes"
+	"fmt"
 	"reflect"
 	"runtime"
 	"strings"
@@ -19,6 +19,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	multisigtypes "github.com/cosmos/cosmos-sdk/crypto/types/multisig"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	moduletestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
@@ -531,4 +532,51 @@ func TestStrictTxDecoderNestedMultisigAllocation(t *testing.T) {
 	require.NoError(t, err)
 	// Decoding TxRaw copies the signature once. Thirty copies would be 30 MiB.
 	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(4*len(raw)))
+}
+
+// TestStrictTxDecoderAcceptsBuilderMultisig checks that the strict decoder
+// accepts what the SDK tx builder encodes for a multisig that is signed by
+// some of its keys, nested or not.
+func TestStrictTxDecoderAcceptsBuilderMultisig(t *testing.T) {
+	cfg := strictTestConfig()
+	strict := authtx.StrictTxDecoder(cfg.Codec)
+
+	keys := make([]cryptotypes.PubKey, 11)
+	for i := range keys {
+		keys[i] = secp256k1.GenPrivKeyFromSecret([]byte{byte(i)}).PubKey()
+	}
+	single := func(b byte) signingtypes.SignatureData {
+		return &signingtypes.SingleSignatureData{SignMode: signingtypes.SignMode_SIGN_MODE_LEGACY_AMINO_JSON, Signature: bytes.Repeat([]byte{b}, 64)}
+	}
+	// signedBy returns the signature data of a multisig over the first n keys,
+	// with sigs added for the keys at the given indexes.
+	signedBy := func(n int, sigs map[int]signingtypes.SignatureData) signingtypes.SignatureData {
+		data := multisigtypes.NewMultisig(n)
+		for i := 0; i < n; i++ {
+			if sig, ok := sigs[i]; ok {
+				require.NoError(t, multisigtypes.AddSignatureFromPubKey(data, sig, keys[i], keys[:n]))
+			}
+		}
+		return data
+	}
+
+	testCases := map[string]signingtypes.SignatureData{
+		"1 of 2":              signedBy(2, map[int]signingtypes.SignatureData{1: single(1)}),
+		"2 of 3":              signedBy(3, map[int]signingtypes.SignatureData{0: single(1), 2: single(2)}),
+		"3 of 8":              signedBy(8, map[int]signingtypes.SignatureData{0: single(1), 4: single(2), 7: single(3)}),
+		"3 of 11":             signedBy(11, map[int]signingtypes.SignatureData{1: single(1), 8: single(2), 10: single(3)}),
+		"all of 9":            signedBy(9, map[int]signingtypes.SignatureData{0: single(1), 1: single(1), 2: single(1), 3: single(1), 4: single(1), 5: single(1), 6: single(1), 7: single(1), 8: single(1)}),
+		"nested, 1 of 3 in 2": signedBy(2, map[int]signingtypes.SignatureData{1: signedBy(3, map[int]signingtypes.SignatureData{2: single(4)})}),
+	}
+	for name, data := range testCases {
+		t.Run(name, func(t *testing.T) {
+			builder := cfg.TxConfig.NewTxBuilder()
+			require.NoError(t, builder.SetMsgs(banktypes.NewMsgSend(strictFrom, strictTo, sdk.NewCoins(sdk.NewInt64Coin("stake", 1)))))
+			require.NoError(t, builder.SetSignatures(signingtypes.SignatureV2{PubKey: multisig.NewLegacyAminoPubKey(1, keys[:2]), Data: data, Sequence: 1}))
+			raw, err := cfg.TxConfig.TxEncoder()(builder.GetTx())
+			require.NoError(t, err)
+			_, err = strict(raw)
+			require.NoError(t, err)
+		})
+	}
 }

@@ -77,7 +77,7 @@ func (m *Manager) HandleSnapshotHeight(height int64) {
 	m.pruneSnapshotHeightsMx.Lock()
 	defer m.pruneSnapshotHeightsMx.Unlock()
 
-	m.logger.Trace("HandleSnapshotHeight", "height", height)
+	m.logger.Debug("HandleSnapshotHeight", "height", height)
 	m.pruneSnapshotHeights = append(m.pruneSnapshotHeights, height)
 	sort.Slice(m.pruneSnapshotHeights, func(i, j int) bool { return m.pruneSnapshotHeights[i] < m.pruneSnapshotHeights[j] })
 	k := 1
@@ -130,10 +130,7 @@ func (m *Manager) GetPruningHeight(height int64) int64 {
 	// the snapshot `m.pruneSnapshotHeights[0]` is already operated,
 	// so we can prune upto `m.pruneSnapshotHeights[0] + int64(m.snapshotInterval) - 1`
 	snHeight := m.pruneSnapshotHeights[0] + int64(m.snapshotInterval) - 1
-	if snHeight < pruneHeight {
-		return snHeight
-	}
-	return pruneHeight
+	return min(snHeight, pruneHeight)
 }
 
 // LoadSnapshotHeights loads the snapshot heights from the database as a crash recovery.

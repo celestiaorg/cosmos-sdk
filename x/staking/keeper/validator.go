@@ -22,7 +22,8 @@ import (
 // GetValidator gets a single validator
 func (k Keeper) GetValidator(ctx context.Context, addr sdk.ValAddress) (validator types.Validator, err error) {
 	store := k.storeService.OpenKVStore(ctx)
-	value, err := store.Get(types.GetValidatorKey(addr))
+	key := types.GetValidatorKey(addr)
+	value, err := store.Get(key)
 	if err != nil {
 		return validator, err
 	}
@@ -31,7 +32,7 @@ func (k Keeper) GetValidator(ctx context.Context, addr sdk.ValAddress) (validato
 		return validator, types.ErrNoValidatorFound
 	}
 
-	return types.UnmarshalValidator(k.cdc, value)
+	return k.unmarshalValidator(key, value)
 }
 
 func (k Keeper) mustGetValidator(ctx context.Context, addr sdk.ValAddress) types.Validator {

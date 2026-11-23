@@ -536,6 +536,17 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 	if err := rs.checkQueryHeight(version); err != nil {
 		return nil, err
 	}
+	cms, err := rs.cacheMultiStoreWithVersion(version)
+	if err != nil {
+		// a deferred flush may have dropped the height since the check above
+		if derr := rs.checkQueryHeight(version); derr != nil {
+			return nil, derr
+		}
+	}
+	return cms, err
+}
+
+func (rs *Store) cacheMultiStoreWithVersion(version int64) (types.CacheMultiStore, error) {
 	cachedStores := make(map[types.StoreKey]types.CacheWrapper)
 	var commitInfo *types.CommitInfo
 	storeInfos := map[string]bool{}
@@ -725,6 +736,12 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 	// trim the path and make the query
 	req.Path = subpath
 	res := queryable.Query(req)
+	if res.Code != 0 {
+		// a deferred flush may have dropped the height since the check above
+		if err := rs.checkQueryHeight(req.Height); err != nil {
+			return sdkerrors.QueryResult(sdkerrors.Wrap(sdkerrors.ErrInvalidHeight, err.Error()), false)
+		}
+	}
 
 	if !req.Prove || !RequireProof(subpath) {
 		return res

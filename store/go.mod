@@ -1,6 +1,6 @@
 module cosmossdk.io/store
 
-go 1.26.0
+go 1.25.14
 
 require (
 	cosmossdk.io/errors v1.0.0
@@ -9,7 +9,7 @@ require (
 	github.com/cometbft/cometbft v0.38.21
 	github.com/cosmos/cosmos-db v1.0.2
 	github.com/cosmos/gogoproto v1.7.0
-	github.com/cosmos/iavl v1.2.9
+	github.com/cosmos/iavl v1.2.8
 	github.com/cosmos/ics23/go v0.11.0
 	github.com/golang/mock v1.6.0
 	github.com/golang/protobuf v1.5.4 // indirect
@@ -22,7 +22,7 @@ require (
 	github.com/tidwall/btree v1.7.0
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56
 	google.golang.org/grpc v1.83.2
-	google.golang.org/protobuf v1.36.12
+	google.golang.org/protobuf v1.36.11
 	gotest.tools/v3 v3.5.1
 )
 
@@ -70,14 +70,14 @@ require (
 	github.com/rs/zerolog v1.33.0 // indirect
 	github.com/sasha-s/go-deadlock v0.3.5 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d // indirect
-	golang.org/x/crypto v0.59.0 // indirect
-	golang.org/x/net v0.62.0 // indirect
-	golang.org/x/sys v0.50.0 // indirect
-	golang.org/x/text v0.44.0 // indirect
+	golang.org/x/crypto v0.55.0 // indirect
+	golang.org/x/net v0.58.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 replace cosmossdk.io/log => ../log
 
-replace github.com/cosmos/iavl => github.com/celestiaorg/iavl v0.0.0-20261123122950-d1151f7a3855
+replace github.com/cosmos/iavl => github.com/celestiaorg/iavl v0.0.0-20261123150807-313fa8494cff

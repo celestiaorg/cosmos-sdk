@@ -36,7 +36,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	dbm "github.com/tendermint/tm-db"
@@ -96,7 +95,8 @@ type deferredState struct {
 	forceNext        bool  // make the next Commit a flush
 	notCatchingUp    bool  // sync mode: reached the tip, leave at next commit
 	closed           bool  // ShutdownFlush ran: no further commits
-	closing          atomic.Bool
+	shutdownOnce     sync.Once
+	shutdownErr      error
 	mtx              sync.Mutex
 }
 
@@ -193,9 +193,14 @@ func (rs *Store) FlushDeferred() error {
 // the process is exiting, and it must not answer for a block that is not on
 // disk. Idempotent; no-op when deferred persistence is not active.
 func (rs *Store) ShutdownFlush() error {
-	if rs.deferred.closing.Swap(true) {
-		return nil // already flushed, or a Commit after it holds the lock
-	}
+	// Once: concurrent callers (signal hook, BaseApp.Close) wait for the
+	// first flush to finish; later callers return at once, even while a
+	// Commit after the flush holds the write lock forever.
+	rs.deferred.shutdownOnce.Do(func() { rs.deferred.shutdownErr = rs.shutdownFlush() })
+	return rs.deferred.shutdownErr
+}
+
+func (rs *Store) shutdownFlush() error {
 	rs.writeMtx.Lock()
 	defer rs.writeMtx.Unlock()
 	rs.deferred.mtx.Lock()

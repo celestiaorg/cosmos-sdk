@@ -263,6 +263,16 @@ parallel-commit = {{ .Performance.ParallelCommit }}
 
 # Prune old IAVL versions in the background instead of inside Commit.
 async-pruning = {{ .Performance.AsyncPruning }}
+
+# When IAVL nodes are written: "sync" keeps them in memory while the node is
+# catching up and writes them every deferred-flush-interval blocks, "always"
+# does so at the tip too (prunes the DB to one version on start), "off" never.
+# While a DB holds deferred writes, an app-state rollback is refused.
+deferred-persistence = "{{ .Performance.DeferredPersistence }}"
+
+# Blocks between flushes in deferred mode. The node replays at most this many
+# blocks after a crash; unflushed nodes are capped at about 4 million (1-2 GB).
+deferred-flush-interval = {{ .Performance.DeferredFlushInterval }}
 `
 
 var configTemplate *template.Template

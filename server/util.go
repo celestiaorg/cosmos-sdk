@@ -565,6 +565,7 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 		baseapp.SetIAVLDisableFastNode(cast.ToBool(appOpts.Get(FlagDisableIAVLFastNode))),
 		baseapp.SetParallelCommit(boolDefaultTrue(appOpts, FlagParallelCommit)),
 		baseapp.SetAsyncPruning(boolDefaultTrue(appOpts, FlagAsyncPruning)),
+		baseapp.SetDeferredPersistence(deferredPersistenceOpts(appOpts)),
 		defaultMempool,
 		baseapp.SetChainID(chainID),
 		baseapp.SetQueryGasLimit(cast.ToUint64(appOpts.Get(FlagQueryGasLimit))),
@@ -579,6 +580,20 @@ func boolDefaultTrue(appOpts types.AppOptions, key string) bool {
 		return true
 	}
 	return cast.ToBool(v)
+}
+
+// deferredPersistenceOpts reads the deferred persistence mode and flush
+// interval; missing keys mean "sync" and 100 blocks.
+func deferredPersistenceOpts(appOpts types.AppOptions) (string, int64) {
+	mode := cast.ToString(appOpts.Get(FlagDeferredPersistence))
+	if mode == "" {
+		mode = config.DefaultDeferredPersistence
+	}
+	interval := cast.ToInt64(appOpts.Get(FlagDeferredFlushInterval))
+	if interval <= 0 {
+		interval = config.DefaultDeferredFlushInterval
+	}
+	return mode, interval
 }
 
 func GetSnapshotStore(appOpts types.AppOptions) (*snapshots.Store, error) {

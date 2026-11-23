@@ -573,6 +573,7 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 		baseapp.SetQueryGasLimit(cast.ToUint64(appOpts.Get(FlagQueryGasLimit))),
 		// SetExecutionCaches is process-global, so in-process test apps share it.
 		func(*baseapp.BaseApp) { sdk.SetExecutionCaches(boolDefaultTrue(appOpts, FlagExecutionCaches)) },
+		func(*baseapp.BaseApp) { sdk.SetBlocksyncEventsOff(cast.ToBool(appOpts.Get(FlagBlocksyncEventsOff))) },
 		baseapp.SetSubspaceQueries(cast.ToBool(appOpts.Get(FlagEnableSubspaceQueries))),
 	}
 	if rollback {

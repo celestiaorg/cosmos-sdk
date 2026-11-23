@@ -35,6 +35,7 @@ func (k Keeper) SetHistoricalInfo(ctx context.Context, height int64, hi *types.H
 	if err != nil {
 		return err
 	}
+	k.celestiaCaches.recordHistoricalInfo(height, value)
 	return store.Set(key, value)
 }
 
@@ -99,7 +100,7 @@ func (k Keeper) TrackHistoricalInfo(ctx context.Context) error {
 	// over the historical entries starting from the most recent version to be pruned
 	// and then return at the first empty entry.
 	for i := sdkCtx.BlockHeight() - int64(entryNum); i >= 0; i-- {
-		_, err := k.GetHistoricalInfo(ctx, i)
+		err := k.checkHistoricalInfo(ctx, i)
 		if err != nil {
 			if errors.Is(err, types.ErrNoHistoricalInfo) {
 				break

@@ -66,6 +66,20 @@ type LoadStoreOptions struct {
 	// left by a commit killed mid-write. Set it on normal startup only. Leave it
 	// unset when loading an older version, where newer versions are real state.
 	DiscardVersionsAboveTarget bool
+
+	// Deferred loads the tree in deferred-persistence mode. id.Version is the
+	// multistore's committed version: newer on-disk versions are deleted, an
+	// interrupted deferred prune is finished and older versions are pruned.
+	Deferred bool
+
+	// DeferredKeepHistory makes a Deferred load refuse, without writing, a
+	// tree holding versions older than the ones deferred mode left.
+	DeferredKeepHistory bool
+
+	// RefuseVersionsAboveTarget fails the load when the tree has any version
+	// above id.Version, without writing. It is set when the DB was last written
+	// in deferred mode, whose leftovers only a deferred load may repair.
+	RefuseVersionsAboveTarget bool
 }
 
 // LoadStoreWithCelestiaOpts is LoadStoreWithOpts with celestia load options.
@@ -100,10 +114,25 @@ func loadTree(tree *iavl.MutableTree, logger log.Logger, key types.StoreKey, id 
 		)
 	}
 
+	if copts.Deferred {
+		load := tree.LoadVersionDeferred
+		if copts.DeferredKeepHistory {
+			load = tree.LoadVersionDeferredKeepHistory
+		}
+		if _, err := load(id.Version); err != nil {
+			return nil, fmt.Errorf("deferred persistence: loading store %s at %d: %w", key.Name(), id.Version, err)
+		}
+		return &Store{tree: tree, logger: logger, metrics: metrics}, nil
+	}
+
 	// IAVL derives latest from node keys, which may belong to an incomplete version.
 	latest, err := tree.LoadVersion(id.Version)
 	if err != nil {
 		return nil, err
+	}
+	if copts.RefuseVersionsAboveTarget && latest > id.Version {
+		return nil, fmt.Errorf("store %s has version %d above the committed version %d, left by deferred persistence; "+
+			"start the node once with deferred-persistence = \"sync\" to repair it", key.Name(), latest, id.Version)
 	}
 
 	if copts.DiscardVersionsAboveTarget && id.Version > 0 && latest > id.Version {

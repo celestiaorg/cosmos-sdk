@@ -20,6 +20,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
+	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -331,17 +332,33 @@ func (app *BaseApp) Commit() abci.ResponseCommit {
 	header := app.deliverState.ctx.BlockHeader()
 	retainHeight := app.GetBlockRetentionHeight(header.Height)
 
+	// Check if there has been an app version change. If so and there is a migrator
+	// set, begin to run migrations. This needs to be done before the commit so
+	// that the migrations are part of the app hash
+	migrating := header.Version.App < app.appVersion &&
+		app.migrator.storeMigrator != nil &&
+		app.migrator.moduleMigrator != nil
+
+	// Deferred IAVL persistence ([performance] deferred-persistence): the store reload
+	// below reads the latest version from disk, so pending soft commits must be
+	// flushed first, while the IAVL working trees are still clean (before the
+	// deliverState write). The commit of this block is flushed as well so the
+	// DB is complete at an app-version boundary (e.g. before a binary switch).
+	if migrating {
+		if d, ok := app.cms.(deferredFlusher); ok {
+			if err := d.FlushDeferred(); err != nil {
+				panic(fmt.Sprintf("failed to flush deferred state before migration: %v", err))
+			}
+			d.ForceFlushNextCommit()
+		}
+	}
+
 	// Write the DeliverTx state into branched storage and commit the MultiStore.
 	// The write to the DeliverTx state writes all state transitions to the root
 	// MultiStore (app.cms) so when Commit() is called is persists those values.
 	app.deliverState.ms.Write()
 
-	// Check if there has been an app version change. If so and there is a migrator
-	// set, begin to run migrations. This needs to be done before the commit so
-	// that the migrations are part of the app hash
-	if header.Version.App < app.appVersion &&
-		app.migrator.storeMigrator != nil &&
-		app.migrator.moduleMigrator != nil {
+	if migrating {
 
 		// first update the stores themselves by adding and removing them as necessary
 		storeMigrations, err := app.migrator.storeMigrator(header.Version.App, app.appVersion)
@@ -365,6 +382,12 @@ func (app *BaseApp) Commit() abci.ResponseCommit {
 		app.deliverState.ms.Write()
 	}
 
+	// "sync" deferred persistence: blocks older than the threshold are
+	// replayed while catching up. Wall-clock time only decides when the store
+	// writes to disk, never what it computes (INV-1).
+	if d, ok := app.cms.(deferredFlusher); ok {
+		d.SetCatchingUp(time.Since(header.Time) > rootmulti.CatchUpThreshold)
+	}
 	commitID := app.cms.Commit()
 
 	res := abci.ResponseCommit{
@@ -401,6 +424,13 @@ func (app *BaseApp) Commit() abci.ResponseCommit {
 	}
 
 	if halt {
+		// deferred persistence: make sure the halt height is on disk
+		if d, ok := app.cms.(deferredFlusher); ok {
+			if err := d.FlushDeferred(); err != nil {
+				app.logger.Error("failed to flush deferred state on halt", "err", err)
+			}
+		}
+
 		// Halt the binary and allow Tendermint to receive the ResponseCommit
 		// response with the commit ID hash. This will allow the node to successfully
 		// restart and process blocks assuming the halt configuration has been

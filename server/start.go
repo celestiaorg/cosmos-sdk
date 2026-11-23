@@ -61,7 +61,9 @@ const (
 	FlagIAVLLazyLoading     = "iavl-lazy-loading"
 
 	// [performance] section of app.toml (no command-line flags)
-	FlagSignaturePreverify = "performance.signature-preverify"
+	FlagSignaturePreverify    = "performance.signature-preverify"
+	FlagDeferredPersistence   = "performance.deferred-persistence"
+	FlagDeferredFlushInterval = "performance.deferred-flush-interval"
 
 	// KeyReadOnlyLoad is set internally by commands that only read the
 	// application DB (export, rollback): loading it must not repair it.

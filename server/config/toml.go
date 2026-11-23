@@ -251,6 +251,14 @@ snapshot-keep-recent = {{ .StateSync.SnapshotKeepRecent }}
 # signature-preverify verifies a block's secp256k1 signatures in parallel before executing it.
 signature-preverify = {{ .Performance.SignaturePreverify }}
 
+# deferred-persistence writes IAVL state to disk every deferred-flush-interval blocks instead of every
+# block: "sync" (only while catching up, then per block), "always" or "off". It turns itself off when
+# pruning keeps more recent heights than the interval, or state sync snapshots are enabled.
+deferred-persistence = "{{ .Performance.DeferredPersistence }}"
+
+# deferred-flush-interval is the number of blocks between flushes (2-1000); bounds memory and shutdown time.
+deferred-flush-interval = {{ .Performance.DeferredFlushInterval }}
+
 ###############################################################################
 ###                         Store / State Streaming                         ###
 ###############################################################################

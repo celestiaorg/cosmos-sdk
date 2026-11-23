@@ -25,4 +25,4 @@ func (rs *Store) repairStoreAhead(key types.StoreKey, st *iavl.Store, version in
 
 // strictRepair reports whether stores ahead by exactly one version are rolled
 // back too (only needed when they may have been written by a deferred flush).
-func (rs *Store) strictRepair() bool { return false }
+func (rs *Store) strictRepair() bool { return rs.deferred.active }

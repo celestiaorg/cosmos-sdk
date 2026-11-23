@@ -32,6 +32,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	"github.com/cosmos/cosmos-sdk/store"
+	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/version"
 	cmtproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -463,11 +464,31 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 		baseapp.SetIndexEvents(cast.ToStringSlice(appOpts.Get(FlagIndexEvents))),
 		baseapp.SetSnapshot(snapshotStore, snapshotOptions),
 		baseapp.SetIAVLCacheSize(cast.ToInt(appOpts.Get(FlagIAVLCacheSize))),
-		baseapp.SetIAVLDisableFastNode(cast.ToBool(appOpts.Get(FlagDisableIAVLFastNode))),
+		// a read-only load must not write the fast-node index upgrade either
+		baseapp.SetIAVLDisableFastNode(cast.ToBool(appOpts.Get(FlagDisableIAVLFastNode)) || cast.ToBool(appOpts.Get(KeyReadOnlyLoad))),
 		baseapp.SetIAVLLazyLoading(cast.ToBool(appOpts.Get(FlagIAVLLazyLoading))),
 		baseapp.SetSignaturePreverify(boolOrDefault(appOpts.Get(FlagSignaturePreverify), true)),
 		baseapp.SetStoreRepairAhead(!cast.ToBool(appOpts.Get(KeyReadOnlyLoad))),
+		baseapp.SetDeferredPersistence(deferredPersistenceOptions(appOpts)),
 	}
+}
+
+// deferredPersistenceOptions reads [performance] deferred-persistence and
+// deferred-flush-interval (missing keys mean their defaults). Commands that
+// only read the DB (KeyReadOnlyLoad) never use deferred persistence.
+func deferredPersistenceOptions(appOpts types.AppOptions) (string, int64, uint64) {
+	mode := rootmulti.DeferredSync
+	if v := appOpts.Get(FlagDeferredPersistence); v != nil {
+		mode = cast.ToString(v)
+	}
+	if cast.ToBool(appOpts.Get(KeyReadOnlyLoad)) {
+		mode = rootmulti.DeferredOff
+	}
+	interval := int64(rootmulti.DefaultDeferredFlushInterval)
+	if v := appOpts.Get(FlagDeferredFlushInterval); v != nil {
+		interval = cast.ToInt64(v)
+	}
+	return mode, interval, cast.ToUint64(appOpts.Get(FlagStateSyncSnapshotInterval))
 }
 
 // boolOrDefault returns v as a bool, or def if the key is not set (nil), so a

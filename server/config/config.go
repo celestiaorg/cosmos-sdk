@@ -9,6 +9,7 @@ import (
 
 	clientflags "github.com/cosmos/cosmos-sdk/client/flags"
 	pruningtypes "github.com/cosmos/cosmos-sdk/pruning/types"
+	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -257,6 +258,12 @@ type PerformanceConfig struct {
 	// SignaturePreverify verifies a block's secp256k1 signatures in parallel
 	// before DeliverTx and caches the valid ones.
 	SignaturePreverify bool `mapstructure:"signature-preverify"`
+
+	// DeferredPersistence writes IAVL state every DeferredFlushInterval blocks
+	// instead of every block: "sync" (only while catching up), "always" or
+	// "off".
+	DeferredPersistence   string `mapstructure:"deferred-persistence"`
+	DeferredFlushInterval int64  `mapstructure:"deferred-flush-interval"`
 }
 
 // SetMinGasPrices sets the validator's minimum gas prices.
@@ -343,7 +350,9 @@ func DefaultConfig() *Config {
 			Streamers: []string{},
 		},
 		Performance: PerformanceConfig{
-			SignaturePreverify: true,
+			SignaturePreverify:    true,
+			DeferredPersistence:   rootmulti.DeferredSync,
+			DeferredFlushInterval: rootmulti.DefaultDeferredFlushInterval,
 		},
 		Streamers: StreamersConfig{
 			File: FileStreamerConfig{
@@ -372,6 +381,9 @@ func GetConfig(v *viper.Viper) (Config, error) {
 func (c Config) ValidateBasic() error {
 	if c.BaseConfig.MinGasPrices == "" {
 		return sdkerrors.ErrAppConfig.Wrap("set min gas price in app.toml or flag or env variable")
+	}
+	if err := rootmulti.ValidateDeferredPersistence(c.Performance.DeferredPersistence, c.Performance.DeferredFlushInterval); err != nil {
+		return sdkerrors.ErrAppConfig.Wrap(err.Error())
 	}
 	if c.Pruning == pruningtypes.PruningOptionEverything && c.StateSync.SnapshotInterval > 0 {
 		return sdkerrors.ErrAppConfig.Wrapf(

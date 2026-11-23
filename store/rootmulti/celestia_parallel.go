@@ -21,11 +21,17 @@ func (rs *Store) SetAsyncPruning(enabled bool) {
 	rs.asyncPruning = enabled
 }
 
-// Close stops the background pruning of every mounted IAVL store; the stores
+// Close flushes deferred commits and stops the background pruning of every
+// mounted IAVL store; the stores
 // must not be used afterwards. The DB stays open. Stores replaced by a reload
 // are not closed, since callers may still hold them.
 func (rs *Store) Close() error {
 	var errs []error
+	// Persist soft commits first; a reader that outlasts the wait leaves them
+	// to be replayed, as after a kill.
+	if err := rs.flushDeferredWait(shutdownBusyWait); err != nil {
+		errs = append(errs, err)
+	}
 	for key := range rs.stores {
 		if c, ok := rs.GetCommitKVStore(key).(io.Closer); ok {
 			if err := c.Close(); err != nil {

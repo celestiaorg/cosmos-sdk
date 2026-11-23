@@ -75,6 +75,8 @@ type Store struct {
 	listeners           map[types.StoreKey]*types.MemoryListener
 	metrics             metrics.StoreMetrics
 	commitHeader        cmtproto.Header
+	celestiaDeferred    *deferredDriver // see SetDeferredPersistence
+	snapshotInterval    uint64
 	parallelCommit      bool // see SetParallelCommit
 	asyncPruning        bool // see SetAsyncPruning
 }
@@ -127,6 +129,7 @@ func (rs *Store) SetMetrics(metrics metrics.StoreMetrics) {
 // It is used by the store to determine which heights to retain until after the snapshot is complete.
 func (rs *Store) SetSnapshotInterval(snapshotInterval uint64) {
 	rs.pruningManager.SetSnapshotInterval(snapshotInterval)
+	rs.snapshotInterval = snapshotInterval
 }
 
 func (rs *Store) SetIAVLCacheSize(cacheSize int) {
@@ -208,11 +211,18 @@ func (rs *Store) LoadVersion(ver int64) error {
 // version does not remove newer state.
 func (rs *Store) loadLatestVersion(upgrades *types.StoreUpgrades) error {
 	ver := GetLatestVersion(rs.db)
-	return rs.loadVersion(ver, upgrades, iavl.LoadStoreOptions{DiscardVersionsAboveTarget: true})
+	opts, err := rs.deferredLoadOptions()
+	if err != nil {
+		return err
+	}
+	return rs.loadVersion(ver, upgrades, opts)
 }
 
 // loadVersion loads every mounted store at ver.
 func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades, opts iavl.LoadStoreOptions) error {
+	if err := rs.deferredBeforeLoad(); err != nil {
+		return err
+	}
 	infos := make(map[string]types.StoreInfo)
 
 	rs.logger.Trace("loadVersion", "ver", ver)
@@ -301,6 +311,7 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades, opts iavl
 
 	rs.setLastCommitInfo(cInfo)
 	rs.stores = newStores
+	rs.deferredAfterLoad(ver, opts.Deferred)
 
 	// load any snapshot heights we missed from disk to be pruned on the next run
 	if err := rs.pruningManager.LoadSnapshotHeights(rs.db); err != nil {
@@ -488,6 +499,10 @@ func (rs *Store) LastCommitID() types.CommitID {
 
 // Commit implements Committer/CommitStore.
 func (rs *Store) Commit() types.CommitID {
+	rs.deferredBeforeCommit()
+	if rs.celestiaDeferred.isActive() {
+		return rs.commitDeferred()
+	}
 	var previousHeight, version int64
 	lastCommitInfo := rs.getLastCommitInfo()
 	if lastCommitInfo.GetVersion() == 0 && rs.initialVersion > 1 {
@@ -1138,6 +1153,9 @@ func (rs *Store) buildCommitInfo(version int64) *types.CommitInfo {
 func (rs *Store) RollbackToVersion(target int64) error {
 	if target <= 0 {
 		return fmt.Errorf("invalid rollback height target: %d", target)
+	}
+	if err := rs.deferredRollbackCheck(); err != nil {
+		return err
 	}
 
 	for key, store := range rs.stores {

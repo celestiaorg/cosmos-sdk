@@ -566,6 +566,7 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 		defaultMempool,
 		baseapp.SetChainID(chainID),
 		baseapp.SetQueryGasLimit(cast.ToUint64(appOpts.Get(FlagQueryGasLimit))),
+		// SetExecutionCaches is process-global, so in-process test apps share it.
 		func(*baseapp.BaseApp) { sdk.SetExecutionCaches(boolDefaultTrue(appOpts, FlagExecutionCaches)) },
 		baseapp.SetSubspaceQueries(cast.ToBool(appOpts.Get(FlagEnableSubspaceQueries))),
 	}

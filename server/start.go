@@ -63,6 +63,10 @@ const (
 	// [performance] section of app.toml (no command-line flags)
 	FlagSignaturePreverify = "performance.signature-preverify"
 
+	// KeyReadOnlyLoad is set internally by commands that only read the
+	// application DB (export, rollback): loading it must not repair it.
+	KeyReadOnlyLoad = "celestia-internal.read-only-load"
+
 	// state sync-related flags
 	FlagStateSyncSnapshotInterval   = "state-sync.snapshot-interval"
 	FlagStateSyncSnapshotKeepRecent = "state-sync.snapshot-keep-recent"

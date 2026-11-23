@@ -77,6 +77,17 @@ func SetIAVLLazyLoading(lazyLoading bool) func(*BaseApp) {
 	return func(bapp *BaseApp) { bapp.cms.SetLazyLoading(lazyLoading) }
 }
 
+// SetStoreRepairAhead lets loading the latest version roll back IAVL stores
+// whose on-disk versions are ahead of the commit info (left by a flush that
+// was cut short). Commands that only read the DB leave it off.
+func SetStoreRepairAhead(enabled bool) func(*BaseApp) {
+	return func(bapp *BaseApp) {
+		if s, ok := bapp.cms.(interface{ SetRepairAhead(bool) }); ok {
+			s.SetRepairAhead(enabled)
+		}
+	}
+}
+
 // SetInterBlockCache provides a BaseApp option function that sets the
 // inter-block cache.
 func SetInterBlockCache(cache sdk.MultiStorePersistentCache) func(*BaseApp) {

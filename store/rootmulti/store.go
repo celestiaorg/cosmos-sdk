@@ -75,6 +75,8 @@ type Store struct {
 	listeners           map[types.StoreKey]*types.MemoryListener
 	metrics             metrics.StoreMetrics
 	commitHeader        cmtproto.Header
+	parallelCommit      bool // see SetParallelCommit
+	asyncPruning        bool // see SetAsyncPruning
 }
 
 var (
@@ -99,6 +101,8 @@ func NewStore(db dbm.DB, logger log.Logger, metricGatherer metrics.StoreMetrics)
 		removalMap:          make(map[types.StoreKey]bool),
 		pruningManager:      pruning.NewManager(db, logger),
 		metrics:             metricGatherer,
+		parallelCommit:      true,
+		asyncPruning:        true,
 	}
 }
 
@@ -504,19 +508,12 @@ func (rs *Store) Commit() types.CommitID {
 		rs.logger.Debug("commit header and version mismatch", "header_height", rs.commitHeader.Height, "version", version)
 	}
 
-	tm := celestiaStartCommitTiming(version)
-	newCommitInfo := commitStores(version, rs.stores, rs.removalMap)
+	newCommitInfo := commitStores(version, rs.stores, rs.removalMap, rs.parallelCommit)
 	newCommitInfo.Timestamp = rs.commitHeader.Time
-	tm.mark(&tm.commitStores)
 
 	rs.setLastCommitInfo(newCommitInfo)
 
-	defer tm.done()
-	defer func() {
-		tm.mark(&tm.prune)
-		rs.flushMetadata(rs.db, version, newCommitInfo)
-		tm.mark(&tm.flushMeta)
-	}()
+	defer rs.flushMetadata(rs.db, version, newCommitInfo)
 
 	// remove remnants of removed stores
 	for sk := range rs.removalMap {
@@ -561,7 +558,7 @@ func (rs *Store) WorkingHash() []byte {
 			wantHash = append(wantHash, key)
 		}
 	}
-	hashes := celestiaWorkingHashes(rs.stores, wantHash)
+	hashes := workingHashes(rs.stores, wantHash, rs.parallelCommit)
 	for i, key := range wantHash {
 		si := types.StoreInfo{
 			Name: key.Name(),
@@ -605,9 +602,8 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 		stores[k] = store
 	}
 	cms := cachemulti.NewStore(rs.db, stores, rs.keysByName, rs.traceWriter, rs.getTracingContext())
-	if !listening {
-		// celestia: lets Write() of this branch use the parallel/timed path (env-gated).
-		cms = cachemulti.MarkRoot(cms)
+	if rs.parallelCommit && !listening {
+		cms = cachemulti.WithParallelWrite(cms)
 	}
 	return cms
 }
@@ -1080,6 +1076,7 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 
 	case types.StoreTypeIAVL:
 		opts.InitialVersion = params.initialVersion
+		opts.AsyncPruning = rs.asyncPruning
 		store, err := iavl.LoadStoreWithOpts(db, rs.logger, key, id, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.metrics, opts)
 		if err != nil {
 			return nil, err
@@ -1245,37 +1242,13 @@ func GetLatestVersion(db dbm.DB) int64 {
 }
 
 // Commits each store and returns a new commitInfo.
-func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore, removalMap map[types.StoreKey]bool) *types.CommitInfo {
+func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore, removalMap map[types.StoreKey]bool, parallel bool) *types.CommitInfo {
 	storeInfos := make([]types.StoreInfo, 0, len(storeMap))
 	storeKeys := keysFromStoreKeyMap(storeMap)
-	commitIDs := celestiaParallelCommit(version, storeMap, storeKeys)
+	ids := commitIDs(version, storeMap, storeKeys, parallel)
 
 	for i, key := range storeKeys {
-		store := storeMap[key]
-		if commitIDs != nil {
-			storeType := store.GetStoreType()
-			if storeType == types.StoreTypeTransient || storeType == types.StoreTypeMemory {
-				continue
-			}
-			if !removalMap[key] {
-				storeInfos = append(storeInfos, types.StoreInfo{Name: key.Name(), CommitId: commitIDs[i]})
-			}
-			continue
-		}
-		last := store.LastCommitID()
-
-		// If a commit event execution is interrupted, a new iavl store's version
-		// will be larger than the RMS's metadata, when the block is replayed, we
-		// should avoid committing that iavl store again.
-		var commitID types.CommitID
-		if last.Version >= version {
-			last.Version = version
-			commitID = last
-		} else {
-			commitID = store.Commit()
-		}
-
-		storeType := store.GetStoreType()
+		storeType := storeMap[key].GetStoreType()
 		if storeType == types.StoreTypeTransient || storeType == types.StoreTypeMemory {
 			continue
 		}
@@ -1283,7 +1256,7 @@ func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore
 		if !removalMap[key] {
 			si := types.StoreInfo{}
 			si.Name = key.Name()
-			si.CommitId = commitID
+			si.CommitId = ids[i]
 			storeInfos = append(storeInfos, si)
 		}
 	}

@@ -5,9 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"math/rand"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 
 	dbm "github.com/cosmos/cosmos-db"
@@ -20,48 +17,13 @@ import (
 	"cosmossdk.io/store/types"
 )
 
-// celestiaEquivEnv lists the knobs that the equivalence test turns on.
-var celestiaEquivEnv = []string{"CELESTIA_PARALLEL_STORES", "CELESTIA_IAVL_ASYNC_PRUNING"}
-
-// TestCelestiaKnobsMatchStock runs the same seeded workload in two child
-// processes, with every knob off and with every knob on, and requires a
-// byte-identical trace of working hashes, commit IDs and store contents.
-// The knobs are read at package init, so each mode needs its own process.
+// TestCelestiaKnobsMatchStock runs the same seeded workload with parallel
+// commit and async pruning off and on, and requires a byte-identical trace of
+// working hashes, commit IDs and store contents.
 func TestCelestiaKnobsMatchStock(t *testing.T) {
-	if os.Getenv("CELESTIA_EQUIV_OUT") != "" {
-		t.Skip("running as a child")
-	}
-	dir := t.TempDir()
-	run := func(name string, on bool) []byte {
-		out := filepath.Join(dir, name)
-		cmd := exec.Command(os.Args[0], "-test.run=^TestCelestiaEquivalenceWorkload$", "-test.count=1")
-		env := []string{"CELESTIA_EQUIV_OUT=" + out}
-		for _, kv := range os.Environ() {
-			skip := false
-			for _, k := range append(celestiaEquivEnv, "CELESTIA_IAVL_FLUSH_EVERY", "CELESTIA_STORE_TIMING", "CELESTIA_EQUIV_OUT") {
-				if len(kv) > len(k) && kv[:len(k)+1] == k+"=" {
-					skip = true
-				}
-			}
-			if !skip {
-				env = append(env, kv)
-			}
-		}
-		if on {
-			for _, k := range celestiaEquivEnv {
-				env = append(env, k+"=1")
-			}
-		}
-		cmd.Env = env
-		b, err := cmd.CombinedOutput()
-		require.NoError(t, err, "child %s:\n%s", name, b)
-		trace, err := os.ReadFile(out)
-		require.NoError(t, err)
-		require.NotEmpty(t, trace)
-		return trace
-	}
-	off := run("off", false)
-	on := run("on", true)
+	off := celestiaEquivalenceWorkload(t, false)
+	on := celestiaEquivalenceWorkload(t, true)
+	require.NotEmpty(t, off)
 	if !bytes.Equal(off, on) {
 		offLines, onLines := bytes.Split(off, []byte("\n")), bytes.Split(on, []byte("\n"))
 		for i := range offLines {
@@ -73,15 +35,12 @@ func TestCelestiaKnobsMatchStock(t *testing.T) {
 	}
 }
 
-// TestCelestiaEquivalenceWorkload is the child of TestCelestiaKnobsMatchStock.
-// It commits a seeded random workload over 8 IAVL stores, a transient and a
-// memory store, with the inter-block cache on, a store deletion upgrade and a
-// reload, and writes one trace line per observable result.
-func TestCelestiaEquivalenceWorkload(t *testing.T) {
-	out := os.Getenv("CELESTIA_EQUIV_OUT")
-	if out == "" {
-		t.Skip("child of TestCelestiaKnobsMatchStock")
-	}
+// celestiaEquivalenceWorkload commits a seeded random workload over 8 IAVL
+// stores, a transient and a memory store, with the inter-block cache on, a
+// store deletion upgrade and reloads, and returns one trace line per
+// observable result.
+func celestiaEquivalenceWorkload(t *testing.T, on bool) []byte {
+	t.Helper()
 	db := dbm.NewMemDB()
 	iavlKeys := make([]*types.KVStoreKey, 8)
 	for i := range iavlKeys {
@@ -93,6 +52,8 @@ func TestCelestiaEquivalenceWorkload(t *testing.T) {
 		ms := NewStore(db, log.NewNopLogger(), metrics.NewNoOpMetrics())
 		ms.SetPruning(pruningtypes.NewCustomPruningOptions(5, 3))
 		ms.SetInterBlockCache(cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize))
+		ms.SetParallelCommit(on)
+		ms.SetAsyncPruning(on)
 		for _, k := range keys {
 			ms.MountStoreWithDB(k, types.StoreTypeIAVL, nil)
 		}
@@ -154,6 +115,7 @@ func TestCelestiaEquivalenceWorkload(t *testing.T) {
 	dump(ms, iavlKeys)
 
 	// Reopen with a store deletion: the next commit has a non-empty removal map.
+	require.NoError(t, ms.Close())
 	ms = open(iavlKeys)
 	require.NoError(t, ms.LoadLatestVersionAndUpgrade(&types.StoreUpgrades{Deleted: []string{"s7"}}))
 	fmt.Fprintf(&trace, "reload %d/%X\n", ms.LastCommitID().Version, ms.LastCommitID().Hash)
@@ -163,12 +125,14 @@ func TestCelestiaEquivalenceWorkload(t *testing.T) {
 	}
 	dump(ms, live)
 
+	require.NoError(t, ms.Close())
 	ms = open(live)
 	require.NoError(t, ms.LoadLatestVersion())
 	fmt.Fprintf(&trace, "reload %d/%X\n", ms.LastCommitID().Version, ms.LastCommitID().Hash)
 	dump(ms, live)
 
-	require.NoError(t, os.WriteFile(out, trace.Bytes(), 0o600))
+	require.NoError(t, ms.Close())
+	return trace.Bytes()
 }
 
 // TestCelestiaPartialCommitRecovers simulates a kill during a parallel commit,
@@ -196,6 +160,7 @@ func TestCelestiaPartialCommitRecovers(t *testing.T) {
 		t.Run(fmt.Sprint(subset), func(t *testing.T) {
 			db := dbm.NewMemDB()
 			ms := newMultiStoreWithMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+			ms.SetParallelCommit(true)
 			require.NoError(t, ms.LoadLatestVersion())
 			for v := int64(1); v <= 4; v++ {
 				write(ms, v)

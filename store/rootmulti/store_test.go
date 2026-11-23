@@ -538,9 +538,12 @@ func TestMultiStore_Pruning(t *testing.T) {
 				require.NoError(t, err, "expected no error when loading height: %d", v)
 			}
 
+			// Pruning runs in the background, so deletion is eventual.
 			for _, v := range tc.deleted {
-				_, err := ms.CacheMultiStoreWithVersion(v)
-				require.Error(t, err, "expected error when loading height: %d", v)
+				require.Eventually(t, func() bool {
+					_, err := ms.CacheMultiStoreWithVersion(v)
+					return err != nil
+				}, 5*time.Second, 10*time.Millisecond, "expected error when loading height: %d", v)
 			}
 		})
 	}
@@ -564,6 +567,14 @@ func TestMultiStore_Pruning_SameHeightsTwice(t *testing.T) {
 	}
 
 	require.Equal(t, numVersions, lastCommitInfo.Version)
+
+	// Pruning runs in the background and IAVL writes its deletions with the
+	// next commit: wait for it, then commit once more so they reach the DB.
+	require.Eventually(t, func() bool {
+		_, err := ms.CacheMultiStoreWithVersion(numVersions - int64(keepRecent) - 1)
+		return err != nil
+	}, 5*time.Second, 10*time.Millisecond)
+	ms.Commit()
 
 	for v := int64(1); v < numVersions-int64(keepRecent); v++ {
 		err := ms.LoadVersion(v)
@@ -619,9 +630,12 @@ func TestMultiStore_PruningRestart(t *testing.T) {
 	actualHeightToPrune = ms.pruningManager.GetPruningHeight(ms.LatestVersion())
 	require.Equal(t, int64(8), actualHeightToPrune)
 
+	// Pruning runs in the background, so deletion is eventual.
 	for v := int64(1); v <= actualHeightToPrune; v++ {
-		_, err := ms.CacheMultiStoreWithVersion(v)
-		require.Error(t, err, "expected error when loading height: %d", v)
+		require.Eventually(t, func() bool {
+			_, err := ms.CacheMultiStoreWithVersion(v)
+			return err != nil
+		}, 5*time.Second, 10*time.Millisecond, "expected error when loading height: %d", v)
 	}
 }
 
@@ -1030,7 +1044,7 @@ func TestCommitStores(t *testing.T) {
 			store.Committed = 0
 			var version int64 = 1
 			removalMap := map[types.StoreKey]bool{}
-			res := commitStores(version, storeMap, removalMap)
+			res := commitStores(version, storeMap, removalMap, false)
 			for _, s := range res.StoreInfos {
 				require.Equal(t, version, s.CommitId.Version)
 			}

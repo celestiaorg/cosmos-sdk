@@ -51,6 +51,10 @@ type LoadStoreOptions struct {
 	// left by a commit killed mid-write. Set it on normal startup only. Leave it
 	// unset when loading an older version, where newer versions are real state.
 	DiscardVersionsAboveTarget bool
+
+	// AsyncPruning prunes old versions on a background goroutine of the tree
+	// instead of inside Commit. Close the store to stop it.
+	AsyncPruning bool
 }
 
 // LoadStore opens the store's IAVL tree at id.Version with default options.
@@ -66,8 +70,21 @@ func LoadStoreWithInitialVersion(db dbm.DB, logger log.Logger, key types.StoreKe
 // LoadStoreWithOpts opens the store's IAVL tree at id.Version. Version 0 means
 // the newest on disk, or an empty tree if there is none.
 func LoadStoreWithOpts(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, cacheSize int, disableFastNode bool, metrics metrics.StoreMetrics, opts LoadStoreOptions) (types.CommitKVStore, error) {
-	tree := iavl.NewMutableTree(wrapper.NewDBWrapper(db), cacheSize, disableFastNode, logger, celestiaTreeOptions(iavl.InitialVersionOption(opts.InitialVersion))...)
+	treeOpts := []iavl.Option{iavl.InitialVersionOption(opts.InitialVersion)}
+	if opts.AsyncPruning {
+		treeOpts = append(treeOpts, iavl.AsyncPruningOption(true))
+	}
+	tree := iavl.NewMutableTree(wrapper.NewDBWrapper(db), cacheSize, disableFastNode, logger, treeOpts...)
+	st, err := loadTree(tree, logger, key, id, metrics, opts)
+	if err != nil {
+		// Stop the pruning goroutine of a tree we do not return.
+		_ = tree.Close()
+		return nil, err
+	}
+	return st, nil
+}
 
+func loadTree(tree *iavl.MutableTree, logger log.Logger, key types.StoreKey, id types.CommitID, metrics metrics.StoreMetrics, opts LoadStoreOptions) (types.CommitKVStore, error) {
 	isUpgradeable, err := tree.IsUpgradeable()
 	if err != nil {
 		return nil, err
@@ -172,6 +189,14 @@ func (st *Store) GetImmutable(version int64) (*Store, error) {
 		tree:    &immutableTree{iTree},
 		metrics: st.metrics,
 	}, nil
+}
+
+// Close stops the tree's background pruning, if any. The DB stays open.
+func (st *Store) Close() error {
+	if t, ok := st.tree.(*iavl.MutableTree); ok {
+		return t.Close()
+	}
+	return nil
 }
 
 // Commit commits the current store state and returns a CommitID with the new

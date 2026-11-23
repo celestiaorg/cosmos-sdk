@@ -563,11 +563,22 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 		baseapp.SetSnapshot(snapshotStore, snapshotOptions),
 		baseapp.SetIAVLCacheSize(cast.ToInt(appOpts.Get(FlagIAVLCacheSize))),
 		baseapp.SetIAVLDisableFastNode(cast.ToBool(appOpts.Get(FlagDisableIAVLFastNode))),
+		baseapp.SetParallelCommit(boolDefaultTrue(appOpts, FlagParallelCommit)),
+		baseapp.SetAsyncPruning(boolDefaultTrue(appOpts, FlagAsyncPruning)),
 		defaultMempool,
 		baseapp.SetChainID(chainID),
 		baseapp.SetQueryGasLimit(cast.ToUint64(appOpts.Get(FlagQueryGasLimit))),
 		baseapp.SetSubspaceQueries(cast.ToBool(appOpts.Get(FlagEnableSubspaceQueries))),
 	}
+}
+
+// boolDefaultTrue reads a bool option that is on unless set to false.
+func boolDefaultTrue(appOpts types.AppOptions, key string) bool {
+	v := appOpts.Get(key)
+	if v == nil {
+		return true
+	}
+	return cast.ToBool(v)
 }
 
 func GetSnapshotStore(appOpts types.AppOptions) (*snapshots.Store, error) {

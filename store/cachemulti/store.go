@@ -31,7 +31,7 @@ type Store struct {
 	traceWriter  io.Writer
 	traceContext types.TraceContext
 
-	root bool // celestia: branch created by rootmulti.CacheMultiStore
+	parallelWrite bool // see WithParallelWrite
 }
 
 var _ types.CacheMultiStore = Store{}
@@ -123,8 +123,8 @@ func (cms Store) GetStoreType() types.StoreType {
 
 // Write calls Write on each underlying store.
 func (cms Store) Write() {
-	if cms.root {
-		cms.writeRoot()
+	if cms.parallelWrite && !cms.TracingEnabled() && len(cms.stores) > 1 {
+		cms.writeParallel()
 		return
 	}
 	cms.db.Write()

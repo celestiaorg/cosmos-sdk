@@ -2,7 +2,6 @@ package rootmulti
 
 import (
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -13,18 +12,14 @@ import (
 	"cosmossdk.io/store/types"
 )
 
-// TestCelestiaCommitDeterminism commits 300 versions with data in 3 stores
-// (pruning everything) through the root-branch Write path and records the
-// commit hashes. Run with and without CELESTIA_PARALLEL_STORES /
-// CELESTIA_IAVL_ASYNC_PRUNING and compare CELESTIA_TEST_HASHES output files.
-// With async pruning it also checks that old versions are eventually deleted
-// and that the DB reopens at the latest version with the same hash and data.
-func TestCelestiaCommitDeterminism(t *testing.T) {
+// TestCelestiaAsyncPruning commits 300 versions with parallel commit and async
+// pruning on, checks that old versions are eventually deleted, and that the DB
+// reopens at the latest version with the same hash and data after Close.
+func TestCelestiaAsyncPruning(t *testing.T) {
 	db := dbm.NewMemDB()
 	ms := newMultiStoreWithMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningEverything))
 	require.NoError(t, ms.LoadLatestVersion())
 	keys := []types.StoreKey{testStoreKey1, testStoreKey2, testStoreKey3}
-	out := ""
 	var last types.CommitID
 	for v := int64(1); v <= 300; v++ {
 		cms := ms.CacheMultiStore()
@@ -41,10 +36,6 @@ func TestCelestiaCommitDeterminism(t *testing.T) {
 		wh := ms.WorkingHash()
 		last = ms.Commit()
 		require.Equal(t, wh, last.Hash)
-		out += fmt.Sprintf("%d %X\n", last.Version, last.Hash)
-	}
-	if p := os.Getenv("CELESTIA_TEST_HASHES"); p != "" {
-		require.NoError(t, os.WriteFile(p, []byte(out), 0o644))
 	}
 	// pruning everything keeps the last 2 versions (+ interval 10): version 100 must go.
 	require.Eventually(t, func() bool {
@@ -54,6 +45,7 @@ func TestCelestiaCommitDeterminism(t *testing.T) {
 	_, err := ms.CacheMultiStoreWithVersion(300)
 	require.NoError(t, err)
 
+	require.NoError(t, ms.Close())
 	ms2 := newMultiStoreWithMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningEverything))
 	require.NoError(t, ms2.LoadLatestVersion())
 	require.Equal(t, last, ms2.LastCommitID())

@@ -87,7 +87,7 @@ require (
 	github.com/cosmos/btcutil v1.0.5 // indirect
 	github.com/cosmos/go-bip39 v1.0.0 // indirect
 	github.com/cosmos/gogogateway v1.2.0 // indirect
-	github.com/cosmos/iavl v1.2.2 // indirect
+	github.com/cosmos/iavl v1.2.9 // indirect
 	github.com/cosmos/ics23/go v0.11.0 // indirect
 	github.com/cosmos/ledger-cosmos-go v0.15.0 // indirect
 	github.com/danieljoos/wincred v1.1.2 // indirect
@@ -204,14 +204,14 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/crypto v0.59.0 // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
-	golang.org/x/net v0.60.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
-	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
-	golang.org/x/term v0.46.0 // indirect
-	golang.org/x/text v0.42.0 // indirect
+	golang.org/x/sync v0.25.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/term v0.48.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/api v0.271.0 // indirect
 	google.golang.org/genproto v0.0.0-20260128011058-8636f8732409 // indirect
@@ -230,3 +230,5 @@ replace (
 
 	github.com/cosmos/cosmos-sdk => ../../.
 )
+
+replace github.com/cosmos/iavl => github.com/celestiaorg/iavl v0.0.0-20261123122950-d1151f7a3855

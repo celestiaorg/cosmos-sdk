@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -42,7 +44,7 @@ func TestDeferredSyncModeCatchUpToTip(t *testing.T) {
 			up := openModeStore(t, dbm.NewMemDB(), DeferredOff, 2, everything, 0)
 			db := dbm.NewMemDB()
 			rs := openModeStore(t, db, DeferredSync, 7, everything, 0)
-			require.True(t, rs.DeferredActive())
+			require.True(t, rs.deferredEnabled())
 			for h := int64(1); h <= 60; h++ {
 				blockOps(h, up.GetKVStore, keys)
 				blockOps(h, rs.GetKVStore, keys)
@@ -50,7 +52,7 @@ func TestDeferredSyncModeCatchUpToTip(t *testing.T) {
 				rs.SetCatchingUp(h < tip || (h > tip && r.Intn(2) == 0))
 				require.Equal(t, up.Commit(), rs.Commit(), "height %d", h)
 				if h >= tip {
-					require.False(t, rs.DeferredActive(), "height %d", h)
+					require.False(t, rs.deferredEnabled(), "height %d", h)
 					require.Equal(t, h, GetLatestVersion(db), "per-block persistence after the tip")
 				}
 			}
@@ -84,15 +86,15 @@ func TestDeferredAutoOff(t *testing.T) {
 		{"snapshots", everything, 100, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			rs := openModeStore(t, dbm.NewMemDB(), DeferredAlways, 100, tc.pruning, tc.snapshot)
-			require.Equal(t, tc.active, rs.DeferredActive())
+			rs := openModeStore(t, dbm.NewMemDB(), DeferredSync, 100, tc.pruning, tc.snapshot)
+			require.Equal(t, tc.active, rs.deferredEnabled())
 		})
 	}
 }
 
 func TestValidateDeferredPersistence(t *testing.T) {
 	require.NoError(t, ValidateDeferredPersistence(DeferredSync, DefaultDeferredFlushInterval))
-	require.NoError(t, ValidateDeferredPersistence(DeferredAlways, MaxDeferredFlushInterval))
+	require.NoError(t, ValidateDeferredPersistence(DeferredSync, MaxDeferredFlushInterval))
 	require.Error(t, ValidateDeferredPersistence("yes", 100))
 	require.Error(t, ValidateDeferredPersistence(DeferredSync, 1))
 	require.Error(t, ValidateDeferredPersistence(DeferredSync, MaxDeferredFlushInterval+1))
@@ -102,7 +104,7 @@ func TestValidateDeferredPersistence(t *testing.T) {
 // get a clear error instead of a missing-version failure.
 func TestDeferredUnflushedHeightQuery(t *testing.T) {
 	keys := []types.StoreKey{defKey1, defKey2}
-	rs := openModeStore(t, dbm.NewMemDB(), DeferredAlways, 7, everything, 0)
+	rs := openModeStore(t, dbm.NewMemDB(), DeferredSync, 7, everything, 0)
 	for h := int64(1); h <= 10; h++ {
 		blockOps(h, rs.GetKVStore, keys)
 		rs.GetKVStore(defKey1).Set([]byte("always"), []byte{byte(h)})
@@ -129,7 +131,7 @@ func TestDeferredRollbackRefused(t *testing.T) {
 	for _, graceful := range []bool{false, true} {
 		t.Run(fmt.Sprintf("graceful=%v", graceful), func(t *testing.T) {
 			db := dbm.NewMemDB()
-			rs := openModeStore(t, db, DeferredAlways, 7, everything, 0)
+			rs := openModeStore(t, db, DeferredSync, 7, everything, 0)
 			for h := int64(1); h <= 20; h++ {
 				blockOps(h, rs.GetKVStore, keys)
 				rs.Commit()
@@ -164,7 +166,7 @@ func TestDeferredRollbackRefused(t *testing.T) {
 // committed and flushed (run with -race).
 func TestDeferredConcurrentQueries(t *testing.T) {
 	keys := []types.StoreKey{defKey1, defKey2}
-	rs := openModeStore(t, dbm.NewMemDB(), DeferredAlways, 5, everything, 0)
+	rs := openModeStore(t, dbm.NewMemDB(), DeferredSync, 5, everything, 0)
 	heights := make(chan int64, 4)
 	done := make(chan error)
 	go func() {
@@ -194,4 +196,31 @@ func TestDeferredConcurrentQueries(t *testing.T) {
 	}
 	close(heights)
 	require.NoError(t, <-done)
+}
+
+// Blocks commit on one goroutine (as BaseApp.Commit, under the write lock)
+// while SIGTERM triggers ShutdownFlush on another (run with -race). The flush
+// writes exactly the last committed block and no Commit completes after it.
+func TestDeferredShutdownFlushConcurrentWithBlocks(t *testing.T) {
+	keys := []types.StoreKey{defKey1, defKey2}
+	for seed := int64(1); seed <= 3; seed++ {
+		db := dbm.NewMemDB()
+		rs := openModeStore(t, db, DeferredSync, 5, everything, 0)
+		var committed atomic.Int64
+		go func() {
+			for h := int64(1); ; h++ {
+				l := rs.WriteLock()
+				l.Lock()
+				blockOps(h, rs.GetKVStore, keys)
+				committed.Store(rs.Commit().Version)
+				l.Unlock()
+			}
+		}()
+		time.Sleep(time.Duration(5+seed*7) * time.Millisecond)
+		require.NoError(t, rs.ShutdownFlush())
+		last := committed.Load()
+		require.Equal(t, last, GetLatestVersion(db), "seed %d", seed)
+		time.Sleep(50 * time.Millisecond)
+		require.Equal(t, last, committed.Load(), "a Commit completed after ShutdownFlush")
+	}
 }

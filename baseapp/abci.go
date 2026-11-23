@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -329,6 +330,14 @@ func (app *BaseApp) ProcessProposal(req abci.RequestProcessProposal) abci.Respon
 // against that height and gracefully halt if it matches the latest committed
 // height.
 func (app *BaseApp) Commit() abci.ResponseCommit {
+	// Deferred persistence: a shutdown flush must not run while the stores
+	// are written; it waits for this commit to finish.
+	if w, ok := app.cms.(interface{ WriteLock() sync.Locker }); ok {
+		l := w.WriteLock()
+		l.Lock()
+		defer l.Unlock()
+	}
+
 	header := app.deliverState.ctx.BlockHeader()
 	retainHeight := app.GetBlockRetentionHeight(header.Height)
 

@@ -63,6 +63,7 @@ type Store struct {
 	listeners map[types.StoreKey][]types.WriteListener
 
 	deferred deferredState // deferred persistence (deferred.go)
+	writeMtx sync.Mutex    // WriteLock
 
 	repairAhead   bool // SetRepairAhead
 	loadingLatest bool // set by loadVersion while loading the latest version

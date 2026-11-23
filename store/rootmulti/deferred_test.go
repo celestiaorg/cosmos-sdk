@@ -38,7 +38,7 @@ func (n *defNode) open() {
 	rs.SetPruning(pruningtypes.NewPruningOptions(pruningtypes.PruningEverything))
 	rs.SetRepairAhead(true)
 	if n.flushK > 0 {
-		require.NoError(n.t, rs.SetDeferredPersistence(DeferredAlways, n.flushK, 0))
+		require.NoError(n.t, rs.SetDeferredPersistence(DeferredSync, n.flushK, 0))
 	}
 	if n.cacheOn {
 		rs.SetInterBlockCache(cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize))
@@ -47,7 +47,7 @@ func (n *defNode) open() {
 		rs.MountStoreWithDB(k, types.StoreTypeIAVL, nil)
 	}
 	require.NoError(n.t, rs.LoadLatestVersion())
-	require.Equal(n.t, n.flushK > 0, rs.DeferredActive())
+	require.Equal(n.t, n.flushK > 0, rs.deferredEnabled())
 	n.rs = rs
 	n.reopened++
 }
@@ -285,33 +285,53 @@ func TestDeferredPersistenceShutdownMidBlock(t *testing.T) {
 			up.open()
 			def.open()
 			hashes := map[int64]types.CommitID{}
-			lockstep(t, up, def, 1, 20, hashes)
+			lockstep(t, up, def, 1, 19, hashes)
 			require.Equal(t, int64(14), GetLatestVersion(def.db))
 
-			// block 21 half applied: every store dirty
-			blockOps(21, def.rs.GetKVStore, keys)
-			for _, k := range keys {
-				def.rs.GetKVStore(k).Set([]byte("inflight"), []byte("21"))
-			}
+			// block 20 in progress (as BaseApp.Commit: stores written under
+			// the write lock): every store dirty
+			lock := def.rs.WriteLock()
+			lock.Lock()
+			blockOps(20, def.rs.GetKVStore, keys)
+			blockOps(20, up.rs.GetKVStore, keys)
 			// the strict flush refuses and writes nothing
 			require.Error(t, def.rs.FlushDeferred())
-			require.Equal(t, int64(14), GetLatestVersion(def.db))
 			requireAllOnDisk(t, def, 14)
 
-			require.NoError(t, def.rs.ShutdownFlush())
+			// SIGTERM now: the shutdown flush waits for the block to commit
+			flushed := make(chan error, 1)
+			go func() { flushed <- def.rs.ShutdownFlush() }()
+			select {
+			case <-flushed:
+				t.Fatal("ShutdownFlush ran while the block was being written")
+			case <-time.After(100 * time.Millisecond):
+			}
+			hashes[20] = up.rs.Commit()
+			require.Equal(t, hashes[20], def.rs.Commit())
+			lock.Unlock()
+			require.NoError(t, <-flushed)
 			require.NoError(t, def.rs.ShutdownFlush()) // idempotent (Close after hook)
 			require.Equal(t, int64(20), GetLatestVersion(def.db))
 			requireAllOnDisk(t, def, 20)
 
-			// Commit of block 21 must not return a hash the DB will never contain.
+			// The next block must never commit: no app hash for a block the
+			// DB will never contain.
 			done := make(chan struct{})
 			closedRS := def.rs // def.rs is replaced by the restart below
-			go func() { closedRS.Commit(); close(done) }()
+			go func() {
+				l := closedRS.WriteLock()
+				l.Lock()
+				defer l.Unlock()
+				blockOps(21, closedRS.GetKVStore, keys)
+				closedRS.Commit()
+				close(done)
+			}()
 			select {
 			case <-done:
 				t.Fatal("Commit returned after ShutdownFlush")
 			case <-time.After(200 * time.Millisecond):
 			}
+			require.NoError(t, closedRS.ShutdownFlush()) // must not deadlock on the held lock
 
 			// restart: height 20, block 21 is replayed, then normal operation
 			def.open()

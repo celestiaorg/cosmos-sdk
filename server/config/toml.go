@@ -252,7 +252,7 @@ snapshot-keep-recent = {{ .StateSync.SnapshotKeepRecent }}
 signature-preverify = {{ .Performance.SignaturePreverify }}
 
 # deferred-persistence writes IAVL state to disk every deferred-flush-interval blocks instead of every
-# block: "sync" (only while catching up, then per block), "always" or "off". It turns itself off when
+# block while catching up ("sync"; then per block), or "off". It turns itself off when
 # pruning keeps more recent heights than the interval, or state sync snapshots are enabled.
 deferred-persistence = "{{ .Performance.DeferredPersistence }}"
 

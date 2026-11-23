@@ -39,11 +39,11 @@ func TestDeferredPersistenceOptions(t *testing.T) {
 	require.EqualValues(t, rootmulti.DefaultDeferredFlushInterval, interval)
 	require.Zero(t, snap)
 
-	v.Set(FlagDeferredPersistence, rootmulti.DeferredAlways)
+	v.Set(FlagDeferredPersistence, rootmulti.DeferredOff)
 	v.Set(FlagDeferredFlushInterval, 500)
 	v.Set(FlagStateSyncSnapshotInterval, 1000)
 	mode, interval, snap = deferredPersistenceOptions(v)
-	require.Equal(t, rootmulti.DeferredAlways, mode)
+	require.Equal(t, rootmulti.DeferredOff, mode)
 	require.EqualValues(t, 500, interval)
 	require.EqualValues(t, 1000, snap)
 

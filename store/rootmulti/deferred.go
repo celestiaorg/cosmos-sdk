@@ -16,8 +16,9 @@ package rootmulti
 // the commit info are rolled back on load (repair.go) and the consensus
 // engine replays the missing blocks.
 //
-// Modes: "off"; "always"; "sync" (default): deferred only while catching up,
-// i.e. while the block time is older than CatchUpThreshold. The first block
+// Modes: "off"; "sync" (default): deferred only while catching up, i.e.
+// while the block time is older than CatchUpThreshold (callers that never
+// report the signal, such as tools, stay deferred). The first block
 // that is not is flushed and the store returns to per-block persistence for
 // the rest of the process. The signal only changes when data is written,
 // never what is computed (tests compare CommitIDs with upstream).
@@ -35,6 +36,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	dbm "github.com/tendermint/tm-db"
@@ -47,9 +49,8 @@ import (
 
 // Deferred persistence modes.
 const (
-	DeferredOff    = "off"
-	DeferredSync   = "sync"
-	DeferredAlways = "always"
+	DeferredOff  = "off"
+	DeferredSync = "sync"
 )
 
 const (
@@ -75,9 +76,9 @@ var ErrRollbackDeferred = errors.New("app state cannot be rolled back")
 // ValidateDeferredPersistence checks the [performance] settings.
 func ValidateDeferredPersistence(mode string, interval int64) error {
 	switch mode {
-	case DeferredOff, DeferredSync, DeferredAlways:
+	case DeferredOff, DeferredSync:
 	default:
-		return fmt.Errorf("deferred-persistence must be %q, %q or %q, got %q", DeferredSync, DeferredAlways, DeferredOff, mode)
+		return fmt.Errorf("deferred-persistence must be %q or %q, got %q", DeferredSync, DeferredOff, mode)
 	}
 	if interval < 2 || interval > MaxDeferredFlushInterval {
 		return fmt.Errorf("deferred-flush-interval must be between 2 and %d, got %d", MaxDeferredFlushInterval, interval)
@@ -95,6 +96,7 @@ type deferredState struct {
 	forceNext        bool  // make the next Commit a flush
 	notCatchingUp    bool  // sync mode: reached the tip, leave at next commit
 	closed           bool  // ShutdownFlush ran: no further commits
+	closing          atomic.Bool
 	mtx              sync.Mutex
 }
 
@@ -165,9 +167,6 @@ func (rs *Store) deferredEnabled() bool {
 	return rs.deferred.active
 }
 
-// DeferredActive reports whether commits are currently soft (tests, status).
-func (rs *Store) DeferredActive() bool { return rs.deferredEnabled() }
-
 // ForceFlushNextCommit makes the next Commit write everything to disk.
 func (rs *Store) ForceFlushNextCommit() {
 	rs.deferred.mtx.Lock()
@@ -184,17 +183,21 @@ func (rs *Store) FlushDeferred() error {
 	if !rs.deferred.active || rs.deferred.closed || rs.lastCommitInfo == nil || rs.lastCommitInfo.Version <= rs.deferred.lastFlushed {
 		return nil
 	}
-	return rs.flushDeferredLocked(rs.lastCommitInfo.Version, rs.lastCommitInfo, false)
+	return rs.flushDeferredLocked(rs.lastCommitInfo.Version, rs.lastCommitInfo)
 }
 
-// ShutdownFlush writes the latest soft-committed version and its metadata and
-// closes the store for commits. It works in the middle of a block: the
-// working trees' changes belong to the block in progress, which the consensus
-// engine replays after the restart, so they are not written; every store is
-// flushed at the last committed version. A later Commit blocks forever: it
-// must not return an app hash for a block the DB will never contain.
-// Idempotent; no-op when deferred persistence is not active.
+// ShutdownFlush writes the latest committed version and its metadata and
+// closes the store for commits. It takes the block write lock (WriteLock), so
+// it waits for a block in progress to finish committing and never runs while
+// the IAVL working trees are being written. Any later Commit blocks forever:
+// the process is exiting, and it must not answer for a block that is not on
+// disk. Idempotent; no-op when deferred persistence is not active.
 func (rs *Store) ShutdownFlush() error {
+	if rs.deferred.closing.Swap(true) {
+		return nil // already flushed, or a Commit after it holds the lock
+	}
+	rs.writeMtx.Lock()
+	defer rs.writeMtx.Unlock()
 	rs.deferred.mtx.Lock()
 	defer rs.deferred.mtx.Unlock()
 	if !rs.deferred.active || rs.deferred.closed {
@@ -205,17 +208,22 @@ func (rs *Store) ShutdownFlush() error {
 	if rs.lastCommitInfo == nil || rs.lastCommitInfo.Version <= rs.deferred.lastFlushed {
 		return nil
 	}
-	if err := rs.flushDeferredLocked(rs.lastCommitInfo.Version, rs.lastCommitInfo, true); err != nil {
+	if err := rs.flushDeferredLocked(rs.lastCommitInfo.Version, rs.lastCommitInfo); err != nil {
 		return err
 	}
 	rs.logger.Info("deferred persistence: flushed on shutdown", "version", rs.deferred.lastFlushed)
 	return nil
 }
 
+// WriteLock serialises block execution with ShutdownFlush. BaseApp.Commit
+// holds it from writing the deliver state into the stores until the commit
+// returns, the only time the IAVL working trees change.
+func (rs *Store) WriteLock() sync.Locker { return &rs.writeMtx }
+
 // flushDeferredLocked writes version (see the file comment). It checks every
 // store before writing anything, so a dirty working tree aborts the flush
-// with nothing written (unless ignoreWorking, for ShutdownFlush).
-func (rs *Store) flushDeferredLocked(version int64, cInfo *types.CommitInfo, ignoreWorking bool) error {
+// with nothing written.
+func (rs *Store) flushDeferredLocked(version int64, cInfo *types.CommitInfo) error {
 	type named struct {
 		key types.StoreKey
 		st  *iavl.Store
@@ -229,7 +237,7 @@ func (rs *Store) flushDeferredLocked(version int64, cInfo *types.CommitInfo, ign
 		if !ok {
 			continue
 		}
-		if !ignoreWorking && st.IsDirty() {
+		if st.IsDirty() {
 			return fmt.Errorf("deferred flush at version %d: store %s has uncommitted changes; nothing written", version, key.Name())
 		}
 		stores = append(stores, named{key, st})
@@ -237,11 +245,7 @@ func (rs *Store) flushDeferredLocked(version int64, cInfo *types.CommitInfo, ign
 
 	// (1) IAVL nodes, orphans and roots; one batch per store
 	for _, n := range stores {
-		flush := n.st.FlushDeferred
-		if ignoreWorking {
-			flush = n.st.FlushDeferredIgnoringWorking
-		}
-		if err := flush(); err != nil {
+		if err := n.st.FlushDeferred(); err != nil {
 			return fmt.Errorf("deferred flush of store %s at version %d: %w", n.key.Name(), version, err)
 		}
 	}
@@ -356,7 +360,7 @@ func (rs *Store) commitDeferred() types.CommitID {
 	rs.deferred.forceNext = false
 	if flush {
 		// before removed stores leave rs.stores, so they are flushed too
-		if err := rs.flushDeferredLocked(version, rs.lastCommitInfo, false); err != nil {
+		if err := rs.flushDeferredLocked(version, rs.lastCommitInfo); err != nil {
 			panic(err)
 		}
 	}

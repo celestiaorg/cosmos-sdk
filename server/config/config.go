@@ -260,8 +260,7 @@ type PerformanceConfig struct {
 	SignaturePreverify bool `mapstructure:"signature-preverify"`
 
 	// DeferredPersistence writes IAVL state every DeferredFlushInterval blocks
-	// instead of every block: "sync" (only while catching up), "always" or
-	// "off".
+	// instead of every block while catching up: "sync" or "off".
 	DeferredPersistence   string `mapstructure:"deferred-persistence"`
 	DeferredFlushInterval int64  `mapstructure:"deferred-flush-interval"`
 }

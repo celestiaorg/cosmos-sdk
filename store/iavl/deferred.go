@@ -42,27 +42,10 @@ func (st *Store) FlushDeferred() error {
 	return mt.FlushDeferred()
 }
 
-// FlushDeferredIgnoringWorking is FlushDeferred for shutdown: it writes the
-// latest soft-committed version even if the working tree is dirty (in-progress
-// block); the working-tree changes are not written.
-func (st *Store) FlushDeferredIgnoringWorking() error {
-	mt, err := st.mutableTree()
-	if err != nil {
-		return err
-	}
-	return mt.FlushDeferredIgnoringWorking()
-}
-
 // IsDirty reports whether the working tree has uncommitted changes.
 func (st *Store) IsDirty() bool {
 	mt, err := st.mutableTree()
 	return err == nil && mt.IsDirty()
-}
-
-// HasUnflushedVersions reports whether soft-committed versions are pending.
-func (st *Store) HasUnflushedVersions() bool {
-	mt, err := st.mutableTree()
-	return err == nil && mt.HasUnflushedVersions()
 }
 
 // DeleteVersionsBefore removes every on-disk version lower than version.

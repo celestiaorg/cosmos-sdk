@@ -211,7 +211,17 @@ type PerformanceConfig struct {
 	ParallelCommit bool `mapstructure:"parallel-commit"`
 	// AsyncPruning prunes old IAVL versions in the background.
 	AsyncPruning bool `mapstructure:"async-pruning"`
+	// DeferredPersistence is "sync", "always" or "off"; see rootmulti.SetDeferredPersistence.
+	DeferredPersistence string `mapstructure:"deferred-persistence"`
+	// DeferredFlushInterval is the number of blocks between flushes in deferred mode.
+	DeferredFlushInterval int64 `mapstructure:"deferred-flush-interval"`
 }
+
+// Defaults for the deferred persistence options.
+const (
+	DefaultDeferredPersistence   = "sync"
+	DefaultDeferredFlushInterval = 100
+)
 
 // SetMinGasPrices sets the validator's minimum gas prices.
 func (c *Config) SetMinGasPrices(gasPrices sdk.DecCoins) {
@@ -283,8 +293,10 @@ func DefaultConfig() *Config {
 			MaxTxs: -1,
 		},
 		Performance: PerformanceConfig{
-			ParallelCommit: true,
-			AsyncPruning:   true,
+			ParallelCommit:        true,
+			AsyncPruning:          true,
+			DeferredPersistence:   DefaultDeferredPersistence,
+			DeferredFlushInterval: DefaultDeferredFlushInterval,
 		},
 	}
 }

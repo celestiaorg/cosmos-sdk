@@ -405,6 +405,9 @@ func (rs *Store) commitDeferred() types.CommitID {
 		rs.deferred.lastFlushed == 0 ||
 		len(rs.removalMap) > 0
 	rs.deferred.forceNext = false
+	// before a flush can make version the loaded one (the shutdown flush is
+	// covered by the recorder's own shutdown hook, which runs first and syncs)
+	rs.recordCommit(version, flush)
 	if flush {
 		// before removed stores leave rs.stores, so they are flushed too
 		if err := rs.flushDeferredLocked(version, rs.lastCommitInfo); err != nil {

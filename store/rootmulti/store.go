@@ -20,6 +20,7 @@ import (
 	pruningtypes "github.com/cosmos/cosmos-sdk/pruning/types"
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	"github.com/cosmos/cosmos-sdk/store/cachemulti"
+	"github.com/cosmos/cosmos-sdk/store/changeset"
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
 	"github.com/cosmos/cosmos-sdk/store/iavl"
 	"github.com/cosmos/cosmos-sdk/store/listenkv"
@@ -68,6 +69,8 @@ type Store struct {
 
 	repairAhead   bool // SetRepairAhead
 	loadingLatest bool // set by loadVersion while loading the latest version
+
+	cs *changeset.Recorder // changeset recording (changeset.go); nil unless CELESTIA_CHANGESET_OUT is set
 }
 
 var (
@@ -93,6 +96,7 @@ func NewStore(db dbm.DB, logger log.Logger) *Store {
 		listeners:           make(map[types.StoreKey][]types.WriteListener),
 		removalMap:          make(map[types.StoreKey]bool),
 		pruningManager:      pruning.NewManager(db, logger),
+		cs:                  changeset.FromEnv(),
 	}
 }
 
@@ -249,6 +253,7 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 			infos[storeInfo.Name] = storeInfo
 		}
 	}
+	rs.recordUpgrade(upgrades)
 
 	// load each Store (note this doesn't panic on unmounted keys now)
 	newStores := make(map[types.StoreKey]types.CommitKVStore)
@@ -456,9 +461,16 @@ func (rs *Store) LastCommitID() types.CommitID {
 
 // Commit implements Committer/CommitStore.
 func (rs *Store) Commit() types.CommitID {
+	var id types.CommitID
 	if rs.deferredEnabled() {
-		return rs.commitDeferred()
+		id = rs.commitDeferred()
+	} else {
+		id = rs.commitUpstream()
 	}
+	return id
+}
+
+func (rs *Store) commitUpstream() types.CommitID {
 
 	var previousHeight, version int64
 	if rs.lastCommitInfo.GetVersion() == 0 && rs.initialVersion > 1 {
@@ -476,6 +488,7 @@ func (rs *Store) Commit() types.CommitID {
 	}
 
 	rs.lastCommitInfo = commitStores(version, rs.stores, rs.removalMap)
+	rs.recordCommit(version, true) // before the commit info makes version the loaded one
 	defer rs.flushMetadata(rs.db, version, rs.lastCommitInfo)
 
 	// remove remnants of removed stores
@@ -772,6 +785,9 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 // starting a new chain at an arbitrary height.
 func (rs *Store) SetInitialVersion(version int64) error {
 	rs.initialVersion = version
+	if rs.cs != nil {
+		rs.cs.RecordInitialVersion(version)
+	}
 
 	// Loop through all the stores, if it's an IAVL store, then set initial
 	// version on it.
@@ -1009,6 +1025,9 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 			if err := store.(*iavl.Store).SetDeferredPersistence(true); err != nil {
 				return nil, err
 			}
+		}
+		if rs.cs != nil {
+			store.(*iavl.Store).SetChangesetRecorder(rs.cs, key.Name())
 		}
 
 		if rs.interBlockCache != nil {

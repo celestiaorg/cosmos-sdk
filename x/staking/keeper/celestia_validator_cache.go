@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
 	"sync"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
@@ -12,7 +14,10 @@ import (
 
 // celestiaValidatorCacheMax bounds the decoded-validator cache; a full cache
 // is cleared.
-const celestiaValidatorCacheMax = 4096
+const (
+	celestiaValidatorCacheMax  = 4096
+	celestiaHistoricalCacheMax = 1 << 16
+)
 
 // celestiaCaches holds decoded validators by store key, and the decoded
 // params. An entry is used only when the bytes just read from the store are
@@ -21,6 +26,9 @@ type celestiaCaches struct {
 	mu         sync.Mutex
 	validators map[string]validatorCacheEntry
 	params     sdk.CelestiaDecodeMemo[types.Params]
+
+	histMu     sync.Mutex
+	historical map[int64][sha256.Size]byte // height -> hash of the HistoricalInfo this process encoded
 }
 
 type validatorCacheEntry struct {
@@ -29,7 +37,10 @@ type validatorCacheEntry struct {
 }
 
 func newCelestiaCaches() *celestiaCaches {
-	return &celestiaCaches{validators: make(map[string]validatorCacheEntry)}
+	return &celestiaCaches{
+		validators: make(map[string]validatorCacheEntry),
+		historical: make(map[int64][sha256.Size]byte),
+	}
 }
 
 // unmarshalValidator decodes raw, the value stored under key, exactly like
@@ -98,4 +109,48 @@ func cloneParams(p types.Params) types.Params {
 	c := p
 	c.MinCommissionRate = sdk.CelestiaCloneLegacyDec(p.MinCommissionRate)
 	return c
+}
+
+// recordHistoricalInfo remembers the hash of the HistoricalInfo encoding this
+// process wrote at height.
+func (c *celestiaCaches) recordHistoricalInfo(height int64, value []byte) {
+	if c == nil || !sdk.ExecutionCachesEnabled() {
+		return
+	}
+	h := sha256.Sum256(value)
+	c.histMu.Lock()
+	if len(c.historical) >= celestiaHistoricalCacheMax {
+		clear(c.historical)
+	}
+	c.historical[height] = h
+	c.histMu.Unlock()
+}
+
+// checkHistoricalInfo returns the error GetHistoricalInfo would return. It
+// does the same store read, and skips the decode only for bytes this process
+// encoded itself (which decode); anything else is decoded as usual.
+func (k Keeper) checkHistoricalInfo(ctx context.Context, height int64) error {
+	c := k.celestiaCaches
+	if c == nil || !sdk.ExecutionCachesEnabled() {
+		_, err := k.GetHistoricalInfo(ctx, height)
+		return err
+	}
+	value, err := k.storeService.OpenKVStore(ctx).Get(types.GetHistoricalInfoKey(height))
+	if err != nil {
+		return err
+	}
+	if value == nil {
+		return types.ErrNoHistoricalInfo
+	}
+	c.histMu.Lock()
+	want, ok := c.historical[height]
+	if ok {
+		delete(c.historical, height) // the caller prunes it
+	}
+	c.histMu.Unlock()
+	if ok && want == sha256.Sum256(value) {
+		return nil
+	}
+	_, err = types.UnmarshalHistoricalInfo(k.cdc, value)
+	return err
 }

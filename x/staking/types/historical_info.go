@@ -9,6 +9,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
@@ -16,9 +17,13 @@ import (
 // it will first sort valset before inclusion into historical info
 func NewHistoricalInfo(header tmproto.Header, valSet Validators, powerReduction math.Int) HistoricalInfo {
 	// Must sort in the same way that tendermint does
-	sort.SliceStable(valSet, func(i, j int) bool {
-		return ValidatorsByVotingPower(valSet).Less(i, j, powerReduction)
-	})
+	if sdk.ExecutionCachesEnabled() {
+		celestiaSortByVotingPower(valSet, powerReduction)
+	} else {
+		sort.SliceStable(valSet, func(i, j int) bool {
+			return ValidatorsByVotingPower(valSet).Less(i, j, powerReduction)
+		})
+	}
 
 	return HistoricalInfo{
 		Header: header,

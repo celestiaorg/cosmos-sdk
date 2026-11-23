@@ -18,6 +18,8 @@ type Keeper struct {
 	cdc        codec.BinaryCodec
 	sk         types.StakingKeeper
 	paramspace types.ParamSubspace
+
+	pubkeyMemo *pubkeyMemo // see checkPubkey
 }
 
 // NewKeeper creates a slashing keeper
@@ -32,6 +34,7 @@ func NewKeeper(cdc codec.BinaryCodec, key storetypes.StoreKey, sk types.StakingK
 		cdc:        cdc,
 		sk:         sk,
 		paramspace: paramspace,
+		pubkeyMemo: newPubkeyMemo(),
 	}
 }
 

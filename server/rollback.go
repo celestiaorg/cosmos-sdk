@@ -30,6 +30,7 @@ application.
 			if err != nil {
 				return err
 			}
+			ctx.Viper.Set(KeyReadOnlyLoad, true) // RollbackToVersion is the only write
 			app := appCreator(ctx.Logger, db, nil, ctx.Viper)
 			// rollback tendermint state
 			height, hash, err := cbftcmd.RollbackState(ctx.Config)

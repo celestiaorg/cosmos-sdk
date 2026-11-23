@@ -27,6 +27,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/server/config"
+	"github.com/cosmos/cosmos-sdk/server/shutdown"
 	"github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
@@ -360,6 +361,7 @@ func WaitForQuitSignals() ErrorCode {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-sigs
+	shutdown.Run() // e.g. flush deferred IAVL state
 	return ErrorCode{Code: int(sig.(syscall.Signal)) + 128}
 }
 
@@ -464,6 +466,7 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 		baseapp.SetIAVLDisableFastNode(cast.ToBool(appOpts.Get(FlagDisableIAVLFastNode))),
 		baseapp.SetIAVLLazyLoading(cast.ToBool(appOpts.Get(FlagIAVLLazyLoading))),
 		baseapp.SetSignaturePreverify(boolOrDefault(appOpts.Get(FlagSignaturePreverify), true)),
+		baseapp.SetStoreRepairAhead(!cast.ToBool(appOpts.Get(KeyReadOnlyLoad))),
 	}
 }
 

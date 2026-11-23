@@ -61,6 +61,9 @@ type Store struct {
 	interBlockCache types.MultiStorePersistentCache
 
 	listeners map[types.StoreKey][]types.WriteListener
+
+	repairAhead   bool // SetRepairAhead
+	loadingLatest bool // set by loadVersion while loading the latest version
 }
 
 var (
@@ -112,6 +115,12 @@ func (rs *Store) SetIAVLCacheSize(cacheSize int) {
 
 func (rs *Store) SetIAVLDisableFastNode(disableFastNode bool) {
 	rs.iavlDisableFastNode = disableFastNode
+}
+
+// SetRepairAhead enables the roll back, when loading the latest version, of
+// IAVL stores that are ahead of the commit info (see repairStoreAhead).
+func (rs *Store) SetRepairAhead(enabled bool) {
+	rs.repairAhead = enabled
 }
 
 // SetLazyLoading sets if the iavl store should be loaded lazily or not
@@ -189,6 +198,11 @@ func (rs *Store) LoadVersion(ver int64) error {
 
 func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 	infos := make(map[string]types.StoreInfo)
+
+	// Stores ahead of the commit info are only repaired when loading the
+	// latest version (not for historic loads such as export --height).
+	rs.loadingLatest = ver == GetLatestVersion(rs.db)
+	defer func() { rs.loadingLatest = false }()
 
 	cInfo := &types.CommitInfo{}
 
@@ -925,6 +939,12 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 
 		if err != nil {
 			return nil, err
+		}
+
+		if rs.repairAhead && rs.loadingLatest {
+			if err := rs.repairStoreAhead(key, store.(*iavl.Store), id.Version); err != nil {
+				return nil, err
+			}
 		}
 
 		if rs.interBlockCache != nil {

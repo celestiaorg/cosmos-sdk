@@ -229,6 +229,9 @@ func (f *rollbackFixture) viper() *viper.Viper {
 		v.Set(server.FlagPruning, pruningtypes.PruningOptionCustom)
 		v.Set(server.FlagPruningKeepRecent, f.opts.pruneKeepRecent)
 		v.Set(server.FlagPruningInterval, 10)
+		// Prune inside Commit, so the fixture's DB is already pruned when built;
+		// async pruning would write the deletions only with a later commit.
+		v.Set(server.FlagAsyncPruning, false)
 	}
 	return v
 }

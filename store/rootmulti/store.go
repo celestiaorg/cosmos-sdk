@@ -81,6 +81,8 @@ type Store struct {
 
 	// allowPendingRollback allows loading a DB with a pending rollback.
 	allowPendingRollback bool
+	parallelCommit       bool // see SetParallelCommit
+	asyncPruning         bool // see SetAsyncPruning
 }
 
 var (
@@ -114,6 +116,8 @@ func NewStore(db dbm.DB, logger log.Logger, metricGatherer metrics.StoreMetrics)
 		removalMap:          make(map[types.StoreKey]bool),
 		pruningManager:      pruning.NewManager(db, logger),
 		metrics:             metricGatherer,
+		parallelCommit:      true,
+		asyncPruning:        true,
 	}
 }
 
@@ -537,7 +541,7 @@ func (rs *Store) Commit() types.CommitID {
 		rs.logger.Debug("commit header and version mismatch", "header_height", rs.commitHeader.Height, "version", version)
 	}
 
-	newCommitInfo := commitStores(version, rs.stores, rs.removalMap)
+	newCommitInfo := commitStores(version, rs.stores, rs.removalMap, rs.parallelCommit)
 	newCommitInfo.Timestamp = rs.commitHeader.Time
 
 	rs.setLastCommitInfo(newCommitInfo)
@@ -575,6 +579,7 @@ func (rs *Store) WorkingHash() []byte {
 	storeInfos := make([]types.StoreInfo, 0, len(rs.stores))
 	storeKeys := keysFromStoreKeyMap(rs.stores)
 
+	var wantHash []types.StoreKey
 	for _, key := range storeKeys {
 		store := rs.stores[key]
 
@@ -583,14 +588,18 @@ func (rs *Store) WorkingHash() []byte {
 		}
 
 		if !rs.removalMap[key] {
-			si := types.StoreInfo{
-				Name: key.Name(),
-				CommitId: types.CommitID{
-					Hash: store.WorkingHash(),
-				},
-			}
-			storeInfos = append(storeInfos, si)
+			wantHash = append(wantHash, key)
 		}
+	}
+	hashes := workingHashes(rs.stores, wantHash, rs.parallelCommit)
+	for i, key := range wantHash {
+		si := types.StoreInfo{
+			Name: key.Name(),
+			CommitId: types.CommitID{
+				Hash: hashes[i],
+			},
+		}
+		storeInfos = append(storeInfos, si)
 	}
 
 	sort.SliceStable(storeInfos, func(i, j int) bool {
@@ -614,16 +623,22 @@ func (rs *Store) CacheWrapWithTrace(_ io.Writer, _ types.TraceContext) types.Cac
 // It implements the MultiStore interface.
 func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 	stores := make(map[types.StoreKey]types.CacheWrapper)
+	listening := false
 	for k, v := range rs.stores {
 		store := types.KVStore(v)
 		// Wire the listenkv.Store to allow listeners to observe the writes from the cache store,
 		// set same listeners on cache store will observe duplicated writes.
 		if rs.ListeningEnabled(k) {
 			store = listenkv.NewStore(store, k, rs.listeners[k])
+			listening = true
 		}
 		stores[k] = store
 	}
-	return cachemulti.NewStore(rs.db, stores, rs.keysByName, rs.traceWriter, rs.getTracingContext())
+	cms := cachemulti.NewStore(rs.db, stores, rs.keysByName, rs.traceWriter, rs.getTracingContext())
+	if rs.parallelCommit && !listening {
+		cms = cachemulti.WithParallelWrite(cms)
+	}
+	return cms
 }
 
 // CacheMultiStoreWithVersion is analogous to CacheMultiStore except that it
@@ -1094,6 +1109,7 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 
 	case types.StoreTypeIAVL:
 		opts.InitialVersion = params.initialVersion
+		opts.AsyncPruning = rs.asyncPruning
 		store, err := iavl.LoadStoreWithOpts(db, rs.logger, key, id, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.metrics, opts)
 		if err != nil {
 			return nil, err
@@ -1381,26 +1397,13 @@ func GetLatestVersion(db dbm.DB) int64 {
 }
 
 // Commits each store and returns a new commitInfo.
-func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore, removalMap map[types.StoreKey]bool) *types.CommitInfo {
+func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore, removalMap map[types.StoreKey]bool, parallel bool) *types.CommitInfo {
 	storeInfos := make([]types.StoreInfo, 0, len(storeMap))
 	storeKeys := keysFromStoreKeyMap(storeMap)
+	ids := commitIDs(version, storeMap, storeKeys, parallel)
 
-	for _, key := range storeKeys {
-		store := storeMap[key]
-		last := store.LastCommitID()
-
-		// If a commit event execution is interrupted, a new iavl store's version
-		// will be larger than the RMS's metadata, when the block is replayed, we
-		// should avoid committing that iavl store again.
-		var commitID types.CommitID
-		if last.Version >= version {
-			last.Version = version
-			commitID = last
-		} else {
-			commitID = store.Commit()
-		}
-
-		storeType := store.GetStoreType()
+	for i, key := range storeKeys {
+		storeType := storeMap[key].GetStoreType()
 		if storeType == types.StoreTypeTransient || storeType == types.StoreTypeMemory {
 			continue
 		}
@@ -1408,7 +1411,7 @@ func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore
 		if !removalMap[key] {
 			si := types.StoreInfo{}
 			si.Name = key.Name()
-			si.CommitId = commitID
+			si.CommitId = ids[i]
 			storeInfos = append(storeInfos, si)
 		}
 	}

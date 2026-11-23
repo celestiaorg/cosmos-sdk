@@ -150,6 +150,10 @@ func newHookTestConfig(t *testing.T) *cmtcfg.Config {
 	cfg := cmtcfg.TestConfig().SetRoot(dir)
 	cmtcfg.EnsureRoot(dir)
 	cfg.P2P.ListenAddress = "tcp://127.0.0.1:0"
+	// Without PEX the address book is never started. Its save routine does a
+	// last write to config/addrbook.json after Node.Stop returns, which races
+	// with the t.TempDir cleanup.
+	cfg.P2P.PexReactor = false
 	cfg.RPC.ListenAddress = "tcp://127.0.0.1:0"
 	cfg.RPC.GRPCListenAddress = ""
 	pv := privval.LoadOrGenFilePV(cfg.PrivValidatorKeyFile(), cfg.PrivValidatorStateFile())

@@ -2,13 +2,17 @@ package tx
 
 import (
 	"fmt"
+	mathbits "math/bits"
 
+	"github.com/cosmos/gogoproto/jsonpb"
+	gogoproto "github.com/cosmos/gogoproto/proto"
 	"google.golang.org/protobuf/encoding/protowire"
 
 	errorsmod "cosmossdk.io/errors"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/unknownproto"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/tx"
@@ -16,6 +20,22 @@ import (
 
 // DefaultTxDecoder returns a default protobuf TxDecoder using the provided Marshaler.
 func DefaultTxDecoder(cdc codec.Codec) sdk.TxDecoder {
+	return newTxDecoder(cdc, false)
+}
+
+// StrictTxDecoder is DefaultTxDecoder that also rejects encodings protobuf
+// decoders can read differently; see unknownproto.RejectAmbiguousEncoding.
+func StrictTxDecoder(cdc codec.Codec) sdk.TxDecoder {
+	return newTxDecoder(cdc, true)
+}
+
+func newTxDecoder(cdc codec.Codec, strict bool) sdk.TxDecoder {
+	rejectUnknown := func(bz []byte, msg gogoproto.Message, allowNonCriticals bool) (bool, error) {
+		if strict {
+			return false, unknownproto.RejectAmbiguousEncoding(bz, msg, cdc.InterfaceRegistry())
+		}
+		return unknownproto.RejectUnknownFields(bz, msg, allowNonCriticals, cdc.InterfaceRegistry())
+	}
 	return func(txBytes []byte) (sdk.Tx, error) {
 		// Make sure txBytes follow ADR-027.
 		err := rejectNonADR027TxRaw(txBytes)
@@ -26,7 +46,7 @@ func DefaultTxDecoder(cdc codec.Codec) sdk.TxDecoder {
 		var raw tx.TxRaw
 
 		// reject all unknown proto fields in the root TxRaw
-		err = unknownproto.RejectUnknownFieldsStrict(txBytes, &raw, cdc.InterfaceRegistry())
+		_, err = rejectUnknown(txBytes, &raw, false)
 		if err != nil {
 			return nil, errorsmod.Wrap(sdkerrors.ErrTxDecode, err.Error())
 		}
@@ -39,7 +59,7 @@ func DefaultTxDecoder(cdc codec.Codec) sdk.TxDecoder {
 		var body tx.TxBody
 
 		// allow non-critical unknown fields in TxBody
-		txBodyHasUnknownNonCriticals, err := unknownproto.RejectUnknownFields(raw.BodyBytes, &body, true, cdc.InterfaceRegistry())
+		txBodyHasUnknownNonCriticals, err := rejectUnknown(raw.BodyBytes, &body, true)
 		if err != nil {
 			return nil, errorsmod.Wrap(sdkerrors.ErrTxDecode, err.Error())
 		}
@@ -52,7 +72,7 @@ func DefaultTxDecoder(cdc codec.Codec) sdk.TxDecoder {
 		var authInfo tx.AuthInfo
 
 		// reject all unknown proto fields in AuthInfo
-		err = unknownproto.RejectUnknownFieldsStrict(raw.AuthInfoBytes, &authInfo, cdc.InterfaceRegistry())
+		_, err = rejectUnknown(raw.AuthInfoBytes, &authInfo, false)
 		if err != nil {
 			return nil, errorsmod.Wrap(sdkerrors.ErrTxDecode, err.Error())
 		}
@@ -60,6 +80,17 @@ func DefaultTxDecoder(cdc codec.Codec) sdk.TxDecoder {
 		err = cdc.Unmarshal(raw.AuthInfoBytes, &authInfo)
 		if err != nil {
 			return nil, errorsmod.Wrap(sdkerrors.ErrTxDecode, err.Error())
+		}
+
+		if strict {
+			for i, signer := range authInfo.SignerInfos {
+				if i >= len(raw.Signatures) {
+					break
+				}
+				if err := rejectAmbiguousMultiSignature(signer.ModeInfo, raw.Signatures[i], cdc.InterfaceRegistry()); err != nil {
+					return nil, errorsmod.Wrap(sdkerrors.ErrTxDecode, err.Error())
+				}
+			}
 		}
 
 		theTx := &tx.Tx{
@@ -76,6 +107,77 @@ func DefaultTxDecoder(cdc codec.Codec) sdk.TxDecoder {
 			cdc:                          cdc,
 		}, nil
 	}
+}
+
+// rejectAmbiguousMultiSignature applies the strict walk to sig when mode is a
+// multisig mode, at every level of nesting. With SIGN_MODE_LEGACY_AMINO_JSON no
+// signature covers these bytes or the mode info, so the bit array must be
+// canonical and sig must hold exactly one signature per selected key.
+func rejectAmbiguousMultiSignature(mode *tx.ModeInfo, sig []byte, resolver jsonpb.AnyResolver) error {
+	multi := mode.GetMulti()
+	if multi == nil {
+		return nil
+	}
+	selected, err := selectedBits(multi.Bitarray)
+	if err != nil {
+		return err
+	}
+	if len(multi.ModeInfos) != selected {
+		return fmt.Errorf("multisignature has %d mode infos for %d selected keys", len(multi.ModeInfos), selected)
+	}
+	if err := unknownproto.RejectAmbiguousEncoding(sig, &cryptotypes.MultiSignature{}, resolver); err != nil {
+		return err
+	}
+	// The walk accepted sig, so it holds only signatures (field 1). Read them
+	// in place: Unmarshal would copy the signatures at each level of nesting.
+	n := 0
+	for rest := sig; len(rest) > 0; n++ {
+		_, _, tagLen := protowire.ConsumeTag(rest)
+		if tagLen < 0 {
+			return protowire.ParseError(tagLen)
+		}
+		inner, innerLen := protowire.ConsumeBytes(rest[tagLen:])
+		if innerLen < 0 {
+			return protowire.ParseError(innerLen)
+		}
+		rest = rest[tagLen+innerLen:]
+		if n < len(multi.ModeInfos) {
+			if err := rejectAmbiguousMultiSignature(multi.ModeInfos[n], inner, resolver); err != nil {
+				return err
+			}
+		}
+	}
+	if n != len(multi.ModeInfos) {
+		return fmt.Errorf("multisignature has %d signatures for %d mode infos", n, len(multi.ModeInfos))
+	}
+	return nil
+}
+
+// selectedBits returns the number of set bits in bits. It rejects a bit array
+// that the multisig verifier would read the same way as a different one: an
+// ExtraBitsStored that is not below 8 or that has no byte to hold it, or a set
+// padding bit after the last logical bit.
+func selectedBits(bits *cryptotypes.CompactBitArray) (int, error) {
+	if bits == nil {
+		return 0, nil
+	}
+	extra := bits.ExtraBitsStored
+	if extra >= 8 {
+		return 0, fmt.Errorf("bit array has %d extra bits stored, want less than 8", extra)
+	}
+	if extra > 0 {
+		if len(bits.Elems) == 0 {
+			return 0, fmt.Errorf("bit array has %d extra bits stored and no elems", extra)
+		}
+		if padding := bits.Elems[len(bits.Elems)-1] & (0xff >> extra); padding != 0 {
+			return 0, fmt.Errorf("bit array has nonzero padding bits %#x", padding)
+		}
+	}
+	n := 0
+	for _, b := range bits.Elems {
+		n += mathbits.OnesCount8(b)
+	}
+	return n, nil
 }
 
 // DefaultJSONTxDecoder returns a default protobuf JSON TxDecoder using the provided Marshaler.

@@ -189,7 +189,7 @@ func (app *BaseApp) BeginBlock(req abci.RequestBeginBlock) (res abci.ResponseBeg
 
 	if app.beginBlocker != nil {
 		res = app.beginBlocker(app.deliverState.ctx, req)
-		res.Events = sdk.MarkEventsToIndex(res.Events, app.indexEvents)
+		res.Events = app.celestiaMarkEventsToIndex(res.Events)
 	}
 	// set the signed validators for addition to context in deliverTx
 	app.voteInfos = req.LastCommitInfo.GetVotes()
@@ -212,7 +212,7 @@ func (app *BaseApp) EndBlock(req abci.RequestEndBlock) (res abci.ResponseEndBloc
 
 	if app.endBlocker != nil {
 		res = app.endBlocker(app.deliverState.ctx, req)
-		res.Events = sdk.MarkEventsToIndex(res.Events, app.indexEvents)
+		res.Events = app.celestiaMarkEventsToIndex(res.Events)
 	}
 
 	if cp := app.GetConsensusParams(app.deliverState.ctx); cp != nil {
@@ -291,7 +291,7 @@ func (app *BaseApp) DeliverTx(req abci.RequestDeliverTx) (res abci.ResponseDeliv
 	gInfo, result, anteEvents, _, err := app.runTx(runTxModeDeliver, req.Tx)
 	if err != nil {
 		resultStr = "failed"
-		return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(anteEvents, app.indexEvents), app.trace)
+		return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, app.celestiaMarkEventsToIndex(anteEvents), app.trace)
 	}
 
 	return abci.ResponseDeliverTx{
@@ -299,7 +299,7 @@ func (app *BaseApp) DeliverTx(req abci.RequestDeliverTx) (res abci.ResponseDeliv
 		GasUsed:   int64(gInfo.GasUsed),   // TODO: Should type accept unsigned ints?
 		Log:       result.Log,
 		Data:      result.Data,
-		Events:    sdk.MarkEventsToIndex(result.Events, app.indexEvents),
+		Events:    app.celestiaMarkEventsToIndex(result.Events),
 	}
 }
 

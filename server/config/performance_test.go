@@ -11,6 +11,7 @@ import (
 func TestPerformanceConfigDefaultsAndTemplate(t *testing.T) {
 	cfg := DefaultConfig()
 	require.True(t, cfg.Performance.ExecutionCaches)
+	require.False(t, cfg.Performance.BlocksyncEventsOff)
 
 	var buf bytes.Buffer
 	require.NoError(t, configTemplate.Execute(&buf, cfg))

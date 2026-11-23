@@ -464,6 +464,7 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 		baseapp.SetIAVLDisableFastNode(cast.ToBool(appOpts.Get(FlagDisableIAVLFastNode))),
 		baseapp.SetIAVLLazyLoading(cast.ToBool(appOpts.Get(FlagIAVLLazyLoading))),
 		baseapp.SetExecutionCaches(boolDefaultTrue(appOpts, FlagExecutionCaches)),
+		baseapp.SetBlocksyncEventsOff(cast.ToBool(appOpts.Get(FlagBlocksyncEventsOff))),
 	}
 }
 

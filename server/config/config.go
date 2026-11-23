@@ -257,6 +257,10 @@ type PerformanceConfig struct {
 	// ExecutionCaches memoizes decodes (params, validators, bech32) after the
 	// store read, so gas and results are unchanged.
 	ExecutionCaches bool `mapstructure:"execution-caches"`
+	// BlocksyncEventsOff drops unhashed event and log details from block
+	// responses. Off by default: only for nodes that serve no tx or event
+	// queries (indexer = "null").
+	BlocksyncEventsOff bool `mapstructure:"blocksync-events-off"`
 }
 
 // SetMinGasPrices sets the validator's minimum gas prices.

@@ -246,6 +246,17 @@ type Config struct {
 	StateSync StateSyncConfig  `mapstructure:"state-sync"`
 	Store     StoreConfig      `mapstructure:"store"`
 	Streamers StreamersConfig  `mapstructure:"streamers"`
+
+	// Performance holds speedups that never change the app hash.
+	Performance PerformanceConfig `mapstructure:"performance"`
+}
+
+// PerformanceConfig holds speedups that never change the app hash, events or
+// gas. Each can be turned off if it causes operational issues.
+type PerformanceConfig struct {
+	// ExecutionCaches memoizes decodes (params, validators, bech32) after the
+	// store read, so gas and results are unchanged.
+	ExecutionCaches bool `mapstructure:"execution-caches"`
 }
 
 // SetMinGasPrices sets the validator's minimum gas prices.
@@ -341,6 +352,9 @@ func DefaultConfig() *Config {
 				// in face of system crash.
 				Fsync: false,
 			},
+		},
+		Performance: PerformanceConfig{
+			ExecutionCaches: true,
 		},
 	}
 }

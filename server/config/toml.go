@@ -262,6 +262,16 @@ stop-node-on-error = "{{ .Streamers.File.StopNodeOnError }}"
 
 # fsync specifies if call fsync after writing the files.
 fsync = "{{ .Streamers.File.Fsync }}"
+
+###############################################################################
+###                         Performance                                     ###
+###############################################################################
+
+# Speedups that never change the app hash, events or gas. A missing key means true.
+[performance]
+
+# Memoize decodes (params, validators, bech32 addresses) after each store read.
+execution-caches = {{ .Performance.ExecutionCaches }}
 `
 
 var configTemplate *template.Template

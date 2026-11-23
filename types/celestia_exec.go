@@ -19,6 +19,17 @@ func SetExecutionCaches(on bool) { executionCachesOff.Store(!on) }
 // ExecutionCachesEnabled reports whether the execution caches are on.
 func ExecutionCachesEnabled() bool { return !executionCachesOff.Load() }
 
+// blocksyncEventsOff drops event index flags and distribution amount strings
+// from FinalizeBlock responses (app.toml [performance] blocksync-events-off).
+// Off by default: it changes what the indexer and RPC clients see.
+var blocksyncEventsOff atomic.Bool
+
+// SetBlocksyncEventsOff turns blocksync-events-off on or off.
+func SetBlocksyncEventsOff(on bool) { blocksyncEventsOff.Store(on) }
+
+// BlocksyncEventsOff reports whether blocksync-events-off is on.
+func BlocksyncEventsOff() bool { return blocksyncEventsOff.Load() }
+
 // CelestiaDecodeMemo memoizes the decode of a single store value (e.g. a
 // module's params). The caller always does the store read itself, so gas is
 // unchanged, and only Puts successful decodes.

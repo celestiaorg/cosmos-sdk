@@ -67,7 +67,8 @@ const (
 
 	// KeyReadOnlyLoad is set internally by commands that only read the
 	// application DB (export, rollback): loading it must not repair it.
-	KeyReadOnlyLoad = "celestia-internal.read-only-load"
+	KeyReadOnlyLoad    = "celestia-internal.read-only-load"
+	FlagParallelCommit = "performance.parallel-commit"
 
 	// state sync-related flags
 	FlagStateSyncSnapshotInterval   = "state-sync.snapshot-interval"

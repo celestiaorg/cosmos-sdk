@@ -1072,7 +1072,22 @@ func TestCommitStores(t *testing.T) {
 			store.Committed = 0
 			var version int64 = 1
 			removalMap := map[types.StoreKey]bool{}
-			res := commitStores(version, storeMap, removalMap)
+			res := commitStores(version, storeMap, removalMap, false)
+			for _, s := range res.StoreInfos {
+				require.Equal(t, version, s.CommitId.Version)
+			}
+			require.Equal(t, version, res.Version)
+			require.Equal(t, tc.exptectCommit, store.Committed)
+		})
+		t.Run(tc.name+" (parallel)", func(t *testing.T) {
+			storeMap := prepareStoreMap()
+			store := storeMap[testStoreKey1].(*commitKVStoreStub)
+			for i := tc.committed; i > 0; i-- {
+				store.Commit()
+			}
+			store.Committed = 0
+			var version int64 = 1
+			res := commitStores(version, storeMap, map[types.StoreKey]bool{}, true)
 			for _, s := range res.StoreInfos {
 				require.Equal(t, version, s.CommitId.Version)
 			}

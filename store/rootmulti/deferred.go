@@ -350,7 +350,7 @@ func (rs *Store) commitDeferred() types.CommitID {
 	}
 
 	// soft commits: hashes computed, nothing written
-	rs.lastCommitInfo = commitStores(version, rs.stores, rs.removalMap)
+	rs.lastCommitInfo = commitStores(version, rs.stores, rs.removalMap, rs.parallelCommit)
 
 	leave := rs.deferred.notCatchingUp
 	flush := leave || rs.deferred.forceNext ||

@@ -470,6 +470,7 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 		baseapp.SetSignaturePreverify(boolOrDefault(appOpts.Get(FlagSignaturePreverify), true)),
 		baseapp.SetStoreRepairAhead(!cast.ToBool(appOpts.Get(KeyReadOnlyLoad))),
 		baseapp.SetDeferredPersistence(deferredPersistenceOptions(appOpts)),
+		baseapp.SetParallelCommit(boolDefaultTrue(appOpts, FlagParallelCommit)),
 	}
 }
 
@@ -489,6 +490,11 @@ func deferredPersistenceOptions(appOpts types.AppOptions) (string, int64, uint64
 		interval = cast.ToInt64(v)
 	}
 	return mode, interval, cast.ToUint64(appOpts.Get(FlagStateSyncSnapshotInterval))
+}
+
+// boolDefaultTrue reads a bool option that is on unless set to false.
+func boolDefaultTrue(appOpts types.AppOptions, key string) bool {
+	return boolOrDefault(appOpts.Get(key), true)
 }
 
 // boolOrDefault returns v as a bool, or def if the key is not set (nil), so a

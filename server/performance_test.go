@@ -52,3 +52,12 @@ func TestDeferredPersistenceOptions(t *testing.T) {
 	mode, _, _ = deferredPersistenceOptions(v)
 	require.Equal(t, rootmulti.DeferredOff, mode)
 }
+
+func TestBoolDefaultTrue(t *testing.T) {
+	v := viper.New()
+	require.True(t, boolDefaultTrue(v, FlagParallelCommit), "a missing key means true")
+	v.Set(FlagParallelCommit, false)
+	require.False(t, boolDefaultTrue(v, FlagParallelCommit))
+	v.Set(FlagParallelCommit, "true")
+	require.True(t, boolDefaultTrue(v, FlagParallelCommit))
+}

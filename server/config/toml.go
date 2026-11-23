@@ -70,7 +70,7 @@ inter-block-cache = {{ .BaseConfig.InterBlockCache }}
 # ["message.sender", "message.recipient"]
 index-events = [{{ range .BaseConfig.IndexEvents }}{{ printf "%q, " . }}{{end}}]
 
-# IavlCacheSize set the size of the iavl tree cache. 
+# IavlCacheSize set the size of the iavl tree cache, in nodes per store (at most 100000000).
 # Default cache size is 50mb.
 iavl-cache-size = {{ .BaseConfig.IAVLCacheSize }}
 
@@ -258,6 +258,9 @@ deferred-persistence = "{{ .Performance.DeferredPersistence }}"
 
 # deferred-flush-interval is the number of blocks between flushes (2-1000); bounds memory and shutdown time.
 deferred-flush-interval = {{ .Performance.DeferredFlushInterval }}
+
+# parallel-commit writes and commits the stores in parallel.
+parallel-commit = {{ .Performance.ParallelCommit }}
 
 ###############################################################################
 ###                         Store / State Streaming                         ###

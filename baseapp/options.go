@@ -67,6 +67,13 @@ func SetIAVLCacheSize(size int) func(*BaseApp) {
 	return func(bapp *BaseApp) { bapp.cms.SetIAVLCacheSize(size) }
 }
 
+// SetBlocksyncEventsOff makes deliver-mode responses skip unhashed event and
+// log details (see sdk.SetBlocksyncEventsOff). Only for nodes that serve no
+// tx or event queries.
+func SetBlocksyncEventsOff(off bool) func(*BaseApp) {
+	return func(*BaseApp) { sdk.SetBlocksyncEventsOff(off) }
+}
+
 // SetExecutionCaches turns the execution caches on or off for the process
 // (see sdk.ExecutionCachesEnabled). Gas and results do not change.
 func SetExecutionCaches(enabled bool) func(*BaseApp) {

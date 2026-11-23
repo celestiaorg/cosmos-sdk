@@ -272,6 +272,12 @@ fsync = "{{ .Streamers.File.Fsync }}"
 
 # Memoize decodes (params, validators, bech32 addresses) after each store read.
 execution-caches = {{ .Performance.ExecutionCaches }}
+
+# Drop event index flags, the DeliverTx log and distribution amount strings from
+# block responses. None are hashed, but the tx indexer and RPC clients read them:
+# enable only on a syncing node that serves no queries (indexer = "null"). A
+# missing key means false.
+blocksync-events-off = {{ .Performance.BlocksyncEventsOff }}
 `
 
 var configTemplate *template.Template

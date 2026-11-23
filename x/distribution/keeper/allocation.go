@@ -118,7 +118,7 @@ func (k Keeper) AllocateTokensToValidator(ctx sdk.Context, val stakingtypes.Vali
 	ctx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			types.EventTypeCommission,
-			sdk.NewAttribute(sdk.AttributeKeyAmount, commission.String()),
+			sdk.NewAttribute(sdk.AttributeKeyAmount, eventDecCoins(commission)),
 			sdk.NewAttribute(types.AttributeKeyValidator, operator.String()),
 		),
 	)
@@ -135,7 +135,7 @@ func (k Keeper) AllocateTokensToValidator(ctx sdk.Context, val stakingtypes.Vali
 	ctx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			types.EventTypeRewards,
-			sdk.NewAttribute(sdk.AttributeKeyAmount, tokens.String()),
+			sdk.NewAttribute(sdk.AttributeKeyAmount, eventDecCoins(tokens)),
 			sdk.NewAttribute(types.AttributeKeyValidator, operator.String()),
 		),
 	)
@@ -143,4 +143,14 @@ func (k Keeper) AllocateTokensToValidator(ctx sdk.Context, val stakingtypes.Vali
 	outstanding := k.GetValidatorOutstandingRewards(ctx, operator)
 	outstanding.Rewards = outstanding.Rewards.Add(tokens...)
 	k.SetValidatorOutstandingRewards(ctx, operator, outstanding)
+}
+
+// eventDecCoins renders an event amount attribute. With
+// sdk.BlocksyncEventsOff the (costly, never hashed, never read by state logic)
+// DecCoins string is left empty; the event and its keys are unchanged.
+func eventDecCoins(c sdk.DecCoins) string {
+	if sdk.BlocksyncEventsOff() {
+		return ""
+	}
+	return c.String()
 }

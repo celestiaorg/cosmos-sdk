@@ -62,6 +62,8 @@ const (
 
 	// app.toml [performance] keys; a missing key means true.
 	FlagExecutionCaches = "performance.execution-caches"
+	// FlagBlocksyncEventsOff is off by default (sync-only).
+	FlagBlocksyncEventsOff = "performance.blocksync-events-off"
 
 	// state sync-related flags
 	FlagStateSyncSnapshotInterval   = "state-sync.snapshot-interval"

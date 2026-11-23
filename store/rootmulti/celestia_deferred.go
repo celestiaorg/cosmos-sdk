@@ -81,10 +81,9 @@ type deferredDriver struct {
 	now        func() time.Time // wall clock: persistence timing only
 
 	active    atomic.Bool
-	mu        sync.Mutex // serialises Commit and flushes
+	mu        sync.Mutex // orders Commit and flushes
 	forceNext bool
 	flushed   int64 // version recorded in the commit metadata
-	planNoted bool
 }
 
 // SetDeferredPersistence sets the deferred persistence mode and the number of
@@ -189,7 +188,7 @@ func (rs *Store) ForceFlushNextCommit() {
 }
 
 // FlushDeferred durably writes the last soft-committed version. Safe to call
-// mid-block and from another goroutine; it is serialised with Commit.
+// mid-block and from another goroutine; it never runs at the same time as Commit.
 func (rs *Store) FlushDeferred() error {
 	return rs.flushDeferredWait(0)
 }

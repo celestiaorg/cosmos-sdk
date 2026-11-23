@@ -383,7 +383,6 @@ type FileReader struct {
 	f    *os.File
 	zr   *zstd.Decoder
 	r    *bufio.Reader
-	buf  []byte
 }
 
 // OpenFile opens a .bin or .bin.zst changeset file.

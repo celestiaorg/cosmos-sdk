@@ -65,6 +65,11 @@ type BaseApp struct { // nolint: maligned
 	interfaceRegistry codectypes.InterfaceRegistry
 	txDecoder         sdk.TxDecoder // unmarshal []byte into sdk.Tx
 
+	// batchSigPreverifier warms the signature cache for a DeliverTx batch when
+	// sigPreverify is set (see batch_preverify.go).
+	batchSigPreverifier func(ctx sdk.Context, txs []sdk.Tx)
+	sigPreverify        bool
+
 	anteHandler sdk.AnteHandler // ante handler for fee and auth
 	postHandler sdk.AnteHandler // post handler, optional, e.g. for tips
 

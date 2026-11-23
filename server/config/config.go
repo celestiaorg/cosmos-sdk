@@ -246,6 +246,17 @@ type Config struct {
 	StateSync StateSyncConfig  `mapstructure:"state-sync"`
 	Store     StoreConfig      `mapstructure:"store"`
 	Streamers StreamersConfig  `mapstructure:"streamers"`
+
+	// Performance holds speedups that never change results (app hash, events,
+	// gas). A key missing from app.toml means its default.
+	Performance PerformanceConfig `mapstructure:"performance"`
+}
+
+// PerformanceConfig defines the [performance] section of app.toml.
+type PerformanceConfig struct {
+	// SignaturePreverify verifies a block's secp256k1 signatures in parallel
+	// before DeliverTx and caches the valid ones.
+	SignaturePreverify bool `mapstructure:"signature-preverify"`
 }
 
 // SetMinGasPrices sets the validator's minimum gas prices.
@@ -330,6 +341,9 @@ func DefaultConfig() *Config {
 		},
 		Store: StoreConfig{
 			Streamers: []string{},
+		},
+		Performance: PerformanceConfig{
+			SignaturePreverify: true,
 		},
 		Streamers: StreamersConfig{
 			File: FileStreamerConfig{

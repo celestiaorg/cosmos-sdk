@@ -463,7 +463,17 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 		baseapp.SetIAVLCacheSize(cast.ToInt(appOpts.Get(FlagIAVLCacheSize))),
 		baseapp.SetIAVLDisableFastNode(cast.ToBool(appOpts.Get(FlagDisableIAVLFastNode))),
 		baseapp.SetIAVLLazyLoading(cast.ToBool(appOpts.Get(FlagIAVLLazyLoading))),
+		baseapp.SetSignaturePreverify(boolOrDefault(appOpts.Get(FlagSignaturePreverify), true)),
 	}
+}
+
+// boolOrDefault returns v as a bool, or def if the key is not set (nil), so a
+// key missing from an older app.toml keeps its default.
+func boolOrDefault(v interface{}, def bool) bool {
+	if v == nil {
+		return def
+	}
+	return cast.ToBool(v)
 }
 
 func GetSnapshotStore(appOpts types.AppOptions) (*snapshots.Store, error) {

@@ -25,3 +25,9 @@ func (privKey *PrivKey) Sign(msg []byte) ([]byte, error) {
 func (pubKey *PubKey) VerifySignature(msg []byte, sigStr []byte) bool {
 	return secp256k1.VerifySignature(pubKey.Bytes(), crypto.Sha256(msg), sigStr)
 }
+
+// verifySignatureUncached is VerifySignature; the libsecp256k1 path does not
+// use the pre-verification cache.
+func (pubKey *PubKey) verifySignatureUncached(msg []byte, sigStr []byte) bool {
+	return pubKey.VerifySignature(msg, sigStr)
+}

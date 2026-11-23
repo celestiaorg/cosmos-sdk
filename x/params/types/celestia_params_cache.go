@@ -2,8 +2,8 @@ package types
 
 import (
 	"bytes"
+	"reflect"
 	"sync"
-	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -12,164 +12,58 @@ import (
 // memo of amino-JSON param decodes keyed by (subspace name, key). The store read
 // is always done by the caller (gas unchanged); a memoized value is used only if
 // the raw bytes just read are byte-identical to the bytes it was decoded from and
-// the destination has the same concrete type. Only a whitelist of value types is
-// memoized (scalars, string, time.Duration, sdk.Dec); Dec is returned as a
+// the destination has the same type. Only scalars (bool, string, integer kinds
+// such as time.Duration) and sdk.Dec are memoized; Dec is returned as a
 // fresh copy (sdk.Int is excluded: its UnmarshalJSON writes into an existing
 // big.Int, which a memo could not reproduce). Everything else takes the normal decode.
 const celestiaParamsCacheMax = 4096
 
 type paramsCacheEntry struct {
 	raw []byte
-	val interface{} // dereferenced value, private copy
+	val reflect.Value // private copy of the decoded value
 }
 
 var (
 	paramsCacheMu sync.Mutex
 	paramsCache   = make(map[string]paramsCacheEntry)
+
+	decType = reflect.TypeOf(sdk.Dec{})
 )
 
 func paramsCacheKey(name, key []byte) string {
 	return string(name) + "/" + string(key)
 }
 
-// celestiaCopyParam copies a whitelisted dereferenced value (deep for Dec).
-func celestiaCopyParam(v interface{}) (interface{}, bool) {
-	switch x := v.(type) {
-	case bool, string, int64, uint64, int32, uint32, int, uint, int16, uint16, int8, uint8, time.Duration:
-		return x, true
-	case sdk.Dec:
-		if x.IsNil() {
-			return x, true
-		}
-		return x.Clone(), true
+// memoizable reports whether ptr points to a value the memo can copy
+// exactly: a scalar (bool, string, integer kinds such as time.Duration) or
+// an sdk.Dec, which is cloned.
+func memoizable(ptr interface{}) (reflect.Value, bool) {
+	rv := reflect.ValueOf(ptr)
+	if rv.Kind() != reflect.Ptr || rv.IsNil() {
+		return reflect.Value{}, false
 	}
-	return nil, false
+	t := rv.Elem().Type()
+	if t == decType {
+		return rv.Elem(), true
+	}
+	switch t.Kind() {
+	case reflect.Bool, reflect.String,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return rv.Elem(), true
+	}
+	return reflect.Value{}, false
 }
 
-// celestiaDeref returns *ptr for whitelisted pointer types.
-func celestiaDeref(ptr interface{}) (interface{}, bool) {
-	switch p := ptr.(type) {
-	case *bool:
-		return *p, true
-	case *string:
-		return *p, true
-	case *int64:
-		return *p, true
-	case *uint64:
-		return *p, true
-	case *int32:
-		return *p, true
-	case *uint32:
-		return *p, true
-	case *int:
-		return *p, true
-	case *uint:
-		return *p, true
-	case *int16:
-		return *p, true
-	case *uint16:
-		return *p, true
-	case *int8:
-		return *p, true
-	case *uint8:
-		return *p, true
-	case *time.Duration:
-		return *p, true
-	case *sdk.Dec:
-		return *p, true
+// copyParam returns a copy of v sharing no memory with it.
+func copyParam(v reflect.Value) reflect.Value {
+	if d, ok := v.Interface().(sdk.Dec); ok {
+		if d.IsNil() {
+			return reflect.ValueOf(d)
+		}
+		return reflect.ValueOf(d.Clone())
 	}
-	return nil, false
-}
-
-// celestiaAssign sets *ptr = v if the types match exactly.
-func celestiaAssign(ptr, v interface{}) bool {
-	switch p := ptr.(type) {
-	case *bool:
-		x, ok := v.(bool)
-		if ok {
-			*p = x
-		}
-		return ok
-	case *string:
-		x, ok := v.(string)
-		if ok {
-			*p = x
-		}
-		return ok
-	case *int64:
-		x, ok := v.(int64)
-		if ok {
-			*p = x
-		}
-		return ok
-	case *uint64:
-		x, ok := v.(uint64)
-		if ok {
-			*p = x
-		}
-		return ok
-	case *int32:
-		x, ok := v.(int32)
-		if ok {
-			*p = x
-		}
-		return ok
-	case *uint32:
-		x, ok := v.(uint32)
-		if ok {
-			*p = x
-		}
-		return ok
-	case *int:
-		x, ok := v.(int)
-		if ok {
-			*p = x
-		}
-		return ok
-	case *uint:
-		x, ok := v.(uint)
-		if ok {
-			*p = x
-		}
-		return ok
-	case *int16:
-		x, ok := v.(int16)
-		if ok {
-			*p = x
-		}
-		return ok
-	case *uint16:
-		x, ok := v.(uint16)
-		if ok {
-			*p = x
-		}
-		return ok
-	case *int8:
-		x, ok := v.(int8)
-		if ok {
-			*p = x
-		}
-		return ok
-	case *uint8:
-		x, ok := v.(uint8)
-		if ok {
-			*p = x
-		}
-		return ok
-	case *time.Duration:
-		x, ok := v.(time.Duration)
-		if ok {
-			*p = x
-		}
-		return ok
-	case *sdk.Dec:
-		x, ok := v.(sdk.Dec)
-		if ok {
-			*p = x
-		}
-		return ok
-	}
-	return false
+	return reflect.ValueOf(v.Interface())
 }
 
 // celestiaParamsCacheGet fills ptr from the memo if bz matches; it reports
@@ -178,17 +72,18 @@ func (s Subspace) celestiaParamsCacheGet(key, bz []byte, ptr interface{}) bool {
 	if !sdk.ExecutionCachesEnabled() || bz == nil {
 		return false
 	}
-	paramsCacheMu.Lock()
-	e, ok := paramsCache[paramsCacheKey(s.name, key)]
-	paramsCacheMu.Unlock()
-	if !ok || !bytes.Equal(e.raw, bz) {
-		return false
-	}
-	v, ok := celestiaCopyParam(e.val)
+	dst, ok := memoizable(ptr)
 	if !ok {
 		return false
 	}
-	return celestiaAssign(ptr, v)
+	paramsCacheMu.Lock()
+	e, ok := paramsCache[paramsCacheKey(s.name, key)]
+	paramsCacheMu.Unlock()
+	if !ok || e.val.Type() != dst.Type() || !bytes.Equal(e.raw, bz) {
+		return false
+	}
+	dst.Set(copyParam(e.val))
+	return true
 }
 
 // celestiaParamsCachePut memoizes the value just decoded from bz into ptr.
@@ -196,14 +91,11 @@ func (s Subspace) celestiaParamsCachePut(key, bz []byte, ptr interface{}) {
 	if !sdk.ExecutionCachesEnabled() || bz == nil {
 		return
 	}
-	v, ok := celestiaDeref(ptr)
+	src, ok := memoizable(ptr)
 	if !ok {
 		return
 	}
-	if v, ok = celestiaCopyParam(v); !ok {
-		return
-	}
-	e := paramsCacheEntry{raw: append([]byte(nil), bz...), val: v}
+	e := paramsCacheEntry{raw: append([]byte(nil), bz...), val: copyParam(src)}
 	paramsCacheMu.Lock()
 	if len(paramsCache) >= celestiaParamsCacheMax {
 		paramsCache = make(map[string]paramsCacheEntry)

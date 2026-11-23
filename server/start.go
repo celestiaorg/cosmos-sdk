@@ -60,6 +60,9 @@ const (
 	FlagDisableIAVLFastNode = "iavl-disable-fastnode"
 	FlagIAVLLazyLoading     = "iavl-lazy-loading"
 
+	// [performance] section of app.toml (no command-line flags)
+	FlagSignaturePreverify = "performance.signature-preverify"
+
 	// state sync-related flags
 	FlagStateSyncSnapshotInterval   = "state-sync.snapshot-interval"
 	FlagStateSyncSnapshotKeepRecent = "state-sync.snapshot-keep-recent"

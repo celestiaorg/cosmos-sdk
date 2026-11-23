@@ -241,6 +241,17 @@ snapshot-interval = {{ .StateSync.SnapshotInterval }}
 snapshot-keep-recent = {{ .StateSync.SnapshotKeepRecent }}
 
 ###############################################################################
+###                              Performance                                ###
+###############################################################################
+
+# Speedups that never change results (app hash, events, gas). A missing key
+# means its default.
+[performance]
+
+# signature-preverify verifies a block's secp256k1 signatures in parallel before executing it.
+signature-preverify = {{ .Performance.SignaturePreverify }}
+
+###############################################################################
 ###                         Store / State Streaming                         ###
 ###############################################################################
 

@@ -22,6 +22,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/cachemulti"
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
 	"github.com/cosmos/cosmos-sdk/store/iavl"
+	"github.com/cosmos/cosmos-sdk/store/internal/parallel"
 	"github.com/cosmos/cosmos-sdk/store/listenkv"
 	"github.com/cosmos/cosmos-sdk/store/mem"
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
@@ -1072,34 +1073,28 @@ func GetLatestVersion(db dbm.DB) int64 {
 }
 
 // Commits each store and returns a new commitInfo.
-func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore, removalMap map[types.StoreKey]bool, parallel bool) *types.CommitInfo {
-	storeInfos := make([]types.StoreInfo, 0, len(storeMap))
-
-	if parallel && len(storeMap) > 1 {
-		return commitStoresParallel(version, storeMap, removalMap)
+func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore, removalMap map[types.StoreKey]bool, parallelCommit bool) *types.CommitInfo {
+	keys := make([]types.StoreKey, 0, len(storeMap))
+	for key := range storeMap {
+		keys = append(keys, key)
+	}
+	commitIDs := make([]types.CommitID, len(keys))
+	commit := func(i int) { commitIDs[i] = commitStore(version, storeMap[keys[i]]) }
+	if parallelCommit && len(keys) > 1 {
+		// Substores are independent trees, and the infos are sorted below.
+		parallel.Run(len(keys), commit)
+	} else {
+		for i := range keys {
+			commit(i)
+		}
 	}
 
-	for key, store := range storeMap {
-		last := store.LastCommitID()
-
-		// If a commit event execution is interrupted, a new iavl store's version will be larger than the rootmulti's metadata, when the block is replayed, we should avoid committing that iavl store again.
-		var commitID types.CommitID
-		if last.Version >= version {
-			last.Version = version
-			commitID = last
-		} else {
-			commitID = store.Commit()
-		}
-		if store.GetStoreType() == types.StoreTypeTransient {
+	storeInfos := make([]types.StoreInfo, 0, len(storeMap))
+	for i, key := range keys {
+		if storeMap[key].GetStoreType() == types.StoreTypeTransient || removalMap[key] {
 			continue
 		}
-
-		if !removalMap[key] {
-			si := types.StoreInfo{}
-			si.Name = key.Name()
-			si.CommitId = commitID
-			storeInfos = append(storeInfos, si)
-		}
+		storeInfos = append(storeInfos, types.StoreInfo{Name: key.Name(), CommitId: commitIDs[i]})
 	}
 
 	sort.SliceStable(storeInfos, func(i, j int) bool {
@@ -1110,6 +1105,18 @@ func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore
 		Version:    version,
 		StoreInfos: storeInfos,
 	}
+}
+
+// commitStore commits one substore at version and returns its CommitID.
+func commitStore(version int64, store types.CommitKVStore) types.CommitID {
+	last := store.LastCommitID()
+
+	// If a commit event execution is interrupted, a new iavl store's version will be larger than the rootmulti's metadata, when the block is replayed, we should avoid committing that iavl store again.
+	if last.Version >= version {
+		last.Version = version
+		return last
+	}
+	return store.Commit()
 }
 
 func (rs *Store) GetCommitInfo(ver int64) (*types.CommitInfo, error) {

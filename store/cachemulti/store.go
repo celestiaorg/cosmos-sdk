@@ -3,12 +3,12 @@ package cachemulti
 import (
 	"fmt"
 	"io"
-	"sync"
 
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
+	"github.com/cosmos/cosmos-sdk/store/internal/parallel"
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
 	"github.com/cosmos/cosmos-sdk/store/types"
 )
@@ -146,31 +146,11 @@ func WithParallelWrite(cms Store) Store {
 // writeParallel writes every store on its own goroutine and re-raises the
 // first panic in the caller.
 func (cms Store) writeParallel() {
-	var (
-		wg       sync.WaitGroup
-		panicMu  sync.Mutex
-		panicVal any
-	)
+	stores := make([]types.CacheWrap, 0, len(cms.stores))
 	for _, store := range cms.stores {
-		wg.Add(1)
-		go func(st types.CacheWrap) {
-			defer wg.Done()
-			defer func() {
-				if r := recover(); r != nil {
-					panicMu.Lock()
-					if panicVal == nil {
-						panicVal = r
-					}
-					panicMu.Unlock()
-				}
-			}()
-			st.Write()
-		}(store)
+		stores = append(stores, store)
 	}
-	wg.Wait()
-	if panicVal != nil {
-		panic(panicVal)
-	}
+	parallel.Run(len(stores), func(i int) { stores[i].Write() })
 }
 
 // Implements CacheWrapper.

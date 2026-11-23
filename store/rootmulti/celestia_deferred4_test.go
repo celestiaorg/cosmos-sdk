@@ -63,16 +63,19 @@ func TestCelestiaDeferredPruneWaitsForReaders(t *testing.T) {
 	st := ms.GetCommitKVStore(testStoreKey1).(*iavl.Store)
 	exp, err := st.Export(5)
 	require.NoError(t, err)
-	for h := int64(6); h <= 9; h++ { // periodic flush at 6 and 9
-		commitBlock(ms, r, h)
-	}
-	_, err = st.GetImmutable(5)
-	require.NoError(t, err, "version 5 is still being exported")
+	// Drain the export first: IAVL's exporter goroutine races with tree
+	// mutations on shared nodes (upstream, also without deferred mode). The
+	// exporter keeps version 5 registered as read until Close.
 	for {
 		if _, err := exp.Next(); err != nil {
 			break
 		}
 	}
+	for h := int64(6); h <= 9; h++ { // periodic flush at 6 and 9
+		commitBlock(ms, r, h)
+	}
+	_, err = st.GetImmutable(5)
+	require.NoError(t, err, "version 5 is still being exported")
 	exp.Close()
 	commitBlock(ms, r, 10)
 	commitBlock(ms, r, 11)

@@ -27,6 +27,8 @@ type Keeper struct {
 	bankKeeper types.BankKeeper
 	hooks      types.StakingHooks
 	paramstore paramtypes.Subspace
+
+	validatorCache *validatorCache // see sdk.ExecutionCachesEnabled
 }
 
 // NewKeeper creates a new staking Keeper instance
@@ -55,6 +57,8 @@ func NewKeeper(
 		bankKeeper: bk,
 		paramstore: ps,
 		hooks:      nil,
+
+		validatorCache: newValidatorCache(),
 	}
 }
 

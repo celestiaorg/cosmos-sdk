@@ -194,6 +194,18 @@ type Config struct {
 	StateSync StateSyncConfig  `mapstructure:"state-sync"`
 	Streaming StreamingConfig  `mapstructure:"streaming"`
 	Mempool   MempoolConfig    `mapstructure:"mempool"`
+
+	// Performance holds speedups that never change the app hash.
+	Performance PerformanceConfig `mapstructure:"performance"`
+}
+
+// PerformanceConfig holds speedups that never change the app hash, events or
+// gas. Each can be turned off if it causes operational issues.
+type PerformanceConfig struct {
+	// ParallelCommit writes, hashes and commits the stores concurrently.
+	ParallelCommit bool `mapstructure:"parallel-commit"`
+	// AsyncPruning prunes old IAVL versions in the background.
+	AsyncPruning bool `mapstructure:"async-pruning"`
 }
 
 // SetMinGasPrices sets the validator's minimum gas prices.
@@ -264,6 +276,10 @@ func DefaultConfig() *Config {
 		},
 		Mempool: MempoolConfig{
 			MaxTxs: -1,
+		},
+		Performance: PerformanceConfig{
+			ParallelCommit: true,
+			AsyncPruning:   true,
 		},
 	}
 }

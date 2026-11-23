@@ -62,7 +62,16 @@ func LoadStoreWithOpts(db dbm.DB, logger log.Logger, key types.StoreKey, id type
 	}
 	opts = append(opts, iavl.InitialVersionOption(initialVersion))
 	tree := iavl.NewMutableTree(wrapper.NewDBWrapper(db), cacheSize, disableFastNode, logger, opts...)
+	st, err := loadTree(tree, logger, key, id, initialVersion, metrics)
+	if err != nil {
+		// Stop the pruning goroutine of a tree we do not return.
+		_ = tree.Close()
+		return nil, err
+	}
+	return st, nil
+}
 
+func loadTree(tree *iavl.MutableTree, logger log.Logger, key types.StoreKey, id types.CommitID, initialVersion uint64, metrics metrics.StoreMetrics) (types.CommitKVStore, error) {
 	isUpgradeable, err := tree.IsUpgradeable()
 	if err != nil {
 		return nil, err
@@ -125,6 +134,14 @@ func (st *Store) GetImmutable(version int64) (*Store, error) {
 		tree:    &immutableTree{iTree},
 		metrics: st.metrics,
 	}, nil
+}
+
+// Close stops the tree's background pruning, if any. The DB stays open.
+func (st *Store) Close() error {
+	if t, ok := st.tree.(*iavl.MutableTree); ok {
+		return t.Close()
+	}
+	return nil
 }
 
 // Commit commits the current store state and returns a CommitID with the new

@@ -264,6 +264,11 @@ max-txs = {{ .Mempool.MaxTxs }}
 
 # Cache decoded validators and params during block execution.
 execution-caches = {{ .Performance.ExecutionCaches }}
+
+# Off by default. Drop event index flags and distribution amounts from block
+# results while syncing. Breaks the tx indexer and event-based clients
+# (relayers); only for nodes with indexer = "null".
+blocksync-events-off = {{ .Performance.BlocksyncEventsOff }}
 `
 
 var configTemplate *template.Template

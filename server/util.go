@@ -572,6 +572,7 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 		baseapp.SetChainID(chainID),
 		baseapp.SetQueryGasLimit(cast.ToUint64(appOpts.Get(FlagQueryGasLimit))),
 		func(*baseapp.BaseApp) { sdk.SetExecutionCaches(boolDefaultTrue(appOpts, FlagExecutionCaches)) },
+		func(*baseapp.BaseApp) { sdk.SetBlocksyncEventsOff(cast.ToBool(appOpts.Get(FlagBlocksyncEventsOff))) },
 		baseapp.SetSubspaceQueries(cast.ToBool(appOpts.Get(FlagEnableSubspaceQueries))),
 	}
 	if rollback {

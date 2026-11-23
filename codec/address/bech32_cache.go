@@ -1,6 +1,7 @@
 package address
 
 import (
+	"encoding/binary"
 	"hash/maphash"
 	"strings"
 	"sync"
@@ -32,7 +33,7 @@ type codecCache[V any] [codecCacheShards]codecCacheShard[V]
 var (
 	codecCacheSeed = maphash.MakeSeed()
 	decodeCache    codecCache[bech32Decoded] // text -> decoded
-	encodeCache    codecCache[string]        // prefix + "\x00" + bytes -> text
+	encodeCache    codecCache[string]        // uvarint(len(prefix)) + prefix + bytes -> text
 )
 
 func (c *codecCache[V]) get(k string) (V, bool) {
@@ -55,6 +56,10 @@ func (c *codecCache[V]) put(k string, v V) {
 	sh.mu.Unlock()
 }
 
+// encodeCacheKey length-prefixes the hrp so no two (prefix, bytes) pairs share a key.
 func encodeCacheKey(prefix string, bz []byte) string {
-	return prefix + "\x00" + string(bz)
+	k := make([]byte, 0, binary.MaxVarintLen64+len(prefix)+len(bz))
+	k = binary.AppendUvarint(k, uint64(len(prefix)))
+	k = append(k, prefix...)
+	return string(append(k, bz...))
 }

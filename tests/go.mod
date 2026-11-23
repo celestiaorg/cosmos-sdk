@@ -256,4 +256,4 @@ replace (
 	github.com/gin-gonic/gin => github.com/gin-gonic/gin v1.9.1
 )
 
-replace github.com/cosmos/iavl => github.com/celestiaorg/iavl v0.0.0-20261123122950-d1151f7a3855
+replace github.com/cosmos/iavl => github.com/celestiaorg/iavl v0.0.0-20261123150807-313fa8494cff

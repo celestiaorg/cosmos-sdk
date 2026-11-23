@@ -67,6 +67,12 @@ func SetIAVLCacheSize(size int) func(*BaseApp) {
 	return func(bapp *BaseApp) { bapp.cms.SetIAVLCacheSize(size) }
 }
 
+// SetExecutionCaches turns the execution caches on or off for the process
+// (see sdk.ExecutionCachesEnabled). Gas and results do not change.
+func SetExecutionCaches(enabled bool) func(*BaseApp) {
+	return func(*BaseApp) { sdk.SetExecutionCaches(enabled) }
+}
+
 // SetIAVLDisableFastNode enables(false)/disables(true) fast node usage from the IAVL store.
 func SetIAVLDisableFastNode(disable bool) func(*BaseApp) {
 	return func(bapp *BaseApp) { bapp.cms.SetIAVLDisableFastNode(disable) }

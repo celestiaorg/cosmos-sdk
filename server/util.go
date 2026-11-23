@@ -463,7 +463,17 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 		baseapp.SetIAVLCacheSize(cast.ToInt(appOpts.Get(FlagIAVLCacheSize))),
 		baseapp.SetIAVLDisableFastNode(cast.ToBool(appOpts.Get(FlagDisableIAVLFastNode))),
 		baseapp.SetIAVLLazyLoading(cast.ToBool(appOpts.Get(FlagIAVLLazyLoading))),
+		baseapp.SetExecutionCaches(boolDefaultTrue(appOpts, FlagExecutionCaches)),
 	}
+}
+
+// boolDefaultTrue reads a bool option that is on unless set to false.
+func boolDefaultTrue(appOpts types.AppOptions, key string) bool {
+	v := appOpts.Get(key)
+	if v == nil {
+		return true
+	}
+	return cast.ToBool(v)
 }
 
 func GetSnapshotStore(appOpts types.AppOptions) (*snapshots.Store, error) {

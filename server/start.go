@@ -60,6 +60,9 @@ const (
 	FlagDisableIAVLFastNode = "iavl-disable-fastnode"
 	FlagIAVLLazyLoading     = "iavl-lazy-loading"
 
+	// app.toml [performance] keys; a missing key means true.
+	FlagExecutionCaches = "performance.execution-caches"
+
 	// state sync-related flags
 	FlagStateSyncSnapshotInterval   = "state-sync.snapshot-interval"
 	FlagStateSyncSnapshotKeepRecent = "state-sync.snapshot-keep-recent"

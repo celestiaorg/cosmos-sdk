@@ -1,16 +1,19 @@
 package rootmulti
 
 import (
+	"fmt"
 	"math/rand"
 	"sync"
 	"testing"
 	"time"
 
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	dbm "github.com/cosmos/cosmos-db"
 	"github.com/cosmos/gogoproto/proto"
 	"github.com/stretchr/testify/require"
 
 	"cosmossdk.io/store/iavl"
+	snapshottypes "cosmossdk.io/store/snapshots/types"
 )
 
 // Commit never waits for a snapshot exporter, even on a mandatory flush.
@@ -44,12 +47,20 @@ func TestCelestiaDeferredCommitNeverWaits(t *testing.T) {
 
 type blockingWriter struct {
 	once    sync.Once
+	stores  int
 	started chan struct{}
 	release chan struct{}
 }
 
-func (w *blockingWriter) WriteMsg(proto.Message) error {
-	w.once.Do(func() { close(w.started); <-w.release })
+// WriteMsg blocks at the second store's header: the first store's export is
+// done and the later stores are not reached yet.
+func (w *blockingWriter) WriteMsg(m proto.Message) error {
+	if item, ok := m.(*snapshottypes.SnapshotItem); ok && item.GetStore() != nil {
+		w.stores++
+		if w.stores == 2 {
+			w.once.Do(func() { close(w.started); <-w.release })
+		}
+	}
 	return nil
 }
 func (w *blockingWriter) Close() error { return nil }
@@ -68,9 +79,11 @@ func TestCelestiaDeferredSnapshotKeepsAllStores(t *testing.T) {
 	w := &blockingWriter{started: make(chan struct{}), release: make(chan struct{})}
 	errc := make(chan error, 1)
 	go func() { errc <- ms.Snapshot(5, w) }()
-	<-w.started // exporting the first store; others not yet registered
+	<-w.started // the first store is exported; the others are not reached yet
 	for h := int64(6); h <= 9; h++ {
-		commitBlock(ms, r, h)
+		// Change only the exported store: IAVL's exporter races with
+		// mutations of the tree it reads (upstream, also without deferred mode).
+		commitStore1(ms, r, h)
 	}
 	st2 := ms.GetCommitKVStore(testStoreKey2).(*iavl.Store)
 	t.Logf("store2 has version 5: %v (versions %v)", st2.VersionExists(5), st2.GetAllVersions())
@@ -161,4 +174,12 @@ func TestCelestiaDeferredCloseNeverWaits(t *testing.T) {
 	t.Logf("close err=%v after %v; db latest=%d, app committed 8", err, time.Since(start), GetLatestVersion(db))
 	exp.Close()
 	require.Equal(t, int64(8), GetLatestVersion(db))
+}
+
+func commitStore1(ms *Store, r *rand.Rand, h int64) {
+	ms.SetCommitHeader(cmtproto.Header{Height: h, Time: headerTime(h)})
+	cms := ms.CacheMultiStore()
+	cms.GetKVStore(testStoreKey1).Set([]byte(fmt.Sprintf("k%03d", r.Intn(150))), []byte(fmt.Sprintf("v%d", h)))
+	cms.Write()
+	ms.Commit()
 }

@@ -270,7 +270,11 @@ async-pruning = {{ .Performance.AsyncPruning }}
 # While a DB holds deferred writes, an app-state rollback is refused.
 deferred-persistence = "{{ .Performance.DeferredPersistence }}"
 
-# Blocks between flushes in deferred mode. The node replays at most this many
+# "sync" turns on only for IAVL trees holding a single version (a fresh,
+# state-synced or deferred-written DB). A DB written with pruning keep-recent
+# above zero keeps its history and syncs without it; use pruning = "everything"
+# for a fast sync from genesis.
+# Blocks between flushes in deferred mode (0 uses the default). The node replays at most this many
 # blocks after a crash; unflushed nodes are capped at about 4 million (1-2 GB).
 deferred-flush-interval = {{ .Performance.DeferredFlushInterval }}
 `

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -91,6 +92,7 @@ type deferredDriver struct {
 // SetDeferredPersistence sets the deferred persistence mode and the number of
 // blocks between flushes. It applies from the next load.
 func (rs *Store) SetDeferredPersistence(mode string, flushInterval int64) error {
+	mode = strings.ToLower(strings.TrimSpace(mode))
 	switch mode {
 	case "", DeferredOff:
 		rs.celestiaDeferred = nil

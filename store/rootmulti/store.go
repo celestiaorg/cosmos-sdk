@@ -1328,6 +1328,13 @@ func (rs *Store) RollbackToVersion(target int64) error {
 	cInfo.Timestamp = timestamp
 	flushCommitInfo(batch, target, cInfo)
 	flushLatestVersion(batch, target)
+	if _, deferred, err := readMarker(rs.db); err != nil {
+		return err
+	} else if deferred {
+		// A stale deferred marker (CheckRollbackToVersion refuses a current one).
+		setMarker(batch, markerStock, target)
+		rs.celestiaMarkerDeferred = false
+	}
 	if err := batch.Delete([]byte(rollbackKey)); err != nil {
 		return err
 	}

@@ -76,9 +76,11 @@ type Store struct {
 	metrics             metrics.StoreMetrics
 	commitHeader        cmtproto.Header
 	celestiaDeferred    *deferredDriver // see SetDeferredPersistence
-	snapshotInterval    uint64
-	parallelCommit      bool // see SetParallelCommit
-	asyncPruning        bool // see SetAsyncPruning
+	// celestiaMarkerDeferred is true while the persisted marker says deferred.
+	celestiaMarkerDeferred bool
+	snapshotInterval       uint64
+	parallelCommit         bool // see SetParallelCommit
+	asyncPruning           bool // see SetAsyncPruning
 }
 
 var (
@@ -888,6 +890,8 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 	if height > uint64(GetLatestVersion(rs.db)) {
 		return errorsmod.Wrapf(types.ErrLogic, "cannot snapshot future height %v", height)
 	}
+	rs.deferredSnapshotStart()
+	defer rs.deferredSnapshotDone(int64(height)) //nolint:gosec // checked against the latest version above
 
 	// Collect stores to snapshot (only IAVL stores are supported)
 	type namedStore struct {
@@ -1219,6 +1223,7 @@ func (rs *Store) flushMetadata(db dbm.DB, version int64, cInfo *types.CommitInfo
 	}
 
 	flushLatestVersion(batch, version)
+	rs.markStock(batch, version)
 
 	if err := batch.WriteSync(); err != nil {
 		panic(fmt.Errorf("error on batch write %w", err))

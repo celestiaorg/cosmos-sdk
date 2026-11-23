@@ -259,4 +259,4 @@ replace (
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 )
 
-replace github.com/cosmos/iavl => github.com/celestiaorg/iavl v0.0.0-20261123122950-d1151f7a3855
+replace github.com/cosmos/iavl => github.com/celestiaorg/iavl v0.0.0-20261123150807-313fa8494cff

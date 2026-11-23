@@ -250,6 +250,16 @@ stop-node-on-err = {{ .Streaming.ABCI.StopNodeOnErr }}
 # Note, this configuration only applies to SDK built-in app-side mempool
 # implementations.
 max-txs = {{ .Mempool.MaxTxs }}
+
+###############################################################################
+###                         Performance                                     ###
+###############################################################################
+
+# Speedups that never change the app hash, events or gas. A missing key means true.
+[performance]
+
+# Cache decoded validators and params during block execution.
+execution-caches = {{ .Performance.ExecutionCaches }}
 `
 
 var configTemplate *template.Template

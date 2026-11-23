@@ -1,8 +1,8 @@
 package server_test
 
 import (
-	"encoding/binary"
 	"context"
+	"encoding/binary"
 	"errors"
 	"io"
 	"os"

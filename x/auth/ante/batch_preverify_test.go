@@ -62,7 +62,6 @@ func (suite *AnteTestSuite) TestBatchSigPreverifierEquivalence() {
 		mk([]TestAccount{b}, []uint64{1}, []uint64{1}, false),          // valid at sequence 1
 	}
 
-	preverify := ante.NewBatchSigPreverifier(suite.app.AccountKeeper, suite.clientCtx.TxConfig.SignModeHandler())
 	run := func(enabled bool) []anteResult {
 		secp256k1.EnableSigCache(enabled)
 		defer secp256k1.EnableSigCache(false)
@@ -70,11 +69,11 @@ func (suite *AnteTestSuite) TestBatchSigPreverifierEquivalence() {
 		block, _ := suite.ctx.CacheContext() // same starting state for both runs
 		if enabled {
 			pre, _ := block.CacheContext() // discarded, as in BaseApp.PrepareDeliverTxBatch
-			preverify(pre.WithGasMeter(sdk.NewInfiniteGasMeter()), txs)
-			// distinct valid (pubkey, sign bytes, sig) triples: A@0, B@0, C@0,
-			// A@1, B@1 (replays and duplicates share an entry; the tampered
-			// and wrong-account-number signatures are not cached)
-			suite.Require().Equal(5, secp256k1.SigCacheLen())
+			n := ante.PreverifyBatch(suite.app.AccountKeeper, suite.clientCtx.TxConfig.SignModeHandler(), pre.WithGasMeter(sdk.NewInfiniteGasMeter()), txs)
+			// every valid signature is predicted from the batch-start state:
+			// A@0 (twice), B@0, C@0, A@1 (twice), B@1; the tampered and the
+			// wrong-account-number signatures are not cached
+			suite.Require().Equal(7, n)
 		}
 		out := make([]anteResult, len(txs))
 		for i, tx := range txs {

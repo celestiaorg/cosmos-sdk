@@ -80,10 +80,9 @@ type deferredDriver struct {
 	maxPending int
 	now        func() time.Time // wall clock: persistence timing only
 
-	active    atomic.Bool
-	mu        sync.Mutex // orders Commit and flushes
-	forceNext bool
-	flushed   int64 // version recorded in the commit metadata
+	active  atomic.Bool
+	mu      sync.Mutex // orders Commit and flushes
+	flushed int64      // version recorded in the commit metadata
 
 	snapshotHold     int64        // snapshot version every store keeps until its export is done
 	snapshotsRunning atomic.Int32 // Snapshot calls in progress
@@ -205,20 +204,10 @@ func (rs *Store) deferredAfterLoad(ver int64, enabled bool) {
 	}
 	d.mu.Lock()
 	d.flushed = ver
-	d.forceNext = false
 	d.mu.Unlock()
 	d.active.Store(enabled)
 	if enabled {
 		rs.logger.Info("deferred IAVL persistence on", "mode", d.mode, "flush_interval", d.every, "version", ver)
-	}
-}
-
-// ForceFlushNextCommit makes the next Commit flush (deferred mode only).
-func (rs *Store) ForceFlushNextCommit() {
-	if d := rs.celestiaDeferred; d.isActive() {
-		d.mu.Lock()
-		d.forceNext = true
-		d.mu.Unlock()
 	}
 }
 
@@ -364,8 +353,6 @@ func (rs *Store) leaveDeferredLocked(version int64) {
 func (rs *Store) deferredFlushReason(version int64) string {
 	d := rs.celestiaDeferred
 	switch {
-	case d.forceNext:
-		return "forced"
 	case d.flushed == 0:
 		return "first commit"
 	case len(rs.removalMap) > 0:
@@ -473,7 +460,6 @@ func (rs *Store) flushDeferredLocked(version int64, cInfo *types.CommitInfo) err
 	// (2) commit point, with the marker.
 	rs.flushDeferredMetadata(version, cInfo)
 	d.flushed = version
-	d.forceNext = false
 	if rs.isSnapshotHeight(version) {
 		// Keep this version in every store until its snapshot is taken.
 		d.snapshotHold = version

@@ -4,14 +4,17 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"io"
 	"math/rand"
 	"testing"
+	"time"
 
 	dbm "github.com/cosmos/cosmos-db"
 	"github.com/stretchr/testify/require"
 
 	"cosmossdk.io/log"
 	"cosmossdk.io/store/cache"
+	"cosmossdk.io/store/iavl"
 	"cosmossdk.io/store/metrics"
 	pruningtypes "cosmossdk.io/store/pruning/types"
 	"cosmossdk.io/store/types"
@@ -179,4 +182,72 @@ func TestCelestiaPartialCommitRecovers(t *testing.T) {
 			require.Equal(t, want, ms.Commit())
 		})
 	}
+}
+
+// TestCelestiaLoadErrorClosesStores: a failed load closes the stores it
+// opened, which stops their background pruning.
+func TestCelestiaLoadErrorClosesStores(t *testing.T) {
+	db := dbm.NewMemDB()
+	ms := newMultiStoreWithMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+	require.NoError(t, ms.LoadLatestVersion())
+	ms.Commit()
+	require.NoError(t, ms.Close())
+
+	// A store mounted without an upgrade makes the load fail; map order
+	// decides how many other stores are open by then, so retry until some are.
+	var opened []io.Closer
+	celestiaLoadHook = func(cs []io.Closer) { opened = cs }
+	defer func() { celestiaLoadHook = nil }()
+	for i := 0; i < 50 && len(opened) == 0; i++ {
+		ms = newMultiStoreWithMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+		ms.MountStoreWithDB(types.NewKVStoreKey("store4"), types.StoreTypeIAVL, nil)
+		require.Error(t, ms.LoadLatestVersion())
+	}
+	require.NotEmpty(t, opened)
+	for _, c := range opened {
+		st := c.(*iavl.Store)
+		require.Panics(t, func() { st.LastCommitID() }, "closed store")
+	}
+}
+
+// TestCelestiaAsyncPruningRetriesAfterReaders: with async pruning, a version
+// held by a reader (a snapshot exporter) blocks pruning only until the reader
+// is gone; then every version below the pruning height is deleted on disk.
+func TestCelestiaAsyncPruningRetriesAfterReaders(t *testing.T) {
+	db := dbm.NewMemDB()
+	ms := newMultiStoreWithMounts(db, pruningtypes.NewCustomPruningOptions(2, 1))
+	require.NoError(t, ms.LoadLatestVersion())
+	commit := func(v int) {
+		cms := ms.CacheMultiStore()
+		cms.GetKVStore(testStoreKey1).Set([]byte(fmt.Sprintf("k%d", v%3)), []byte(fmt.Sprintf("v%d", v)))
+		cms.Write()
+		ms.Commit()
+	}
+	for v := 1; v <= 3; v++ {
+		commit(v)
+	}
+	st := ms.GetCommitKVStore(testStoreKey1).(*iavl.Store)
+	exp, err := st.Export(2)
+	require.NoError(t, err)
+	for {
+		if _, err := exp.Next(); err != nil {
+			break
+		}
+	}
+	for v := 4; v <= 10; v++ {
+		commit(v)
+	}
+	require.True(t, st.VersionExists(2), "held by the exporter")
+	exp.Close()
+	require.Eventually(t, func() bool { return !st.VersionExists(7) }, 10*time.Second, 20*time.Millisecond)
+	commit(11) // IAVL writes background deletions with the next commit
+	require.NoError(t, ms.Close())
+
+	re := newMultiStoreWithMounts(db, pruningtypes.NewCustomPruningOptions(2, 1))
+	require.NoError(t, re.LoadLatestVersion())
+	for v := int64(1); v <= 7; v++ { // pruning height at 10 is 7
+		_, err := re.CacheMultiStoreWithVersion(v)
+		require.Error(t, err, "version %d left on disk", v)
+	}
+	require.NoError(t, re.Close())
 }

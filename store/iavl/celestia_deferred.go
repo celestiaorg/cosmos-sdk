@@ -70,11 +70,3 @@ func (st *Store) DeferredPendingNodes() int {
 	}
 	return 0
 }
-
-// DeferredFlushedVersion returns the latest on-disk version of the tree.
-func (st *Store) DeferredFlushedVersion() int64 {
-	if t := st.mutableTree(); t != nil {
-		return t.DeferredFlushedVersion()
-	}
-	return 0
-}

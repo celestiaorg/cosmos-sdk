@@ -259,10 +259,11 @@ func (d *deferredDriver) catchingUp(header time.Time, lag time.Duration) bool {
 // Trees that hold only their latest version are switched directly. Trees with
 // older versions (history from a stock run, or legacy-format versions from an
 // older binary) are first collapsed to their latest version, but only when
-// that deletes nothing the operator asked to keep: under pruning
-// "everything", or when every tree holds at most one version below the
-// latest (the shape a binary hop leaves), and never while a snapshot may need
-// a version that would go. A refusal or failure leaves the mode off and is
+// that deletes nothing the operator asked to keep and the work is small:
+// when every tree holds at most one version below the latest (the shape a
+// binary hop leaves) or, under pruning "everything", no more versions than
+// stock pruning leaves; never while a snapshot may need a version that
+// would go. A refusal or failure leaves the mode off and is
 // retried at the next commit.
 func (rs *Store) deferredBeforeCommit() {
 	d := rs.celestiaDeferred
@@ -325,18 +326,25 @@ func enableDeferredAll(stores []namedIAVLStore) error {
 func (rs *Store) collapseForDeferred(stores []namedIAVLStore) bool {
 	d := rs.celestiaDeferred
 	version := rs.getLastCommitInfo().GetVersion()
-	if rs.pruningManager.GetOptions().GetPruningStrategy() != pruningtypes.PruningEverything {
-		for _, st := range stores {
-			first, err := st.FirstVersion()
-			if err != nil {
-				rs.deferredStaysOff("reading the first version failed", fmt.Errorf("store %s: %w", st.name, err))
-				return false
-			}
-			if first > 0 && first < version-1 {
-				rs.deferredStaysOff("the pruning strategy keeps history",
-					fmt.Errorf("store %s holds versions %d to %d", st.name, first, version))
-				return false
-			}
+	// The collapse runs inside Commit, so bound it: at most one version below
+	// the latest (the hop shape), or under "everything" the history stock
+	// pruning leaves in steady state. Larger history is left to stock
+	// (async) pruning, or kept as the strategy asks. FirstVersion counts
+	// legacy-format versions.
+	maxBelow, reason := int64(1), "the pruning strategy keeps history"
+	if opts := rs.pruningManager.GetOptions(); opts.GetPruningStrategy() == pruningtypes.PruningEverything {
+		maxBelow = int64(opts.KeepRecent+opts.Interval) + 1 //nolint:gosec,nolintlint // "everything" is 2 and 10
+		reason = "history larger than the pruning strategy keeps; waiting for stock pruning"
+	}
+	for _, st := range stores {
+		first, err := st.FirstVersion()
+		if err != nil {
+			rs.deferredStaysOff("reading the first version failed", fmt.Errorf("store %s: %w", st.name, err))
+			return false
+		}
+		if first > 0 && first < version-maxBelow {
+			rs.deferredStaysOff(reason, fmt.Errorf("store %s holds versions %d to %d", st.name, first, version))
+			return false
 		}
 	}
 	d.mu.Lock()

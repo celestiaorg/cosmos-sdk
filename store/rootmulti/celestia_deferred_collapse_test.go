@@ -289,3 +289,41 @@ func TestCelestiaDeferredCollapseKill(t *testing.T) {
 		})
 	}
 }
+
+// TestCelestiaDeferredCollapseBounded: under "everything", a tree with more
+// history than stock pruning leaves (a node switched from the default
+// pruning) is not collapsed inside Commit; once stock pruning has shrunk it,
+// the mode turns on.
+func TestCelestiaDeferredCollapseBounded(t *testing.T) {
+	collapses := countCollapses(t)
+	db := stockDB(t, pruningtypes.PruningOptionDefault, 50)
+	const pruning = pruningtypes.PruningOptionEverything
+	ref := openCollapseTest(t, copyMemDB(t, db), DeferredOff, pruning, nil)
+	ms := openCollapseTest(t, db, DeferredSync, pruning, farBehind)
+	for h := int64(51); h <= 59; h++ {
+		require.Equal(t, commitSeeded(ref, h), commitSeeded(ms, h), "height %d", h)
+		require.False(t, ms.celestiaDeferred.isActive(), "height %d", h)
+	}
+	require.Equal(t, "history larger than the pruning strategy keeps; waiting for stock pruning", ms.celestiaDeferred.offReason)
+	require.Zero(t, *collapses)
+	for _, v := range storeVersions(ms) {
+		require.Len(t, v, 59)
+		require.Equal(t, 1, v[0])
+	}
+
+	// Height 60 runs stock pruning (async) down to 57.
+	require.Equal(t, commitSeeded(ref, 60), commitSeeded(ms, 60))
+	require.Eventually(t, func() bool {
+		for _, st := range ms.iavlStores() {
+			if first, err := st.FirstVersion(); err != nil || first < 58 {
+				return false
+			}
+		}
+		return true
+	}, 10*time.Second, 10*time.Millisecond)
+	for h := int64(61); h <= 70; h++ {
+		require.Equal(t, commitSeeded(ref, h), commitSeeded(ms, h), "height %d", h)
+		require.True(t, ms.celestiaDeferred.isActive(), "height %d", h)
+	}
+	require.Equal(t, len(deferredTestKeys), *collapses)
+}

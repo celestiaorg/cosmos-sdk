@@ -51,6 +51,24 @@ type LoadStoreOptions struct {
 	// left by a commit killed mid-write. Set it on normal startup only. Leave it
 	// unset when loading an older version, where newer versions are real state.
 	DiscardVersionsAboveTarget bool
+
+	// Deferred loads the tree in deferred-persistence mode. id.Version is the
+	// multistore's committed version: newer on-disk versions are deleted, an
+	// interrupted deferred prune is finished and older versions are pruned.
+	Deferred bool
+
+	// DeferredKeepHistory makes a Deferred load refuse, without writing, a
+	// tree holding versions older than the ones deferred mode left.
+	DeferredKeepHistory bool
+
+	// RefuseVersionsAboveTarget fails the load when the tree has any version
+	// above id.Version, without writing. It is set when the DB was last written
+	// in deferred mode, whose leftovers only a deferred load may repair.
+	RefuseVersionsAboveTarget bool
+
+	// AsyncPruning prunes old versions on a background goroutine of the tree
+	// instead of inside Commit. Close the store to stop it.
+	AsyncPruning bool
 }
 
 // LoadStore opens the store's IAVL tree at id.Version with default options.
@@ -66,8 +84,21 @@ func LoadStoreWithInitialVersion(db dbm.DB, logger log.Logger, key types.StoreKe
 // LoadStoreWithOpts opens the store's IAVL tree at id.Version. Version 0 means
 // the newest on disk, or an empty tree if there is none.
 func LoadStoreWithOpts(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, cacheSize int, disableFastNode bool, metrics metrics.StoreMetrics, opts LoadStoreOptions) (types.CommitKVStore, error) {
-	tree := iavl.NewMutableTree(wrapper.NewDBWrapper(db), cacheSize, disableFastNode, logger, iavl.InitialVersionOption(opts.InitialVersion))
+	treeOpts := []iavl.Option{iavl.InitialVersionOption(opts.InitialVersion)}
+	if opts.AsyncPruning {
+		treeOpts = append(treeOpts, iavl.AsyncPruningOption(true))
+	}
+	tree := iavl.NewMutableTree(wrapper.NewDBWrapper(db), cacheSize, disableFastNode, logger, treeOpts...)
+	st, err := loadTree(tree, logger, key, id, metrics, opts)
+	if err != nil {
+		// Stop the pruning goroutine of a tree we do not return.
+		_ = tree.Close()
+		return nil, err
+	}
+	return st, nil
+}
 
+func loadTree(tree *iavl.MutableTree, logger log.Logger, key types.StoreKey, id types.CommitID, metrics metrics.StoreMetrics, opts LoadStoreOptions) (types.CommitKVStore, error) {
 	isUpgradeable, err := tree.IsUpgradeable()
 	if err != nil {
 		return nil, err
@@ -82,10 +113,26 @@ func LoadStoreWithOpts(db dbm.DB, logger log.Logger, key types.StoreKey, id type
 		)
 	}
 
+	if opts.Deferred {
+		load := tree.LoadVersionDeferred
+		if opts.DeferredKeepHistory {
+			load = tree.LoadVersionDeferredKeepHistory
+		}
+		if _, err := load(id.Version); err != nil {
+			return nil, fmt.Errorf("deferred persistence: loading store %s at %d: %w", key.Name(), id.Version, err)
+		}
+		return &Store{tree: tree, logger: logger, metrics: metrics}, nil
+	}
+
 	// IAVL derives latest from node keys, which may belong to an incomplete version.
 	latest, err := tree.LoadVersion(id.Version)
 	if err != nil {
 		return nil, err
+	}
+
+	if opts.RefuseVersionsAboveTarget && latest > id.Version {
+		return nil, fmt.Errorf("store %s has version %d above the committed version %d, left by deferred persistence; "+
+			"start the node once with deferred-persistence = \"sync\" to repair it", key.Name(), latest, id.Version)
 	}
 
 	if opts.DiscardVersionsAboveTarget && id.Version > 0 && latest > id.Version {
@@ -172,6 +219,14 @@ func (st *Store) GetImmutable(version int64) (*Store, error) {
 		tree:    &immutableTree{iTree},
 		metrics: st.metrics,
 	}, nil
+}
+
+// Close stops the tree's background pruning, if any. The DB stays open.
+func (st *Store) Close() error {
+	if t, ok := st.tree.(*iavl.MutableTree); ok {
+		return t.Close()
+	}
+	return nil
 }
 
 // Commit commits the current store state and returns a CommitID with the new

@@ -80,6 +80,11 @@ const (
 
 	// app.toml [performance] keys; a missing key means true.
 	FlagExecutionCaches = "performance.execution-caches"
+	FlagParallelCommit  = "performance.parallel-commit"
+	FlagAsyncPruning    = "performance.async-pruning"
+	// FlagDeferredPersistence is "sync" (default), "always" or "off".
+	FlagDeferredPersistence   = "performance.deferred-persistence"
+	FlagDeferredFlushInterval = "performance.deferred-flush-interval"
 
 	// state sync-related flags
 	FlagStateSyncSnapshotInterval   = "state-sync.snapshot-interval"

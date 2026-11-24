@@ -20,6 +20,7 @@ import (
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/log"
 	"cosmossdk.io/store/cachemulti"
+	"cosmossdk.io/store/changeset"
 	"cosmossdk.io/store/dbadapter"
 	"cosmossdk.io/store/iavl"
 	"cosmossdk.io/store/listenkv"
@@ -80,9 +81,10 @@ type Store struct {
 	// celestiaMarkerDeferred is true while the persisted marker says deferred.
 	celestiaMarkerDeferred bool
 	snapshotInterval       uint64
-	parallelCommit         bool        // see SetParallelCommit
-	asyncPruning           bool        // see SetAsyncPruning
-	loadedStores           []io.Closer // stores opened by the running loadVersion
+	parallelCommit         bool                // see SetParallelCommit
+	asyncPruning           bool                // see SetAsyncPruning
+	loadedStores           []io.Closer         // stores opened by the running loadVersion
+	cs                     *changeset.Recorder // changeset recording (changeset.go); nil unless enabled
 }
 
 var (
@@ -109,6 +111,7 @@ func NewStore(db dbm.DB, logger log.Logger, metricGatherer metrics.StoreMetrics)
 		metrics:             metricGatherer,
 		parallelCommit:      true,
 		asyncPruning:        true,
+		cs:                  changeset.FromEnv(),
 	}
 }
 
@@ -333,6 +336,7 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades, opts iavl
 	if err := rs.pruningManager.LoadSnapshotHeights(rs.db); err != nil {
 		return err
 	}
+	rs.recordUpgrade(upgrades)
 
 	return nil
 }
@@ -543,6 +547,7 @@ func (rs *Store) Commit() types.CommitID {
 	newCommitInfo.Timestamp = rs.commitHeader.Time
 
 	rs.setLastCommitInfo(newCommitInfo)
+	rs.recordCommit(version, true) // before the commit info makes version the loaded one
 
 	defer rs.flushMetadata(rs.db, version, newCommitInfo)
 
@@ -858,6 +863,9 @@ func (rs *Store) Query(req *types.RequestQuery) (*types.ResponseQuery, error) {
 // starting a new chain at an arbitrary height.
 func (rs *Store) SetInitialVersion(version int64) error {
 	rs.initialVersion = version
+	if rs.cs != nil {
+		rs.cs.RecordInitialVersion(version)
+	}
 
 	// Loop through all the stores, if it's an IAVL store, then set initial
 	// version on it.
@@ -1117,7 +1125,7 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 		if c, ok := store.(io.Closer); ok {
 			rs.loadedStores = append(rs.loadedStores, c)
 		}
-
+		rs.attachChangeset(key, store)
 		if rs.interBlockCache != nil {
 			// Wrap and get a CommitKVStore with inter-block caching. Note, this should
 			// only wrap the primary CommitKVStore, not any store that is already

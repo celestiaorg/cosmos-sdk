@@ -29,7 +29,7 @@ func TestCelestiaDeferredPruningNothing(t *testing.T) {
 // cannot continue on the DB; one start in deferred mode repairs it, after
 // which upstream continues with identical commit IDs.
 func TestCelestiaDeferredUncleanThenUpstream(t *testing.T) {
-	r := rand.New(rand.NewSource(3))
+	r := rand.New(rand.NewSource(3)) //nolint:gosec // deterministic test data
 	names := []string{"store1", "store2", "store3"}
 	up := &deferredHarness{t: t, k: 0, fastNode: true, names: names, db: dbm.NewMemDB()}
 	df := &deferredHarness{t: t, k: 7, fastNode: true, names: names, db: dbm.NewMemDB()}
@@ -54,7 +54,7 @@ func TestCelestiaDeferredUncleanThenUpstream(t *testing.T) {
 	for ; it.Valid(); it.Next() {
 		require.NoError(t, snapshot.Set(it.Key(), it.Value()))
 	}
-	it.Close()
+	_ = it.Close()
 
 	// upstream directly on the unclean DB: the load or the replay of 8..10 fails
 	failed := func() (f bool) {
@@ -103,7 +103,7 @@ func TestCelestiaDeferredUncleanThenUpstream(t *testing.T) {
 // deferred trees keep their versions in memory, and the next start fails with
 // a store behind the metadata.
 func TestCelestiaDeferredFailedRollbackKeepsMode(t *testing.T) {
-	r := rand.New(rand.NewSource(5))
+	r := rand.New(rand.NewSource(5)) //nolint:gosec // deterministic test data
 	names := []string{"store1", "store2"}
 	h := &deferredHarness{t: t, k: 7, fastNode: true, names: names, db: dbm.NewMemDB()}
 	h.open(nil)

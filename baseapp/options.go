@@ -110,6 +110,22 @@ func SetAsyncPruning(enabled bool) func(*BaseApp) {
 	}
 }
 
+// SetDeferredPersistence sets when IAVL nodes are written: "sync" defers them
+// while catching up, "always" always, "off" never. It panics on an invalid mode.
+func SetDeferredPersistence(mode string, flushInterval int64) func(*BaseApp) {
+	return func(bapp *BaseApp) {
+		s, ok := bapp.cms.(interface {
+			SetDeferredPersistence(string, int64) error
+		})
+		if !ok {
+			return
+		}
+		if err := s.SetDeferredPersistence(mode, flushInterval); err != nil {
+			panic(err)
+		}
+	}
+}
+
 // SetInterBlockCache provides a BaseApp option function that sets the
 // inter-block cache.
 func SetInterBlockCache(cache storetypes.MultiStorePersistentCache) func(*BaseApp) {

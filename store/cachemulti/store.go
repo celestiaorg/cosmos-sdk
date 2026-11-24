@@ -3,6 +3,7 @@ package cachemulti
 import (
 	"fmt"
 	"io"
+	"maps"
 
 	dbm "github.com/cosmos/cosmos-db"
 
@@ -30,6 +31,8 @@ type Store struct {
 
 	traceWriter  io.Writer
 	traceContext types.TraceContext
+
+	parallelWrite bool // see WithParallelWrite
 }
 
 var _ types.CacheMultiStore = Store{}
@@ -94,9 +97,7 @@ func (cms Store) SetTracer(w io.Writer) types.MultiStore {
 // necessary between tracing operations. It returns a modified MultiStore.
 func (cms Store) SetTracingContext(tc types.TraceContext) types.MultiStore {
 	if cms.traceContext != nil {
-		for k, v := range tc {
-			cms.traceContext[k] = v
-		}
+		maps.Copy(cms.traceContext, tc)
 	} else {
 		cms.traceContext = tc
 	}
@@ -121,6 +122,10 @@ func (cms Store) GetStoreType() types.StoreType {
 
 // Write calls Write on each underlying store.
 func (cms Store) Write() {
+	if cms.parallelWrite && !cms.TracingEnabled() && len(cms.stores) > 1 {
+		cms.writeParallel()
+		return
+	}
 	cms.db.Write()
 	for _, store := range cms.stores {
 		store.Write()

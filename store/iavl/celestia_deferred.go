@@ -29,6 +29,24 @@ func (st *Store) EnableDeferred() error {
 	return nil
 }
 
+// CollapseToLatest deletes every on-disk version below the latest one (legacy
+// ones included) so that EnableDeferred can succeed. It never changes the
+// latest version or a hash. See iavl.MutableTree.CollapseToLatest.
+func (st *Store) CollapseToLatest() error {
+	if t := st.mutableTree(); t != nil {
+		return t.CollapseToLatest()
+	}
+	return nil
+}
+
+// FirstVersion returns the oldest version on disk, or 0 for an empty tree.
+func (st *Store) FirstVersion() (int64, error) {
+	if t := st.mutableTree(); t != nil {
+		return t.FirstVersion()
+	}
+	return 0, nil
+}
+
 // DisableDeferred turns deferred mode off once everything is flushed and pruned.
 func (st *Store) DisableDeferred() error {
 	if t := st.mutableTree(); t != nil {

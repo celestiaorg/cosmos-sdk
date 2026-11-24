@@ -151,3 +151,17 @@ func TestCelestiaDeferredSyncMatchesStock(t *testing.T) {
 	require.NoError(t, ms.RollbackToVersion(79))
 	require.Equal(t, int64(79), ms.LastCommitID().Version)
 }
+
+// TestCelestiaDeferredMarkerFormat pins the marker encoding, which
+// server/celestia_deferred.go decodes on its own (the root module builds
+// against upstream store).
+func TestCelestiaDeferredMarkerFormat(t *testing.T) {
+	db := dbm.NewMemDB()
+	batch := db.NewBatch()
+	setMarker(batch, markerDeferred, 0x0102)
+	require.NoError(t, batch.Write())
+	bz, err := db.Get([]byte("s/celestia/persistence"))
+	require.NoError(t, err)
+	require.Equal(t, []byte{1, 0, 0, 0, 0, 0, 0, 1, 2}, bz)
+	require.Equal(t, "off", DeferredOff)
+}

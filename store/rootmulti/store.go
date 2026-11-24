@@ -1159,6 +1159,14 @@ func (rs *Store) RollbackToVersion(target int64) error {
 	if err := rs.deferredRollbackCheck(); err != nil {
 		return err
 	}
+	// celestia: refuse before touching any store if one lacks the target, e.g.
+	// stores at different first versions after a kill during the collapse
+	// that turns deferred persistence on.
+	for _, st := range rs.namedIAVLStores() {
+		if !st.VersionExists(target) {
+			return fmt.Errorf("store %s has no version %d; nothing was rolled back", st.name, target)
+		}
+	}
 
 	for key, store := range rs.stores {
 		if store.GetStoreType() == types.StoreTypeIAVL {

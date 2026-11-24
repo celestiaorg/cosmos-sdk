@@ -672,6 +672,8 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 				if storeInfos[key.Name()] {
 					return nil, err
 				}
+				// The store did not exist at this version, so it reads as empty.
+				cacheStore = dbadapter.Store{DB: dbm.NewMemDB()}
 			}
 
 		default:

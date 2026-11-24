@@ -1,6 +1,7 @@
 package applier_test
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 	"path/filepath"
@@ -213,11 +214,179 @@ func record(t *testing.T, flushEvery string, perFile int64, snapAt ...int64) (st
 	return dir, c, snaps
 }
 
+// apply runs the applier; without trusted hashes (exp == nil) it allows
+// unverified heights, as synthetic and tampered test logs need.
 func apply(t *testing.T, db dbm.DB, dir string, flushEvery string, exp func(int64) ([]byte, bool, error), parallel bool) (*applier.Applier, error) {
 	opts := applier.DefaultOptions()
 	opts.DeferredFlushInterval = flushInterval(flushEvery)
 	opts.Parallel = parallel
+	opts.AllowUnverified = exp == nil
 	return applier.Run(db, dir, 0, opts, exp, nil)
+}
+
+func applyStrict(db dbm.DB, dir string, flushEvery string, exp func(int64) ([]byte, bool, error)) (*applier.Applier, error) {
+	opts := applier.DefaultOptions()
+	opts.DeferredFlushInterval = flushInterval(flushEvery)
+	return applier.Run(db, dir, 0, opts, exp, nil)
+}
+
+// rewrite writes the blocks of dir into a new uncompressed log, after mut.
+func rewrite(t *testing.T, dir string, mut func(b *changeset.Block)) string {
+	out := t.TempDir()
+	fw, err := changeset.CreateFile(filepath.Join(out, "cs-000000000001.bin"))
+	require.NoError(t, err)
+	for _, b := range readAll(t, dir) {
+		mut(b)
+		require.NoError(t, fw.Write(b))
+	}
+	require.NoError(t, fw.Close())
+	return out
+}
+
+// expectedExcept returns the chain's hashes with height h unknown.
+func (c *chain) expectedExcept(h int64) func(int64) ([]byte, bool, error) {
+	return func(x int64) ([]byte, bool, error) {
+		if x == h {
+			return nil, false, nil
+		}
+		return c.expected(x)
+	}
+}
+
+// By default a height is applied only once its trusted hash is known. A
+// forged last block (tampered ops, recorded hash recomputed to match) whose
+// header does not exist yet is not applied: Run stops before it, the DB
+// stays at the previous height, and WaitingFor says where to resume.
+func TestStrictWaitsForTrustedHash(t *testing.T) {
+	dir, c, _ := record(t, "", 1000)
+	const h = nBlocks
+	tamper := func(b *changeset.Block) {
+		if b.Height == h {
+			op := &b.Stores[0].Ops[0]
+			op.Key = append([]byte("forged/"), op.Key...)
+			b.AppHash = nil
+		}
+	}
+	forged := rewrite(t, dir, tamper)
+	// the hash the forged ops produce
+	a, err := apply(t, dbm.NewMemDB(), forged, "", nil, false)
+	require.NoError(t, err)
+	forgedHash := a.RS.LastCommitID().Hash
+	require.NotEqual(t, c.hashes[h], forgedHash)
+	forged = rewrite(t, dir, func(b *changeset.Block) {
+		tamper(b)
+		if b.Height == h {
+			b.AppHash = forgedHash
+		}
+	})
+
+	for _, dstK := range []string{"", "7"} {
+		db := dbm.NewMemDB()
+		a, err := applyStrict(db, forged, dstK, c.expectedExcept(h))
+		require.NoError(t, err)
+		require.EqualValues(t, h, a.WaitingFor)
+		require.EqualValues(t, h-1, a.LastTrusted)
+		require.EqualValues(t, h-1, a.Applied)
+		require.EqualValues(t, h-1, rootmulti.GetLatestVersion(db), "dst K=%q", dstK)
+		// once the header exists the forgery is caught and rolled back
+		a, err = applyStrict(db, forged, dstK, c.expected)
+		var mm *applier.MismatchError
+		require.True(t, errors.As(err, &mm), "got %v", err)
+		require.EqualValues(t, h, mm.Height)
+		require.EqualValues(t, h-1, rootmulti.GetLatestVersion(db), "dst K=%q", dstK)
+	}
+
+	// AllowUnverified (synthetic input) accepts it on the recorded hash alone
+	opts := applier.DefaultOptions()
+	opts.AllowUnverified = true
+	a, err = applier.Run(dbm.NewMemDB(), forged, 0, opts, c.expectedExcept(h), nil)
+	require.NoError(t, err)
+	require.EqualValues(t, h, a.Latest)
+	require.EqualValues(t, 1, a.CheckedLocal)
+}
+
+func TestStrictWithoutExpectedAppliesNothing(t *testing.T) {
+	dir, _, _ := record(t, "", 1000)
+	db := dbm.NewMemDB()
+	a, err := applyStrict(db, dir, "", nil)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, a.WaitingFor)
+	require.Zero(t, a.Applied)
+	require.Zero(t, rootmulti.GetLatestVersion(db))
+}
+
+// A trusted match is not enough when the recorded hash is missing: strict
+// mode requires both.
+func TestStrictRejectsEmptyRecordedHash(t *testing.T) {
+	dir, c, _ := record(t, "", 1000)
+	const h = 60
+	out := rewrite(t, dir, func(b *changeset.Block) {
+		if b.Height == h {
+			b.AppHash = nil
+		}
+	})
+	db := dbm.NewMemDB()
+	_, err := applyStrict(db, out, "", c.expected)
+	var mm *applier.MismatchError
+	require.True(t, errors.As(err, &mm), "got %v", err)
+	require.EqualValues(t, h, mm.Height)
+	require.Contains(t, mm.Error(), "rolled the DB back")
+	require.EqualValues(t, h-1, rootmulti.GetLatestVersion(db))
+}
+
+// Any error after a height committed (here the trusted-hash lookup failing
+// at verification) rolls that height back instead of flushing it.
+func TestErrorAfterCommitRollsBack(t *testing.T) {
+	dir, c, _ := record(t, "", 1000)
+	const h = 50
+	for _, dstK := range []string{"", "7"} {
+		calls := 0
+		exp := func(x int64) ([]byte, bool, error) {
+			if x == h {
+				if calls++; calls == 2 { // Run's check passes, verification fails
+					return nil, false, errors.New("header source unavailable")
+				}
+			}
+			return c.expected(x)
+		}
+		db := dbm.NewMemDB()
+		a, err := applyStrict(db, dir, dstK, exp)
+		require.ErrorContains(t, err, "header source unavailable")
+		require.EqualValues(t, h, a.Applied)
+		latest := rootmulti.GetLatestVersion(db)
+		if latest >= h {
+			require.ErrorContains(t, err, "discard this DB", "dst K=%q", dstK)
+		} else {
+			require.LessOrEqual(t, latest, int64(h-1), "dst K=%q", dstK)
+			if dstK == "" {
+				require.EqualValues(t, h-1, latest)
+				require.ErrorContains(t, err, fmt.Sprintf("rolled the DB back to height %d", h-1))
+			}
+		}
+	}
+}
+
+func TestOpenAndFirstBlockValidation(t *testing.T) {
+	_, err := applier.Open(dbm.NewMemDB(), []changeset.StoreDecl{{Name: "a", Type: changeset.StoreIAVL}, {Name: "a", Type: changeset.StoreIAVL}}, applier.DefaultOptions())
+	require.ErrorContains(t, err, "twice")
+	_, err = applier.Open(dbm.NewMemDB(), []changeset.StoreDecl{{Name: "a", Type: 0}}, applier.DefaultOptions())
+	require.ErrorContains(t, err, "unknown type")
+
+	opts := applier.DefaultOptions()
+	opts.AllowUnverified = true
+	manifest := []changeset.StoreDecl{{Name: "a", Type: changeset.StoreIAVL}}
+	ops := []changeset.StoreOps{{Name: "a", Ops: []changeset.Op{{Kind: changeset.OpSet, Key: []byte("k"), Value: []byte("v")}}}}
+	db := dbm.NewMemDB()
+	a, err := applier.Open(db, manifest, opts)
+	require.NoError(t, err)
+	_, err = a.Apply(&changeset.Block{Height: 5, Stores: ops})
+	require.ErrorContains(t, err, "first block must be height 1")
+	require.Zero(t, rootmulti.GetLatestVersion(db))
+	_, err = a.Apply(&changeset.Block{Height: 5, InitialVersion: 7, Stores: ops})
+	require.ErrorContains(t, err, "first block must be height 7")
+	id, err := a.Apply(&changeset.Block{Height: 7, InitialVersion: 7, Stores: ops})
+	require.NoError(t, err)
+	require.EqualValues(t, 7, id.Version)
 }
 
 func TestReplayFromGenesisMatchesEveryHeight(t *testing.T) {

@@ -36,7 +36,13 @@ type Options struct {
 	// DeferredFlushInterval > 0 applies with deferred IAVL persistence
 	// (the catch-up signal is never reported, so it stays on).
 	DeferredFlushInterval int64
-	Logger                log.Logger
+	// AllowUnverified accepts heights without a trusted app hash, checked
+	// against the recorded hash only or not at all (synthetic or test input).
+	// By default (false) every height must match a trusted hash from
+	// Expected before it stays applied, and Run stops before a height whose
+	// trusted hash is not known yet.
+	AllowUnverified bool
+	Logger          log.Logger
 }
 
 // DefaultOptions returns the options used by csapply.
@@ -54,9 +60,9 @@ type Applier struct {
 	RS   *rootmulti.Store
 	opts Options
 	keys map[string]types.StoreKey
-	// Expected, if set, returns the trusted app hash for a height (e.g. the
-	// AppHash of header h+1). ok=false means "unknown": only the recorded hash
-	// is checked (and reported as such).
+	// Expected returns the trusted app hash for a height (e.g. the AppHash
+	// of header h+1). ok=false means "unknown": without AllowUnverified the
+	// height is not accepted; with it only the recorded hash is checked.
 	Expected func(height int64) (hash []byte, ok bool, err error)
 
 	Latest       int64
@@ -68,6 +74,15 @@ type Applier struct {
 	// HandoverAt is the first block recorded by the SDK v0.50 store (app v4+,
 	// FlagStoreV1) that Run met; it stopped before it. Continue with cstool50.
 	HandoverAt int64
+	// LastTrusted is the last height verified against a trusted hash.
+	LastTrusted int64
+	// WaitingFor is the first height Run did not apply because its trusted
+	// hash is not known yet (header h+1 missing). Run again once it is.
+	WaitingFor int64
+
+	// pending is the height committed but not yet verified; Run rolls it
+	// back if the block fails after its commit.
+	pending int64
 
 	OpsTime, CommitTime time.Duration
 }
@@ -95,7 +110,14 @@ func Open(db dbm.DB, manifest []changeset.StoreDecl, opts Options) (*Applier, er
 	}
 	a := &Applier{RS: rs, opts: opts, keys: map[string]types.StoreKey{}}
 	for _, d := range manifest {
-		a.mount(d.Name, rootmulti.ChangesetToStoreType(d.Type))
+		if _, dup := a.keys[d.Name]; dup {
+			return nil, fmt.Errorf("applier: manifest lists store %q twice", d.Name)
+		}
+		typ, ok := rootmulti.ChangesetToStoreType(d.Type)
+		if !ok {
+			return nil, fmt.Errorf("applier: store %q has unknown type %d", d.Name, d.Type)
+		}
+		a.mount(d.Name, typ)
 	}
 	if err := rs.LoadLatestVersion(); err != nil {
 		return nil, err
@@ -136,6 +158,12 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 	if a.Latest != 0 && b.Height != a.Latest+1 {
 		return types.CommitID{}, fmt.Errorf("applier: next height must be %d, got %d", a.Latest+1, b.Height)
 	}
+	if a.Latest == 0 {
+		// empty DB: the first block is genesis or the initial height
+		if first := max(b.InitialVersion, 1); b.Height != first {
+			return types.CommitID{}, fmt.Errorf("applier: empty DB: first block must be height %d, got %d", first, b.Height)
+		}
+	}
 	if b.InitialVersion != 0 {
 		if err := a.RS.SetInitialVersion(b.InitialVersion); err != nil {
 			return types.CommitID{}, err
@@ -148,7 +176,8 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 	if b.Upgrade != nil {
 		// baseapp: flush deferred state while the trees are clean and force
 		// the flush of this commit; ops of existing stores (all recorded
-		// before the reload or unaffected by it, see CHANGESET.md) go first,
+		// before the reload or unaffected by it, see the package doc of
+		// store/changeset, format.go) go first,
 		// the deleted stores' deletes included; then the reload (which runs
 		// the native deleteKVStore, now a no-op) and the ops of added stores.
 		if err := a.RS.FlushDeferred(); err != nil {
@@ -199,6 +228,7 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 	}
 	t1 := time.Now()
 	id := a.RS.Commit()
+	a.pending = b.Height
 	a.OpsTime += t1.Sub(t0)
 	a.CommitTime += time.Since(t1)
 	if b.Upgrade != nil {
@@ -215,7 +245,19 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 	if id.Version != b.Height {
 		return id, fmt.Errorf("applier: committed version %d for block %d", id.Version, b.Height)
 	}
-	return id, a.verify(b, id)
+	if err := a.verify(b, id); err != nil {
+		return id, err
+	}
+	a.pending = 0
+	return id, nil
+}
+
+// trusted returns the trusted app hash for height.
+func (a *Applier) trusted(height int64) ([]byte, bool, error) {
+	if a.Expected == nil {
+		return nil, false, nil
+	}
+	return a.Expected(height)
 }
 
 func (a *Applier) iavlStore(name string) (*iavl.Store, error) {
@@ -270,22 +312,24 @@ func (a *Applier) applyOps(stores []changeset.StoreOps) error {
 }
 
 func (a *Applier) verify(b *changeset.Block, id types.CommitID) error {
-	if a.Expected != nil {
-		want, ok, err := a.Expected(b.Height)
-		if err != nil {
-			return err
+	want, ok, err := a.trusted(b.Height)
+	if err != nil {
+		return fmt.Errorf("applier: height %d: trusted app hash: %w", b.Height, err)
+	}
+	if ok {
+		if !bytes.Equal(want, id.Hash) {
+			return &MismatchError{Height: b.Height, Got: id.Hash, Want: want, Source: "trusted header", Detail: a.storeDiff(b)}
 		}
-		if ok {
-			if !bytes.Equal(want, id.Hash) {
-				return &MismatchError{Height: b.Height, Got: id.Hash, Want: want, Source: "trusted header", Detail: a.storeDiff(b)}
-			}
-			a.CheckedExt++
-			// the recorded hash must agree too (else the changeset is mislabelled)
-			if len(b.AppHash) > 0 && !bytes.Equal(b.AppHash, id.Hash) {
-				return &MismatchError{Height: b.Height, Got: id.Hash, Want: b.AppHash, Source: "recorded (header matched!)"}
-			}
-			return nil
+		// the recorded hash must agree too (else the changeset is mislabelled)
+		if (len(b.AppHash) > 0 || !a.opts.AllowUnverified) && !bytes.Equal(b.AppHash, id.Hash) {
+			return &MismatchError{Height: b.Height, Got: id.Hash, Want: b.AppHash, Source: "recorded (header matched!)"}
 		}
+		a.CheckedExt++
+		a.LastTrusted = b.Height
+		return nil
+	}
+	if !a.opts.AllowUnverified {
+		return fmt.Errorf("applier: no trusted app hash for height %d (set AllowUnverified only for synthetic input)", b.Height)
 	}
 	if len(b.AppHash) == 0 {
 		a.Unverified++
@@ -369,6 +413,23 @@ func Run(db dbm.DB, dir string, to int64, opts Options, expected func(int64) ([]
 			a.HandoverAt = b.Height
 			return errStop
 		}
+		if !opts.AllowUnverified {
+			// never apply a height whose trusted hash is not known yet
+			var known bool
+			if expected != nil {
+				var err error
+				if _, known, err = expected(b.Height); err != nil {
+					return fmt.Errorf("applier: height %d: trusted app hash: %w", b.Height, err)
+				}
+			}
+			if !known {
+				if a == nil {
+					a = &Applier{Latest: b.Height - 1}
+				}
+				a.WaitingFor = b.Height
+				return errStop
+			}
+		}
 		if a == nil {
 			var err error
 			a, err = Open(db, b.Manifest, opts)
@@ -389,9 +450,8 @@ func Run(db dbm.DB, dir string, to int64, opts Options, expected func(int64) ([]
 		err = nil
 	}
 	if a != nil {
-		var mm *MismatchError
-		if errors.As(err, &mm) {
-			a.discardUnverified(db, mm)
+		if err != nil && a.pending != 0 {
+			err = a.discardUnverified(db, a.pending, err)
 		} else if cerr := a.Close(); err == nil {
 			err = cerr
 		}
@@ -399,18 +459,26 @@ func Run(db dbm.DB, dir string, to int64, opts Options, expected func(int64) ([]
 	return a, err
 }
 
-// discardUnverified keeps a height that failed verification off disk. Close
-// is skipped (it would flush the deferred state of that height), and if the
-// commit already wrote it (upstream commit, or a deferred flush height) the
-// store is rolled back to the previous height. If that is impossible the
-// error says the DB must be discarded.
-func (a *Applier) discardUnverified(db dbm.DB, mm *MismatchError) {
-	if a.RS == nil || rootmulti.GetLatestVersion(db) < mm.Height {
-		return
+// discardUnverified keeps a height that was committed but failed afterwards
+// (verification, or an error while verifying) off disk. Close is skipped (it
+// would flush the deferred state of that height), and if the commit already
+// wrote it (upstream commit, or a deferred flush height) the store is rolled
+// back to the previous height. If that is impossible the error says the DB
+// must be discarded.
+func (a *Applier) discardUnverified(db dbm.DB, height int64, cause error) error {
+	if a.RS == nil || rootmulti.GetLatestVersion(db) < height {
+		return cause
 	}
-	if err := a.RS.RollbackToVersion(mm.Height - 1); err != nil {
-		mm.Detail += fmt.Sprintf("\n  height %d is on disk and could not be rolled back (%v): discard this DB", mm.Height, err)
-		return
+	var note string
+	if err := a.RS.RollbackToVersion(height - 1); err != nil {
+		note = fmt.Sprintf("height %d is on disk and could not be rolled back (%v): discard this DB", height, err)
+	} else {
+		note = fmt.Sprintf("rolled the DB back to height %d", height-1)
 	}
-	mm.Detail += fmt.Sprintf("\n  rolled the DB back to height %d", mm.Height-1)
+	var mm *MismatchError
+	if errors.As(cause, &mm) {
+		mm.Detail += "\n  " + note
+		return cause
+	}
+	return fmt.Errorf("%w; %s", cause, note)
 }

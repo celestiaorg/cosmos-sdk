@@ -4,7 +4,11 @@ package iavl
 // Every Set/Delete that reaches the IAVL tree through this store is buffered
 // in order and handed to the recorder when the version is saved.
 
-import "cosmossdk.io/store/changeset"
+import (
+	"fmt"
+
+	"cosmossdk.io/store/changeset"
+)
 
 // SetChangesetRecorder makes the store record every Set/Delete that reaches
 // the IAVL tree, in order, and hand them to r (tagged with name) when the
@@ -34,4 +38,34 @@ func (st *Store) flushRecordedOps() {
 	ops := st.csOps
 	st.csOps = nil
 	st.cs.CommitStore(st.csName, ops)
+}
+
+// ApplyOps applies recorded ops directly to the IAVL tree, without recording
+// (changeset applier). Returns the first tree error.
+//
+// Set keys and values are copied: changeset.DecodeBlock returns slices that
+// alias the whole per-block payload buffer, and the IAVL tree keeps the slices
+// it is given (leaf key/value, inner node keys). Passing them through would let
+// every node that lands in the IAVL node cache pin its block's entire payload,
+// and a caller reusing a buffer would change the tree. Each key and value gets
+// its own allocation, as on the node's normal write path.
+func (st *Store) ApplyOps(ops []changeset.Op) error {
+	for i := range ops {
+		op := &ops[i]
+		switch op.Kind {
+		case changeset.OpSet:
+			key := append(make([]byte, 0, len(op.Key)), op.Key...)
+			value := append(make([]byte, 0, len(op.Value)), op.Value...)
+			if _, err := st.tree.Set(key, value); err != nil {
+				return err
+			}
+		case changeset.OpDelete:
+			if _, _, err := st.tree.Remove(op.Key); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("changeset op %d: unknown kind %d", i, op.Kind)
+		}
+	}
+	return nil
 }

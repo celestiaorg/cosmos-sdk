@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	cmtcmd "github.com/cometbft/cometbft/cmd/cometbft/commands"
+	cmtcfg "github.com/cometbft/cometbft/config"
+	cmtstate "github.com/cometbft/cometbft/state"
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -33,6 +35,18 @@ application.
 			if err != nil {
 				return err
 			}
+
+			// A DB last written with deferred persistence keeps one version.
+			lastFlushed, deferred, err := readDeferredMarker(db)
+			if err != nil {
+				return err
+			}
+			if deferred {
+				return rollbackBehindApp(cfg, lastFlushed, removeBlock)
+			}
+
+			// Never load in deferred mode here: opening the DB must not write.
+			ctx.Viper.Set(FlagDeferredPersistence, deferredOff)
 			app := appCreator(ctx.Logger, db, nil, ctx.Viper)
 			// rollback CometBFT state
 			height, hash, err := cmtcmd.RollbackState(ctx.Config, removeBlock)
@@ -53,4 +67,29 @@ application.
 	cmd.Flags().String(flags.FlagHome, defaultNodeHome, "The application home directory")
 	cmd.Flags().BoolVar(&removeBlock, "hard", false, "remove last block as well as state")
 	return cmd
+}
+
+// rollbackBehindApp rolls back CometBFT state only, for an app DB last written
+// with deferred persistence. The app must be at or below the target height;
+// on start the handshake replays the blocks above the app's version.
+func rollbackBehindApp(cfg *cmtcfg.Config, lastFlushed int64, removeBlock bool) error {
+	stateDB, err := cmtcfg.DefaultDBProvider(&cmtcfg.DBContext{ID: "state", Config: cfg})
+	if err != nil {
+		return err
+	}
+	st, err := cmtstate.NewStore(stateDB, cmtstate.StoreOptions{}).Load()
+	_ = stateDB.Close()
+	if err != nil {
+		return fmt.Errorf("failed to load CometBFT state: %w", err)
+	}
+	if target := st.LastBlockHeight - 1; lastFlushed > target {
+		return errDeferredRollback{LastFlushed: lastFlushed}
+	}
+	height, hash, err := cmtcmd.RollbackState(cfg, removeBlock)
+	if err != nil {
+		return fmt.Errorf("failed to rollback CometBFT state: %w", err)
+	}
+	fmt.Printf("Rolled back CometBFT state to height %d and hash %X. The app state stays at height %d "+
+		"(deferred persistence); the node replays the blocks above it on start.\n", height, hash, lastFlushed)
+	return nil
 }

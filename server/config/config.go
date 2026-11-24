@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/spf13/viper"
 
@@ -205,7 +206,17 @@ type PerformanceConfig struct {
 	ParallelCommit bool `mapstructure:"parallel-commit"`
 	// AsyncPruning prunes old IAVL versions in the background.
 	AsyncPruning bool `mapstructure:"async-pruning"`
+	// DeferredPersistence is "sync", "always" or "off"; see rootmulti.SetDeferredPersistence.
+	DeferredPersistence string `mapstructure:"deferred-persistence"`
+	// DeferredFlushInterval is the number of blocks between flushes in deferred mode.
+	DeferredFlushInterval int64 `mapstructure:"deferred-flush-interval"`
 }
+
+// Defaults for the deferred persistence options.
+const (
+	DefaultDeferredPersistence   = "sync"
+	DefaultDeferredFlushInterval = 100
+)
 
 // SetMinGasPrices sets the validator's minimum gas prices.
 func (c *Config) SetMinGasPrices(gasPrices sdk.DecCoins) {
@@ -277,8 +288,10 @@ func DefaultConfig() *Config {
 			MaxTxs: -1,
 		},
 		Performance: PerformanceConfig{
-			ParallelCommit: true,
-			AsyncPruning:   true,
+			ParallelCommit:        true,
+			AsyncPruning:          true,
+			DeferredPersistence:   DefaultDeferredPersistence,
+			DeferredFlushInterval: DefaultDeferredFlushInterval,
 		},
 	}
 }
@@ -293,6 +306,14 @@ func GetConfig(v *viper.Viper) (Config, error) {
 }
 
 func (c Config) ValidateBasic() error {
+	switch strings.ToLower(strings.TrimSpace(c.Performance.DeferredPersistence)) {
+	case "", "sync", "always", "off":
+	default:
+		return sdkerrors.ErrAppConfig.Wrapf("invalid performance.deferred-persistence %q: want \"sync\", \"always\" or \"off\"", c.Performance.DeferredPersistence)
+	}
+	if c.Performance.DeferredFlushInterval < 0 {
+		return sdkerrors.ErrAppConfig.Wrapf("invalid performance.deferred-flush-interval %d: must be positive (0 uses the default)", c.Performance.DeferredFlushInterval)
+	}
 	if c.Pruning == pruningtypes.PruningOptionEverything && c.StateSync.SnapshotInterval > 0 {
 		return sdkerrors.ErrAppConfig.Wrapf(
 			"cannot enable state sync snapshots with '%s' pruning setting", pruningtypes.PruningOptionEverything,

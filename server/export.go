@@ -78,6 +78,8 @@ func ExportCmd(appExporter types.AppExporter, defaultNodeHome string) *cobra.Com
 			modulesToExport, _ := cmd.Flags().GetStringSlice(FlagModulesToExport)
 			outputDocument, _ := cmd.Flags().GetString(flags.FlagOutputDocument)
 
+			// Never load in deferred mode here: opening the DB must not write.
+			serverCtx.Viper.Set(FlagDeferredPersistence, deferredOff)
 			exported, err := appExporter(serverCtx.Logger, db, traceWriter, height, forZeroHeight, jailAllowedAddrs, serverCtx.Viper, modulesToExport)
 			if err != nil {
 				return fmt.Errorf("error exporting state: %w", err)

@@ -52,6 +52,20 @@ type LoadStoreOptions struct {
 	// unset when loading an older version, where newer versions are real state.
 	DiscardVersionsAboveTarget bool
 
+	// Deferred loads the tree in deferred-persistence mode. id.Version is the
+	// multistore's committed version: newer on-disk versions are deleted, an
+	// interrupted deferred prune is finished and older versions are pruned.
+	Deferred bool
+
+	// DeferredKeepHistory makes a Deferred load refuse, without writing, a
+	// tree holding versions older than the ones deferred mode left.
+	DeferredKeepHistory bool
+
+	// RefuseVersionsAboveTarget fails the load when the tree has any version
+	// above id.Version, without writing. It is set when the DB was last written
+	// in deferred mode, whose leftovers only a deferred load may repair.
+	RefuseVersionsAboveTarget bool
+
 	// AsyncPruning prunes old versions on a background goroutine of the tree
 	// instead of inside Commit. Close the store to stop it.
 	AsyncPruning bool
@@ -97,6 +111,31 @@ func loadTree(tree *iavl.MutableTree, logger log.Logger, key types.StoreKey, id 
 			"version", opts.InitialVersion,
 			"commit", fmt.Sprintf("%X", id),
 		)
+	}
+
+	if opts.Deferred {
+		load := tree.LoadVersionDeferred
+		if opts.DeferredKeepHistory {
+			load = tree.LoadVersionDeferredKeepHistory
+		}
+		if _, err := load(id.Version); err != nil {
+			return nil, fmt.Errorf("deferred persistence: loading store %s at %d: %w", key.Name(), id.Version, err)
+		}
+		return &Store{tree: tree, logger: logger, metrics: metrics}, nil
+	}
+
+	if opts.RefuseVersionsAboveTarget {
+		// Check before LoadVersion: deferred leftovers are not contiguous with
+		// the committed version, which LoadVersion cannot load.
+		latest, err := tree.GetLatestVersion()
+		if err != nil {
+			return nil, err
+		}
+		if latest > id.Version {
+			return nil, fmt.Errorf("store %s has version %d above the committed version %d, left by deferred persistence; "+
+				"start the node once with deferred-persistence = \"sync\" and a pruning setting other than \"nothing\" "+
+				"(with pruning = \"nothing\" every mode refuses) to repair it", key.Name(), latest, id.Version)
+		}
 	}
 
 	// IAVL derives latest from node keys, which may belong to an incomplete version.

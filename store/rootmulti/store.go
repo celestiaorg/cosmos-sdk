@@ -81,9 +81,13 @@ type Store struct {
 
 	// allowPendingRollback allows loading a DB with a pending rollback.
 	allowPendingRollback bool
-	parallelCommit       bool        // see SetParallelCommit
-	asyncPruning         bool        // see SetAsyncPruning
+	parallelCommit       bool            // see SetParallelCommit
+	asyncPruning         bool            // see SetAsyncPruning
+	celestiaDeferred     *deferredDriver // see SetDeferredPersistence
+	snapshotInterval     uint64
 	loadedStores         []io.Closer // stores opened by the running loadVersion
+	// celestiaMarkerDeferred is true while the persisted marker says deferred.
+	celestiaMarkerDeferred bool
 }
 
 var (
@@ -143,6 +147,7 @@ func (rs *Store) SetMetrics(metrics metrics.StoreMetrics) {
 // It is used by the store to determine which heights to retain until after the snapshot is complete.
 func (rs *Store) SetSnapshotInterval(snapshotInterval uint64) {
 	rs.pruningManager.SetSnapshotInterval(snapshotInterval)
+	rs.snapshotInterval = snapshotInterval
 }
 
 func (rs *Store) SetIAVLCacheSize(cacheSize int) {
@@ -242,7 +247,11 @@ func (rs *Store) loadLatestVersion(upgrades *types.StoreUpgrades) error {
 	}
 
 	ver := GetLatestVersion(rs.db)
-	return rs.loadVersion(ver, upgrades, iavl.LoadStoreOptions{DiscardVersionsAboveTarget: true})
+	opts, err := rs.deferredLoadOptions()
+	if err != nil {
+		return err
+	}
+	return rs.loadVersion(ver, upgrades, opts)
 }
 
 // loadVersion loads every mounted store at ver.
@@ -258,6 +267,9 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades, opts iavl
 		}
 		rs.loadedStores = nil
 	}()
+	if err := rs.deferredBeforeLoad(); err != nil {
+		return err
+	}
 	infos := make(map[string]types.StoreInfo)
 
 	rs.logger.Trace("loadVersion", "ver", ver)
@@ -347,6 +359,7 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades, opts iavl
 	rs.setLastCommitInfo(cInfo)
 	rs.stores = newStores
 	rs.loadedStores = nil // in use now
+	rs.deferredAfterLoad(ver, opts.Deferred)
 
 	// load any snapshot heights we missed from disk to be pruned on the next run
 	if err := rs.pruningManager.LoadSnapshotHeights(rs.db); err != nil {
@@ -534,6 +547,10 @@ func (rs *Store) LastCommitID() types.CommitID {
 
 // Commit implements Committer/CommitStore.
 func (rs *Store) Commit() types.CommitID {
+	rs.deferredBeforeCommit()
+	if rs.celestiaDeferred.isActive() {
+		return rs.commitDeferred()
+	}
 	var previousHeight, version int64
 	lastCommitInfo := rs.getLastCommitInfo()
 	if lastCommitInfo.GetVersion() == 0 && rs.initialVersion > 1 {
@@ -919,6 +936,8 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 	if height > uint64(GetLatestVersion(rs.db)) {
 		return errorsmod.Wrapf(types.ErrLogic, "cannot snapshot future height %v", height)
 	}
+	rs.deferredSnapshotStart()
+	defer rs.deferredSnapshotDone(int64(height)) //nolint:gosec // checked against the latest version above
 
 	// Collect stores to snapshot (only IAVL stores are supported)
 	type namedStore struct {
@@ -1189,6 +1208,11 @@ func (rs *Store) CheckRollbackToVersion(target int64) ([]byte, error) {
 		return nil, fmt.Errorf("invalid rollback height target: %d", target)
 	}
 
+	// A DB last written in deferred mode keeps no version to roll back to.
+	if err := rs.deferredRollbackCheck(); err != nil {
+		return nil, err
+	}
+
 	pendingTarget, pending, err := getPendingRollback(rs.db)
 	if err != nil {
 		return nil, err
@@ -1304,6 +1328,13 @@ func (rs *Store) RollbackToVersion(target int64) error {
 	cInfo.Timestamp = timestamp
 	flushCommitInfo(batch, target, cInfo)
 	flushLatestVersion(batch, target)
+	if _, deferred, err := readMarker(rs.db); err != nil {
+		return err
+	} else if deferred {
+		// A stale deferred marker (CheckRollbackToVersion refuses a current one).
+		setMarker(batch, markerStock, target)
+		rs.celestiaMarkerDeferred = false
+	}
 	if err := batch.Delete([]byte(rollbackKey)); err != nil {
 		return err
 	}
@@ -1354,6 +1385,7 @@ func (rs *Store) flushMetadata(db dbm.DB, version int64, cInfo *types.CommitInfo
 	}
 
 	flushLatestVersion(batch, version)
+	rs.markStock(batch, version)
 
 	if err := batch.WriteSync(); err != nil {
 		panic(fmt.Errorf("error on batch write %w", err))

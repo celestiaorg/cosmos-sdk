@@ -3,6 +3,7 @@ package baseapp
 import (
 	"context"
 	"fmt"
+	"io"
 	"math"
 	"sort"
 	"strconv"
@@ -1156,6 +1157,13 @@ func (app *BaseApp) TxEncode(tx sdk.Tx) ([]byte, error) {
 // Close is called in start cmd to gracefully cleanup resources.
 func (app *BaseApp) Close() error {
 	var errs []error
+
+	// Stop background store work (e.g. async pruning) before closing the DB.
+	if c, ok := app.cms.(io.Closer); ok {
+		if err := c.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
 
 	// Close app.db (opened by cosmos-sdk/server/start.go call to openDB)
 	if app.db != nil {

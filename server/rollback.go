@@ -4,6 +4,9 @@ import (
 	"fmt"
 
 	cmtcmd "github.com/cometbft/cometbft/cmd/cometbft/commands"
+	cmtcfg "github.com/cometbft/cometbft/config"
+	cmtstate "github.com/cometbft/cometbft/state"
+	dbm "github.com/cosmos/cosmos-db"
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -33,6 +36,22 @@ application.
 			if err != nil {
 				return err
 			}
+
+			// A DB last written with deferred persistence keeps one version.
+			lastFlushed, deferred, err := readDeferredMarker(db)
+			if err != nil {
+				return err
+			}
+			if deferred {
+				return rollbackBehindApp(cfg, lastFlushed, removeBlock)
+			}
+			// A DB last written by the v0.46 line (the v3 child) uses its own marker.
+			if handled, err := rollbackV046Deferred(cfg, db, removeBlock); handled || err != nil {
+				return err
+			}
+
+			// Never load in deferred mode here: opening the DB must not write.
+			ctx.Viper.Set(FlagDeferredPersistence, deferredOff)
 			app := appCreator(ctx.Logger, db, nil, ctx.Viper)
 			// rollback CometBFT state
 			height, hash, err := cmtcmd.RollbackState(ctx.Config, removeBlock)
@@ -53,4 +72,58 @@ application.
 	cmd.Flags().String(flags.FlagHome, defaultNodeHome, "The application home directory")
 	cmd.Flags().BoolVar(&removeBlock, "hard", false, "remove last block as well as state")
 	return cmd
+}
+
+// rollbackBehindApp rolls back CometBFT state only, for an app DB last written
+// with deferred persistence. The app must be at or below the target height;
+// on start the handshake replays the blocks above the app's version.
+func rollbackBehindApp(cfg *cmtcfg.Config, lastFlushed int64, removeBlock bool) error {
+	cometHeight, err := cometLastBlockHeight(cfg)
+	if err != nil {
+		return err
+	}
+	if target := cometHeight - 1; lastFlushed > target {
+		return errDeferredRollback{LastFlushed: lastFlushed}
+	}
+	height, hash, err := cmtcmd.RollbackState(cfg, removeBlock)
+	if err != nil {
+		return fmt.Errorf("failed to rollback CometBFT state: %w", err)
+	}
+	fmt.Printf("Rolled back CometBFT state to height %d and hash %X. The app state stays at height %d "+
+		"(deferred persistence); the node replays the blocks above it on start.\n", height, hash, lastFlushed)
+	return nil
+}
+
+// cometLastBlockHeight reads the last block height of the CometBFT state.
+func cometLastBlockHeight(cfg *cmtcfg.Config) (int64, error) {
+	stateDB, err := cmtcfg.DefaultDBProvider(&cmtcfg.DBContext{ID: "state", Config: cfg})
+	if err != nil {
+		return 0, err
+	}
+	st, err := cmtstate.NewStore(stateDB, cmtstate.StoreOptions{}).Load()
+	_ = stateDB.Close()
+	if err != nil {
+		return 0, fmt.Errorf("failed to load CometBFT state: %w", err)
+	}
+	return st.LastBlockHeight, nil
+}
+
+// rollbackV046Deferred handles an app DB carrying the v0.46 deferred marker
+// before anything is written: it refuses a rollback below the oldest app
+// version on disk, and rolls back CometBFT state only for a DB that holds just
+// its last deferred flush. handled is false when the regular rollback may run.
+func rollbackV046Deferred(cfg *cmtcfg.Config, db dbm.DB, removeBlock bool) (handled bool, err error) {
+	deferred, lastFlushed, found, err := readV046DeferredMarker(db)
+	if err != nil || !found {
+		return false, err
+	}
+	cometHeight, err := cometLastBlockHeight(cfg)
+	if err != nil {
+		return false, err
+	}
+	cometOnly, err := v046RollbackPlan(db, deferred, lastFlushed, cometHeight-1)
+	if err != nil || !cometOnly {
+		return false, err
+	}
+	return true, rollbackBehindApp(cfg, lastFlushed, removeBlock)
 }

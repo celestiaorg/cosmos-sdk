@@ -23,6 +23,17 @@ func (st *Store) flushRecordedOps() {
 	st.cs.CommitStore(st.csName, ops)
 }
 
+// RecordUncommittedOps hands a copy of the ops recorded since the last save
+// to the recorder without clearing them. rootmulti uses it for a store whose
+// version is already saved, so its Commit is skipped on a re-executed height
+// (the pending ops are then saved, and recorded again, with the next version).
+func (st *Store) RecordUncommittedOps() {
+	if st.cs == nil || len(st.csOps) == 0 {
+		return
+	}
+	st.cs.CommitStore(st.csName, append([]changeset.Op(nil), st.csOps...))
+}
+
 // ApplyOps applies recorded ops directly to the IAVL tree, without recording
 // (changeset applier). Returns the first tree error.
 //

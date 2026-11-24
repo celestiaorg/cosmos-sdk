@@ -17,9 +17,6 @@ import (
 // before the stores are loaded. FromEnv is used by default.
 func (rs *Store) SetChangesetRecorder(r *changeset.Recorder) { rs.cs = r }
 
-// ChangesetRecorder returns the active recorder (nil if none).
-func (rs *Store) ChangesetRecorder() *changeset.Recorder { return rs.cs }
-
 func (rs *Store) recordUpgrade(upgrades *types.StoreUpgrades) {
 	if rs.cs == nil || upgrades == nil {
 		return
@@ -52,7 +49,11 @@ func (rs *Store) recordCommit(version int64, sync bool) {
 			infos = append(infos, changeset.StoreInfo{Name: si.Name, Version: si.CommitId.Version, Hash: si.CommitId.Hash})
 		}
 	}
-	rs.cs.EndBlock(id.Version, id.Hash, infos, rs.StoreManifest())
+	manifest, err := rs.storeManifest()
+	if err != nil {
+		panic(fmt.Sprintf("changeset recorder: height %d: %v", id.Version, err))
+	}
+	rs.cs.EndBlock(id.Version, id.Hash, infos, manifest)
 	if !sync {
 		return
 	}
@@ -61,43 +62,82 @@ func (rs *Store) recordCommit(version int64, sync bool) {
 	}
 }
 
-// StoreManifest returns the mounted store set (name, type).
-func (rs *Store) StoreManifest() []changeset.StoreDecl {
+// storeManifest returns the mounted store set (name, type). A store type
+// the format cannot express is an error: recording it as another type would
+// make the log replay a different store set.
+func (rs *Store) storeManifest() ([]changeset.StoreDecl, error) {
 	out := make([]changeset.StoreDecl, 0, len(rs.stores))
 	for key, store := range rs.stores {
-		out = append(out, changeset.StoreDecl{Name: key.Name(), Type: StoreTypeToChangeset(store.GetStoreType())})
+		t, ok := storeTypeToChangeset(store.GetStoreType())
+		if !ok {
+			return nil, fmt.Errorf("store %q has type %v, which the changeset format cannot record", key.Name(), store.GetStoreType())
+		}
+		out = append(out, changeset.StoreDecl{Name: key.Name(), Type: t})
+	}
+	return out, nil
+}
+
+// storeTypeToChangeset maps store types to the manifest encoding.
+func storeTypeToChangeset(t types.StoreType) (byte, bool) {
+	switch t {
+	case types.StoreTypeIAVL:
+		return changeset.StoreIAVL, true
+	case types.StoreTypeMemory:
+		return changeset.StoreMemory, true
+	case types.StoreTypeTransient:
+		return changeset.StoreTransient, true
+	case types.StoreTypeDB:
+		return changeset.StoreDB, true
+	}
+	return 0, false
+}
+
+// ChangesetToStoreType is the inverse of storeTypeToChangeset. ok is false
+// for a type the format does not define.
+func ChangesetToStoreType(t byte) (types.StoreType, bool) {
+	switch t {
+	case changeset.StoreIAVL:
+		return types.StoreTypeIAVL, true
+	case changeset.StoreMemory:
+		return types.StoreTypeMemory, true
+	case changeset.StoreTransient:
+		return types.StoreTypeTransient, true
+	case changeset.StoreDB:
+		return types.StoreTypeDB, true
+	}
+	return 0, false
+}
+
+// skippedChangesetStores returns the IAVL stores commitStores will not commit
+// at version: their tree is already saved at version (a crash after they
+// saved but before the commit info was written, e.g. stores added at an
+// upgrade height). Called before commitStores.
+func (rs *Store) skippedChangesetStores(version int64) []*iavl.Store {
+	if rs.cs == nil {
+		return nil
+	}
+	var out []*iavl.Store
+	for key, store := range rs.stores {
+		if store.GetStoreType() != types.StoreTypeIAVL || store.LastCommitID().Version < version {
+			continue
+		}
+		if st := rs.IAVLStore(key); st != nil {
+			out = append(out, st)
+		}
 	}
 	return out
 }
 
-// StoreTypeToChangeset maps store types to the manifest encoding.
-func StoreTypeToChangeset(t types.StoreType) byte {
-	switch t {
-	case types.StoreTypeIAVL:
-		return changeset.StoreIAVL
-	case types.StoreTypeMemory:
-		return changeset.StoreMemory
-	case types.StoreTypeTransient:
-		return changeset.StoreTransient
-	case types.StoreTypeDB:
-		return changeset.StoreDB
+// recordSkippedStores hands the ops the skipped stores received while this
+// height was re-executed to the current block. Their saved version holds
+// exactly these ops (the crashed run saved them), so the applier rebuilds
+// the same tree at version. The ops stay pending in the store as well: its
+// working tree still carries them and saves them with the next version, so
+// the next block records them again, as that commit really contains them.
+func recordSkippedStores(skipped []*iavl.Store) {
+	for _, st := range skipped {
+		st.RecordUncommittedOps()
 	}
-	return 0
-}
-
-// ChangesetToStoreType is the inverse of StoreTypeToChangeset.
-func ChangesetToStoreType(t byte) types.StoreType {
-	switch t {
-	case changeset.StoreIAVL:
-		return types.StoreTypeIAVL
-	case changeset.StoreMemory:
-		return types.StoreTypeMemory
-	case changeset.StoreTransient:
-		return types.StoreTypeTransient
-	case changeset.StoreDB:
-		return types.StoreTypeDB
-	}
-	return types.StoreTypeIAVL
 }
 
 // IAVLStore returns the underlying *iavl.Store of a mounted IAVL store,

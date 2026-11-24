@@ -44,17 +44,14 @@ type Recorder struct {
 	initialVersion int64
 
 	// output
-	f         *os.File
-	w         *bufio.Writer
-	path      string
-	nInFile   int64
-	lastH     int64
-	buf       []byte
-	compWG    sync.WaitGroup
-	closed    bool
-	TotalOps  int64
-	TotalByte int64
-	Blocks    int64
+	f       *os.File
+	w       *bufio.Writer
+	path    string
+	nInFile int64
+	lastH   int64
+	buf     []byte
+	compWG  sync.WaitGroup
+	closed  bool
 }
 
 var (
@@ -169,7 +166,7 @@ func (r *Recorder) EndBlock(height int64, appHash []byte, infos []StoreInfo, pos
 		panic(fmt.Sprintf("changeset recorder: height %d: %v", height, err))
 	}
 	if late {
-		if err := r.closeFileSyncLocked(); err != nil {
+		if err := r.rotateLocked(false); err != nil {
 			panic(fmt.Sprintf("changeset recorder: height %d (after close): %v", height, err))
 		}
 	}
@@ -177,7 +174,7 @@ func (r *Recorder) EndBlock(height int64, appHash []byte, infos []StoreInfo, pos
 
 func (r *Recorder) writeLocked(b *Block, post []StoreDecl) error {
 	if r.f != nil && (r.nInFile >= r.opts.BlocksPerFile || b.Height != r.lastH+1) {
-		if err := r.rotateLocked(); err != nil {
+		if err := r.rotateLocked(r.opts.Zstd); err != nil {
 			return err
 		}
 	}
@@ -188,6 +185,9 @@ func (r *Recorder) writeLocked(b *Block, post []StoreDecl) error {
 		}
 	}
 	r.buf = AppendBlock(r.buf[:0], b)
+	if len(r.buf) > MaxFrameSize {
+		return fmt.Errorf("block payload of %d bytes exceeds the changeset frame limit %d", len(r.buf), MaxFrameSize)
+	}
 	if err := WriteFrame(r.w, r.buf); err != nil {
 		return err
 	}
@@ -198,9 +198,6 @@ func (r *Recorder) writeLocked(b *Block, post []StoreDecl) error {
 	}
 	r.nInFile++
 	r.lastH = b.Height
-	r.Blocks++
-	r.TotalOps += int64(b.NumOps())
-	r.TotalByte += int64(len(r.buf) + 8)
 	return nil
 }
 
@@ -250,7 +247,9 @@ func (r *Recorder) openLocked(first int64) error {
 	return err
 }
 
-func (r *Recorder) rotateLocked() error {
+// rotateLocked flushes, syncs and closes the current file; with compress set
+// it is zstd-compressed in the background.
+func (r *Recorder) rotateLocked(compress bool) error {
 	if r.f == nil {
 		return nil
 	}
@@ -265,7 +264,7 @@ func (r *Recorder) rotateLocked() error {
 	}
 	p := r.path
 	r.f, r.w, r.path = nil, nil, ""
-	if r.opts.Zstd {
+	if compress {
 		r.compWG.Add(1)
 		go func() {
 			defer r.compWG.Done()
@@ -298,7 +297,7 @@ func (r *Recorder) Close() error {
 		return nil
 	}
 	r.closed = true
-	err := r.rotateLocked()
+	err := r.rotateLocked(r.opts.Zstd)
 	r.mu.Unlock()
 	r.compWG.Wait()
 	return err
@@ -378,21 +377,4 @@ func (fw *FileWriter) Close() error {
 		return err
 	}
 	return fw.f.Close()
-}
-
-// closeFileSyncLocked flushes, syncs and closes the current file without
-// background compression (used for blocks that arrive after Close).
-func (r *Recorder) closeFileSyncLocked() error {
-	if r.f == nil {
-		return nil
-	}
-	if err := r.w.Flush(); err != nil {
-		return err
-	}
-	if err := r.f.Sync(); err != nil {
-		return err
-	}
-	err := r.f.Close()
-	r.f, r.w, r.path = nil, nil, ""
-	return err
 }

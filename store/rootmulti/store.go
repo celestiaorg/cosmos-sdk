@@ -461,16 +461,10 @@ func (rs *Store) LastCommitID() types.CommitID {
 
 // Commit implements Committer/CommitStore.
 func (rs *Store) Commit() types.CommitID {
-	var id types.CommitID
 	if rs.deferredEnabled() {
-		id = rs.commitDeferred()
-	} else {
-		id = rs.commitUpstream()
+		return rs.commitDeferred()
 	}
-	return id
-}
 
-func (rs *Store) commitUpstream() types.CommitID {
 	var previousHeight, version int64
 	if rs.lastCommitInfo.GetVersion() == 0 && rs.initialVersion > 1 {
 		// This case means that no commit has been made in the store, we
@@ -486,7 +480,9 @@ func (rs *Store) commitUpstream() types.CommitID {
 		version = previousHeight + 1
 	}
 
+	skipped := rs.skippedChangesetStores(version)
 	rs.lastCommitInfo = commitStores(version, rs.stores, rs.removalMap)
+	recordSkippedStores(skipped)
 	rs.recordCommit(version, true) // before the commit info makes version the loaded one
 	defer rs.flushMetadata(rs.db, version, rs.lastCommitInfo)
 

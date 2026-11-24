@@ -130,3 +130,94 @@ func TestChangesetRecordingDoesNotChangeCommitHashes(t *testing.T) {
 		})
 	}
 }
+
+// A store added at an upgrade height h whose tree was saved at h before a
+// crash (commit info still at h-1) is not committed again when h is
+// re-executed. The ops it received during the re-execution are what its
+// saved version h holds, so they belong to block h; they also stay in the
+// working tree and are saved with h+1, so block h+1 records them again.
+func TestChangesetStoreSavedBeforeCrashAtUpgrade(t *testing.T) {
+	const upgradeAt = int64(5)
+	dir := t.TempDir()
+	db := dbm.NewMemDB()
+	open := func(rec *changeset.Recorder) *Store {
+		rs := NewStore(db, log.NewNopLogger())
+		rs.SetPruning(pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+		rs.SetChangesetRecorder(rec)
+		rs.MountStoreWithDB(defKey1, types.StoreTypeIAVL, nil)
+		require.NoError(t, rs.LoadLatestVersion())
+		return rs
+	}
+	xOps := func(h int64) []changeset.Op {
+		return []changeset.Op{
+			{Kind: changeset.OpSet, Key: []byte(fmt.Sprintf("x%d", h)), Value: []byte("v")},
+			{Kind: changeset.OpSet, Key: []byte("hot"), Value: []byte(fmt.Sprint(h))},
+		}
+	}
+	// block h up to (excluding) Commit: writes, and the upgrade at upgradeAt
+	block := func(rs *Store, h int64) {
+		rs.GetKVStore(defKey1).Set([]byte(fmt.Sprintf("k%d", h)), []byte("v"))
+		if h == upgradeAt {
+			rs.MountStoreWithDB(defKey3, types.StoreTypeIAVL, nil)
+			require.NoError(t, rs.LoadLatestVersionAndUpgrade(&types.StoreUpgrades{Added: []string{defKey3.Name()}}))
+		}
+		if h >= upgradeAt {
+			for _, op := range xOps(h) {
+				rs.GetKVStore(defKey3).Set(op.Key, op.Value)
+			}
+		}
+	}
+
+	rec1, err := changeset.New(dir, changeset.Options{BlocksPerFile: 100})
+	require.NoError(t, err)
+	rs := open(rec1)
+	for h := int64(1); h < upgradeAt; h++ {
+		block(rs, h)
+		rs.Commit()
+	}
+	require.NoError(t, rec1.Close())
+
+	// the crashed run: the added store saved upgradeAt, nothing else did
+	rs = open(nil)
+	block(rs, upgradeAt)
+	rs.IAVLStore(defKey3).Commit()
+	require.Equal(t, upgradeAt-1, GetLatestVersion(db))
+
+	// restart: upgradeAt is executed again, then two more blocks
+	rec2, err := changeset.New(dir, changeset.Options{BlocksPerFile: 100})
+	require.NoError(t, err)
+	rs = open(rec2)
+	for h := upgradeAt; h <= upgradeAt+2; h++ {
+		block(rs, h)
+		require.Equal(t, h, rs.Commit().Version)
+	}
+	require.NoError(t, rec2.Close())
+
+	x := map[int64][]changeset.Op{}
+	require.NoError(t, changeset.Stream(dir, 0, func(b *changeset.Block) error {
+		for _, s := range b.Stores {
+			if s.Name == defKey3.Name() {
+				x[b.Height] = s.Ops
+			}
+		}
+		return nil
+	}))
+	require.Equal(t, xOps(upgradeAt), x[upgradeAt])
+	require.Equal(t, append(xOps(upgradeAt), xOps(upgradeAt+1)...), x[upgradeAt+1])
+	require.Equal(t, xOps(upgradeAt+2), x[upgradeAt+2])
+}
+
+// A store type the format cannot express is never recorded as another type.
+func TestChangesetStoreTypes(t *testing.T) {
+	for _, st := range []types.StoreType{types.StoreTypeIAVL, types.StoreTypeMemory, types.StoreTypeTransient, types.StoreTypeDB} {
+		c, ok := storeTypeToChangeset(st)
+		require.True(t, ok, st)
+		back, ok := ChangesetToStoreType(c)
+		require.True(t, ok, st)
+		require.Equal(t, st, back)
+	}
+	_, ok := storeTypeToChangeset(types.StoreTypeMulti)
+	require.False(t, ok)
+	_, ok = ChangesetToStoreType(0)
+	require.False(t, ok)
+}

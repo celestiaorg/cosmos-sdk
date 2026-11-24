@@ -18,7 +18,7 @@ func (rs *Store) repairStoreAhead(key types.StoreKey, st *iavl.Store, version in
 		return fmt.Errorf("store %s: %w", key.Name(), err)
 	}
 	if rolled {
-		rs.logger.Info("rolled back IAVL store ahead of commit info", "store", key.Name(), "on_disk", latest, "commit_info", version)
+		rs.celestiaLogger.Info("rolled back IAVL store ahead of commit info", "store", key.Name(), "on_disk", latest, "commit_info", version)
 	}
 	return nil
 }

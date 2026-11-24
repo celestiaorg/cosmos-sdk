@@ -211,6 +211,11 @@ func NewBaseApp(
 		},
 		txDecoder: txDecoder,
 	}
+	// The multistore is created with a no-op logger; give it this app's
+	// logger for the deferred persistence and store repair lines.
+	if s, ok := app.cms.(interface{ SetLogger(log.Logger) }); ok && logger != nil {
+		s.SetLogger(logger.With("module", "store"))
+	}
 
 	for _, option := range options {
 		option(app)

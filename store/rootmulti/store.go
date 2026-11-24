@@ -711,14 +711,9 @@ func (rs *Store) CacheMultiStoreFreezable() (types.CacheMultiStore, func() error
 		stores[k] = store
 	}
 	freeze := func() error {
-		// An uncommitted store rename or deletion means the committed version has another layout.
-		if len(rs.removalMap) > 0 {
-			return nil
-		}
-		if version == 0 {
-			for _, s := range switches {
-				s.KVStore = dbadapter.Store{DB: dbm.NewMemDB()}
-			}
+		// Before the first commit genesis lives only in the first block, and an uncommitted store
+		// rename or deletion gives the committed version another layout: keep the live stores.
+		if version == 0 || len(rs.removalMap) > 0 {
 			return nil
 		}
 		committed, err := rs.CacheMultiStoreWithVersion(version)

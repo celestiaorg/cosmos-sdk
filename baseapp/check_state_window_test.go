@@ -94,7 +94,6 @@ func testCheckStateWindow(t *testing.T, interBlockCache bool) {
 	}
 
 	finalize(1)
-	check("a= b= n= |") // window before the first Commit
 	commit()
 	check("a=1 b=1 n= | a=1 b=1 d=1") // caches a, b and writes n
 	finalize(2)

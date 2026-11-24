@@ -162,7 +162,7 @@ func (rs *Store) decideDeferred() {
 	d.mtx.Lock()
 	defer d.mtx.Unlock()
 	if !d.decided && d.note != "" && d.mode != DeferredOff {
-		rs.logger.Info("deferred IAVL persistence setting adjusted", "note", d.note)
+		rs.celestiaLogger.Info("deferred IAVL persistence setting adjusted", "note", d.note)
 	}
 	if d.decided || d.mode == "" || d.mode == DeferredOff {
 		d.decided = true
@@ -182,13 +182,13 @@ func (rs *Store) decideDeferred() {
 		reason = "IAVL lazy loading is enabled"
 	}
 	if reason != "" {
-		rs.logger.Info("deferred IAVL persistence disabled", "reason", reason)
+		rs.celestiaLogger.Info("deferred IAVL persistence disabled", "reason", reason)
 		d.mode = DeferredOff
 		return
 	}
 	d.active = true
 	rs.iavlDisableFastNode = true
-	rs.logger.Info("deferred IAVL persistence enabled", "mode", d.mode, "flush_interval", d.every)
+	rs.celestiaLogger.Info("deferred IAVL persistence enabled", "mode", d.mode, "flush_interval", d.every)
 	registerDeferredStore(rs)
 }
 
@@ -258,7 +258,7 @@ func (rs *Store) shutdownFlush() error {
 	if err := rs.flushDeferredLocked(rs.lastCommitInfo.Version, rs.lastCommitInfo); err != nil {
 		return err
 	}
-	rs.logger.Info("deferred persistence: flushed on shutdown", "version", rs.deferred.lastFlushed)
+	rs.celestiaLogger.Info("deferred persistence: flushed on shutdown", "version", rs.deferred.lastFlushed)
 	return nil
 }
 
@@ -305,10 +305,10 @@ func (rs *Store) flushDeferredLocked(version int64, cInfo *types.CommitInfo) err
 	for _, n := range stores {
 		if err := n.st.DeleteVersionsBefore(version); err != nil {
 			// not fatal: retried at the next flush
-			rs.logger.Error("deferred persistence: failed to delete old versions", "store", n.key.Name(), "version", version, "err", err)
+			rs.celestiaLogger.Error("deferred persistence: failed to delete old versions", "store", n.key.Name(), "version", version, "err", err)
 		}
 	}
-	rs.logger.Debug("deferred persistence: flushed", "version", version)
+	rs.celestiaLogger.Debug("deferred persistence: flushed", "version", version)
 	return nil
 }
 
@@ -384,7 +384,7 @@ func (rs *Store) commitDeferred() types.CommitID {
 	defer rs.deferred.mtx.Unlock()
 	if rs.deferred.closed {
 		// see ShutdownFlush: never answer for a block that is not on disk
-		rs.logger.Error("deferred persistence: Commit after shutdown flush; blocking until the process exits")
+		rs.celestiaLogger.Error("deferred persistence: Commit after shutdown flush; blocking until the process exits")
 		rs.deferred.mtx.Unlock()
 		select {}
 	}
@@ -448,7 +448,7 @@ func (rs *Store) leaveDeferredLocked(version int64) {
 	rs.flushMetadataWithMarker(version, rs.lastCommitInfo, false, version)
 	rs.deferred.active = false
 	unregisterDeferredStore(rs)
-	rs.logger.Info("deferred persistence: caught up, per-block persistence from now on", "version", version)
+	rs.celestiaLogger.Info("deferred persistence: caught up, per-block persistence from now on", "version", version)
 }
 
 // One shutdown hook for the process flushes every active deferred store.
@@ -480,7 +480,7 @@ func shutdownFlushAll() {
 	deferredStoresMu.Unlock()
 	for _, rs := range stores {
 		if err := rs.ShutdownFlush(); err != nil {
-			rs.logger.Error("deferred persistence: flush on shutdown failed; the restart rolls back to the last complete flush and replays", "err", err)
+			rs.celestiaLogger.Error("deferred persistence: flush on shutdown failed; the restart rolls back to the last complete flush and replays", "err", err)
 		}
 	}
 }

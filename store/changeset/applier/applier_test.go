@@ -893,3 +893,67 @@ func TestStopsAtStoreV1Handover(t *testing.T) {
 	require.EqualValues(t, 101, a.HandoverAt)
 	require.EqualValues(t, 100, rootmulti.GetLatestVersion(db))
 }
+
+// A store added at an upgrade height h saved its tree at h before a crash
+// (commit info still at h-1); the restarted node re-executes h without
+// committing that store again. The log recorded across the crash replays to
+// the node's app hash at every height, h and the heights after it included.
+func TestStoreSavedBeforeCrashAtUpgradeReplays(t *testing.T) {
+	const upgradeAt, last = int64(5), int64(9)
+	dir := t.TempDir()
+	db := dbm.NewMemDB()
+	ka, kx := types.NewKVStoreKey("a"), types.NewKVStoreKey("x")
+	open := func(rec *changeset.Recorder) *rootmulti.Store {
+		rs := rootmulti.NewStore(db, log.NewNopLogger())
+		rs.SetPruning(pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+		rs.SetChangesetRecorder(rec)
+		rs.MountStoreWithDB(ka, types.StoreTypeIAVL, nil)
+		require.NoError(t, rs.LoadLatestVersion())
+		return rs
+	}
+	block := func(rs *rootmulti.Store, h int64) {
+		rs.GetKVStore(ka).Set([]byte(fmt.Sprintf("k%d", h)), []byte("v"))
+		if h == upgradeAt {
+			rs.MountStoreWithDB(kx, types.StoreTypeIAVL, nil)
+			require.NoError(t, rs.LoadLatestVersionAndUpgrade(&types.StoreUpgrades{Added: []string{"x"}}))
+		}
+		if h >= upgradeAt {
+			x := rs.GetKVStore(kx)
+			x.Set([]byte(fmt.Sprintf("x%d", h)), []byte("v"))
+			x.Set([]byte("hot"), []byte(fmt.Sprint(h)))
+		}
+	}
+	hashes := map[int64][]byte{}
+	rec1, err := changeset.New(dir, changeset.Options{BlocksPerFile: 100, StoreInfos: true})
+	require.NoError(t, err)
+	rs := open(rec1)
+	for h := int64(1); h < upgradeAt; h++ {
+		block(rs, h)
+		hashes[h] = rs.Commit().Hash
+	}
+	require.NoError(t, rec1.Close())
+
+	rs = open(nil) // the crashed run: only the added store saved upgradeAt
+	block(rs, upgradeAt)
+	rs.IAVLStore(kx).Commit()
+
+	rec2, err := changeset.New(dir, changeset.Options{BlocksPerFile: 100, StoreInfos: true})
+	require.NoError(t, err)
+	rs = open(rec2)
+	for h := upgradeAt; h <= last; h++ {
+		block(rs, h)
+		hashes[h] = rs.Commit().Hash
+	}
+	require.NoError(t, rec2.Close())
+
+	exp := func(h int64) ([]byte, bool, error) {
+		v, ok := hashes[h]
+		return v, ok, nil
+	}
+	for _, dstK := range []string{"", "3"} {
+		a, err := applyStrict(dbm.NewMemDB(), dir, dstK, exp)
+		require.NoError(t, err, "dst K=%q", dstK)
+		require.EqualValues(t, last, a.LastTrusted)
+		require.Equal(t, hashes[last], a.RS.LastCommitID().Hash)
+	}
+}

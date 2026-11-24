@@ -6,6 +6,7 @@ import (
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	cmtcmd "github.com/cometbft/cometbft/cmd/cometbft/commands"
+	cmtcfg "github.com/cometbft/cometbft/config"
 	dbm "github.com/cosmos/cosmos-db"
 	"github.com/spf13/cobra"
 
@@ -67,6 +68,18 @@ An interrupted app rollback of 2+ heights may need state sync or a snapshot.
 			db, err := openDB(cfg.RootDir, GetAppDBBackend(ctx.Viper))
 			if err != nil {
 				return err
+			}
+			// A DB last written with deferred persistence keeps one version, so
+			// the app state cannot roll back; CometBFT alone can if the app is
+			// at or below the target, and the handshake then replays.
+			lastFlushed, deferred, err := rootmulti.ReadDeferredMarker(db)
+			if err != nil {
+				_ = db.Close()
+				return err
+			}
+			if deferred {
+				_ = db.Close()
+				return rollbackBehindApp(cmd, cfg, target, lastFlushed, removeBlock, dryRun)
 			}
 			app, err := createRollbackApp(ctx, appCreator, db)
 			if err != nil {
@@ -131,6 +144,8 @@ An interrupted app rollback of 2+ heights may need state sync or a snapshot.
 // createRollbackApp creates the app with pending rollbacks allowed and returns a panic as an error.
 func createRollbackApp(ctx *Context, appCreator types.AppCreator, db dbm.DB) (app types.Application, err error) {
 	ctx.Viper.Set(keyAllowPendingRollback, allowPendingRollback{})
+	// Never load in deferred mode here: opening the DB must not write.
+	ctx.Viper.Set(FlagDeferredPersistence, rootmulti.DeferredOff)
 	defer func() {
 		ctx.Viper.Set(keyAllowPendingRollback, nil)
 		if r := recover(); r != nil {
@@ -148,4 +163,23 @@ func createRollbackApp(ctx *Context, appCreator types.AppCreator, db dbm.DB) (ap
 func errAcrossUpgrade(targetVersion uint64, target int64, currentVersion uint64) error {
 	return fmt.Errorf("rollback across an upgrade is not supported (app version %d at height %d, %d now); use surgery or a new chain",
 		targetVersion, target, currentVersion)
+}
+
+// rollbackBehindApp rolls back CometBFT state only, for an app DB last written
+// with deferred persistence whose last flushed version is at or below target.
+func rollbackBehindApp(cmd *cobra.Command, cfg *cmtcfg.Config, target, lastFlushed int64, removeBlock, dryRun bool) error {
+	if lastFlushed > target {
+		return rootmulti.ErrDeferredRollback{LastFlushed: lastFlushed}
+	}
+	if dryRun {
+		fmt.Fprintf(cmd.OutOrStdout(), "dry run: CometBFT rollback to height %d is possible; the app state stays at height %d (deferred persistence)\n", target, lastFlushed)
+		return nil
+	}
+	h, coreHash, err := rollbackCometState(cfg, target, removeBlock)
+	if err != nil {
+		return fmt.Errorf("rollback CometBFT state: %w", err)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Rolled back CometBFT state to height %d, app hash %X. The app state stays at height %d "+
+		"(deferred persistence); the node replays the blocks above it on start.\n", h, coreHash, lastFlushed)
+	return nil
 }

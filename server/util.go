@@ -476,7 +476,8 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 }
 
 // deferredPersistenceOptions reads [performance] deferred-persistence and
-// deferred-flush-interval (missing keys mean their defaults). Commands that
+// deferred-flush-interval (missing keys mean their defaults; the store
+// normalises the values, see rootmulti.NormalizeDeferredPersistence). Commands that
 // only read the DB (KeyReadOnlyLoad) never use deferred persistence.
 func deferredPersistenceOptions(appOpts types.AppOptions) (string, int64, uint64) {
 	mode := rootmulti.DeferredSync

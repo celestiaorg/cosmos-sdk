@@ -158,3 +158,55 @@ func storeTypeToChangeset(t types.StoreType) byte {
 	}
 	return 0
 }
+
+// SetChangesetApplyMode (changeset applier only): store upgrades skip the
+// native data migration (deleteKVStore / moveKVStoreData); the applier
+// replays the recorded ops of that migration instead, in recorded order.
+func (rs *Store) SetChangesetApplyMode(on bool) { rs.csApply = on }
+
+func (rs *Store) deleteKVStoreUnlessApplying(kv types.KVStore) error {
+	if rs.csApply {
+		return nil
+	}
+	return deleteKVStore(kv)
+}
+
+func (rs *Store) moveKVStoreDataUnlessApplying(oldDB, newDB types.KVStore) error {
+	if rs.csApply {
+		return nil
+	}
+	return moveKVStoreData(oldDB, newDB)
+}
+
+// ChangesetToStoreType is the inverse of storeTypeToChangeset; an unknown
+// type is an error.
+func ChangesetToStoreType(t byte) (types.StoreType, error) {
+	switch t {
+	case changeset.StoreIAVL:
+		return types.StoreTypeIAVL, nil
+	case changeset.StoreMemory:
+		return types.StoreTypeMemory, nil
+	case changeset.StoreTransient:
+		return types.StoreTypeTransient, nil
+	case changeset.StoreDB:
+		return types.StoreTypeDB, nil
+	}
+	return 0, fmt.Errorf("unknown changeset store type %d", t)
+}
+
+// IAVLStoreByName returns the underlying *iavl.Store of a loaded store by
+// name, including stores that are only pending removal (deleted, renamed-old)
+// until the next Commit; nil if there is none.
+func (rs *Store) IAVLStoreByName(name string) *iavl.Store {
+	for key := range rs.stores {
+		if key.Name() == name {
+			st, _ := rs.GetCommitKVStore(key).(*iavl.Store)
+			return st
+		}
+	}
+	return nil
+}
+
+// LastCommitInfoForChangeset returns the in-memory commit info of the last
+// commit (also valid for soft-committed heights in deferred mode).
+func (rs *Store) LastCommitInfoForChangeset() *types.CommitInfo { return rs.getLastCommitInfo() }

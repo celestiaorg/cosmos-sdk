@@ -16,7 +16,7 @@ import (
 // restarts in deferred mode at its last flush, refuses an app-state rollback,
 // replays to the same hashes and flushes on a graceful stop.
 func TestCelestiaDeferredSyncRestartAndKill(t *testing.T) {
-	block := func(h int64) *rand.Rand { return rand.New(rand.NewSource(h)) }
+	block := func(h int64) *rand.Rand { return rand.New(rand.NewSource(h)) } //nolint:gosec // deterministic test data
 	ref := openDeferredTest(t, dbm.NewMemDB(), DeferredOff, 0, nil)
 	var want []types.CommitID
 	for h := int64(1); h <= 13; h++ {
@@ -51,7 +51,7 @@ func TestCelestiaDeferredSyncRestartAndKill(t *testing.T) {
 // TestCelestiaDeferredPruneWaitsForReaders: a flush never deletes a version
 // that a snapshot export is reading; snapshot heights are always flushed.
 func TestCelestiaDeferredPruneWaitsForReaders(t *testing.T) {
-	r := rand.New(rand.NewSource(2))
+	r := rand.New(rand.NewSource(2)) //nolint:gosec // deterministic test data
 	db := dbm.NewMemDB()
 	ms := openDeferredTest(t, db, DeferredAlways, 3, nil)
 	ms.SetSnapshotInterval(5)

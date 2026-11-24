@@ -137,7 +137,7 @@ func TestCelestiaDeferredMatchesUpstream(t *testing.T) {
 }
 
 func testCelestiaDeferred(t *testing.T, ibc, fast bool) {
-	r := rand.New(rand.NewSource(7))
+	r := rand.New(rand.NewSource(7)) //nolint:gosec // deterministic test data
 	names := append([]string(nil), deferredTestStores...)
 	up := &deferredHarness{t: t, k: 0, ibc: ibc, fastNode: fast, names: names, db: dbm.NewMemDB()}
 	df := &deferredHarness{t: t, k: 7, ibc: ibc, fastNode: fast, names: names, db: dbm.NewMemDB()}
@@ -209,16 +209,16 @@ func testCelestiaDeferred(t *testing.T, ibc, fast bool) {
 			require.Equal(t, cmsU.GetKVStore(up.ms.keysByName["store1"]).Get(k), cmsD.GetKVStore(df.ms.keysByName["store1"]).Get(k))
 		}
 
-		switch {
-		case i == 20 || i == 120:
+		switch i {
+		case 20, 120:
 			// graceful restart
 			require.NoError(t, df.ms.FlushDeferred())
 			require.Equal(t, height, metadataVersion(df.db))
 			restart(nil)
-		case i == 30 || i == 90:
+		case 30, 90:
 			// crash (kill -9) between flushes: no flush, replay from metadata
 			restart(nil)
-		case i == 40:
+		case 40:
 			// mid-block shutdown: the next block is written into the trees
 			// (FinalizeBlock) when the shutdown flush runs; it must flush
 			// every store and leave the uncommitted block to be replayed.
@@ -228,11 +228,11 @@ func testCelestiaDeferred(t *testing.T, ibc, fast bool) {
 			require.Equal(t, height, metadataVersion(df.db))
 			restart(nil)
 			checkOneVersion()
-		case i == 50:
+		case 50:
 			// kill after a partial store flush: store1 wrote, others did not
 			require.NoError(t, df.iavlStore("store1").FlushDeferred())
 			restart(nil)
-		case i == 60 || i == 70:
+		case 60, 70:
 			// kill after all stores flushed, before the metadata (i==60),
 			// or after the metadata, before the deletions (i==70)
 			phase := map[int]string{60: "stores", 70: "metadata"}[i]
@@ -266,7 +266,7 @@ func testCelestiaDeferred(t *testing.T, ibc, fast bool) {
 				require.Equal(t, height, metadataVersion(df.db))
 			}
 			checkOneVersion()
-		case i == 100:
+		case 100:
 			// store upgrade: add store4, rename store2 -> restore2, delete store3
 			require.NoError(t, df.ms.FlushDeferred())
 			newNames := []string{"store1", "restore2", "store3", "store4", "upgrade"}
@@ -298,7 +298,7 @@ func testCelestiaDeferred(t *testing.T, ibc, fast bool) {
 		for ; it.Valid(); it.Next() {
 			require.NoError(t, bad.Set(it.Key(), it.Value()))
 		}
-		it.Close()
+		_ = it.Close()
 		tmp := NewStore(bad, log.NewNopLogger(), metrics.NewNoOpMetrics())
 		tmp.flushMetadata(bad, v+3, &ci2)
 		h := &deferredHarness{t: t, k: 7, names: df.names, db: bad}
@@ -344,7 +344,7 @@ func requireNoLeakedNodes(t *testing.T, db dbm.DB, name string, st *iavl.Store, 
 	for ; it.Valid(); it.Next() {
 		nodes++
 	}
-	it.Close()
+	_ = it.Close()
 	imm, err := st.GetImmutable(v)
 	require.NoError(t, err)
 	leaves := 0
@@ -352,7 +352,7 @@ func requireNoLeakedNodes(t *testing.T, db dbm.DB, name string, st *iavl.Store, 
 	for ; itr.Valid(); itr.Next() {
 		leaves++
 	}
-	itr.Close()
+	_ = itr.Close()
 	want := 0
 	if leaves > 0 {
 		want = 2*leaves - 1

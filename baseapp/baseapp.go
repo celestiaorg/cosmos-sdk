@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"sync"
 	"strconv"
+	"sync"
 
 	"github.com/cockroachdb/errors"
 	abci "github.com/cometbft/cometbft/abci/types"
@@ -122,6 +122,7 @@ type BaseApp struct {
 	// previous block's state. This state is committed.
 	checkStateMu         sync.RWMutex
 	checkState           *state
+	freezeCheckState     func() error // pins checkState's IAVL stores to the last committed version; nil once used
 	prepareProposalState *state
 	processProposalState *state
 	finalizeBlockState   *state
@@ -537,7 +538,12 @@ func (app *BaseApp) IsSealed() bool { return app.sealed }
 // multi-store (i.e. a CacheMultiStore) and a new Context with the same
 // multi-store branch, and provided header.
 func (app *BaseApp) setState(mode execMode, h cmtproto.Header) {
-	ms := app.cms.CacheMultiStore()
+	var ms storetypes.CacheMultiStore
+	if rms, ok := app.cms.(*rootmulti.Store); ok && mode == execModeCheck {
+		ms, app.freezeCheckState = rms.CacheMultiStoreFreezable()
+	} else {
+		ms = app.cms.CacheMultiStore()
+	}
 	headerInfo := header.Info{
 		Height:  h.Height,
 		Time:    h.Time,

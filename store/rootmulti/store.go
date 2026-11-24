@@ -692,6 +692,52 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 	return cachemulti.NewStore(rs.db, cachedStores, rs.keysByName, rs.traceWriter, rs.getTracingContext()), nil
 }
 
+// CacheMultiStoreFreezable is CacheMultiStore plus freeze, which repoints its IAVL substores at the
+// version committed when it was created. Call freeze before writing a new block into the stores.
+func (rs *Store) CacheMultiStoreFreezable() (types.CacheMultiStore, func() error) {
+	version := rs.LastCommitID().Version
+	stores := make(map[types.StoreKey]types.CacheWrapper)
+	switches := make(map[types.StoreKey]*switchStore)
+	for k, v := range rs.stores {
+		store := types.KVStore(v)
+		if v.GetStoreType() == types.StoreTypeIAVL {
+			s := &switchStore{KVStore: v}
+			switches[k] = s
+			store = s
+		}
+		if rs.ListeningEnabled(k) {
+			store = listenkv.NewStore(store, k, rs.listeners[k])
+		}
+		stores[k] = store
+	}
+	freeze := func() error {
+		// An uncommitted store rename or deletion means the committed version has another layout.
+		if len(rs.removalMap) > 0 {
+			return nil
+		}
+		if version == 0 {
+			for _, s := range switches {
+				s.KVStore = dbadapter.Store{DB: dbm.NewMemDB()}
+			}
+			return nil
+		}
+		committed, err := rs.CacheMultiStoreWithVersion(version)
+		if err != nil {
+			return err
+		}
+		for k, s := range switches {
+			s.KVStore = committed.GetKVStore(k)
+		}
+		return nil
+	}
+	return cachemulti.NewStore(rs.db, stores, rs.keysByName, rs.traceWriter, rs.getTracingContext()), freeze
+}
+
+// switchStore reads and writes through to KVStore, which freeze replaces.
+type switchStore struct {
+	types.KVStore
+}
+
 // GetStore returns a mounted Store for a given StoreKey. If the StoreKey does
 // not exist, it will panic. If the Store is wrapped in an inter-block cache, it
 // will be unwrapped prior to being returned.

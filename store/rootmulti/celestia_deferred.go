@@ -265,7 +265,9 @@ func (d *deferredDriver) catchingUp(header time.Time, lag time.Duration) bool {
 }
 
 // deferredBeforeCommit turns "sync" mode on when the node is catching up and
-// every IAVL tree holds a single version, so no history is deleted.
+// every IAVL tree holds a single version, so no history is deleted. It records
+// deferred mode in the marker before the first soft commit, so a kill during
+// the first flush is repaired by the next deferred load.
 func (rs *Store) deferredBeforeCommit() {
 	d := rs.celestiaDeferred
 	if d == nil || d.mode != DeferredSync || d.isActive() || !d.catchingUp(rs.commitHeader.Time, catchUpEnterLag) {
@@ -284,7 +286,28 @@ func (rs *Store) deferredBeforeCommit() {
 			return
 		}
 	}
-	rs.deferredAfterLoad(rs.getLastCommitInfo().GetVersion(), true)
+	version := rs.getLastCommitInfo().GetVersion()
+	if version > 0 {
+		// Without the marker, a kill during the first flush leaves trees with
+		// versions {version, flushed} that only a deferred load can repair.
+		if err := rs.writeMarker(markerDeferred, version); err != nil {
+			for _, s := range stores {
+				_ = s.DisableDeferred()
+			}
+			rs.logger.Error("deferred IAVL persistence stays off", "err", err)
+			return
+		}
+		rs.celestiaMarkerDeferred = true
+	}
+	rs.deferredAfterLoad(version, true)
+}
+
+// writeMarker durably writes the marker on its own.
+func (rs *Store) writeMarker(mode byte, version int64) error {
+	batch := rs.db.NewBatch()
+	defer batch.Close()
+	setMarker(batch, mode, version)
+	return batch.WriteSync()
 }
 
 func (rs *Store) commitDeferred() types.CommitID {

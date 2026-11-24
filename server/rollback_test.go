@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"io"
 	"os"
@@ -229,6 +230,9 @@ func (f *rollbackFixture) viper() *viper.Viper {
 		v.Set(server.FlagPruning, pruningtypes.PruningOptionCustom)
 		v.Set(server.FlagPruningKeepRecent, f.opts.pruneKeepRecent)
 		v.Set(server.FlagPruningInterval, 10)
+		// Prune inside Commit, so the fixture's DB is already pruned when built;
+		// async pruning would write the deletions only with a later commit.
+		v.Set(server.FlagAsyncPruning, false)
 	}
 	return v
 }
@@ -469,4 +473,32 @@ func TestRollbackCmdBlockNotExecuted(t *testing.T) {
 	require.ErrorContains(t, f.run(t), "block saved but not executed")
 	require.NoError(t, f.run(t, "--height", "9"))
 	f.requireHeights(t, 10, 9, 9)
+}
+
+// setDeferredMarker records in the app DB that it was last written with
+// deferred persistence, flushed at lastFlushed.
+func (f *rollbackFixture) setDeferredMarker(t *testing.T, lastFlushed int64) {
+	t.Helper()
+	db := f.appDB(t)
+	defer func() { require.NoError(t, db.Close()) }()
+	bz := make([]byte, 9)
+	bz[0] = 1
+	binary.BigEndian.PutUint64(bz[1:], uint64(lastFlushed))
+	require.NoError(t, db.SetSync([]byte("s/celestia/persistence"), bz))
+}
+
+func TestRollbackCmdDeferredPersistence(t *testing.T) {
+	f := newRollbackFixture(t, 10, fixtureOpts{})
+
+	// The app holds only its last flushed version: no app-state rollback.
+	f.setDeferredMarker(t, 10)
+	var rbErr rootmulti.ErrDeferredRollback
+	require.ErrorAs(t, f.run(t, "--height", "9"), &rbErr)
+	require.Equal(t, int64(10), rbErr.LastFlushed)
+	f.requireCoreHeights(t, 10, 10)
+
+	// An app at or below the target: CometBFT alone rolls back.
+	f.setDeferredMarker(t, 8)
+	require.NoError(t, f.run(t, "--height", "9", "--dry-run"))
+	f.requireCoreHeights(t, 10, 10)
 }

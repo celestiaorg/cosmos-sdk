@@ -100,6 +100,41 @@ func SetAllowPendingRollback() func(*BaseApp) {
 	}
 }
 
+// SetParallelCommit makes the multistore write, hash and commit its stores
+// concurrently. The app hash does not change.
+func SetParallelCommit(enabled bool) func(*BaseApp) {
+	return func(bapp *BaseApp) {
+		if s, ok := bapp.cms.(interface{ SetParallelCommit(bool) }); ok {
+			s.SetParallelCommit(enabled)
+		}
+	}
+}
+
+// SetAsyncPruning makes IAVL stores prune old versions in the background.
+func SetAsyncPruning(enabled bool) func(*BaseApp) {
+	return func(bapp *BaseApp) {
+		if s, ok := bapp.cms.(interface{ SetAsyncPruning(bool) }); ok {
+			s.SetAsyncPruning(enabled)
+		}
+	}
+}
+
+// SetDeferredPersistence sets when IAVL nodes are written: "sync" defers them
+// while catching up, "always" always, "off" never. It panics on an invalid mode.
+func SetDeferredPersistence(mode string, flushInterval int64) func(*BaseApp) {
+	return func(bapp *BaseApp) {
+		s, ok := bapp.cms.(interface {
+			SetDeferredPersistence(string, int64) error
+		})
+		if !ok {
+			return
+		}
+		if err := s.SetDeferredPersistence(mode, flushInterval); err != nil {
+			panic(err)
+		}
+	}
+}
+
 // SetInterBlockCache provides a BaseApp option function that sets the
 // inter-block cache.
 func SetInterBlockCache(cache storetypes.MultiStorePersistentCache) func(*BaseApp) {

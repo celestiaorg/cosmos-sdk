@@ -540,9 +540,12 @@ func TestMultiStore_Pruning(t *testing.T) {
 				require.NoError(t, err, "expected no error when loading height: %d", v)
 			}
 
+			// Pruning runs in the background, so deletion is eventual.
 			for _, v := range tc.deleted {
-				_, err := ms.CacheMultiStoreWithVersion(v)
-				require.Error(t, err, "expected error when loading height: %d", v)
+				require.Eventually(t, func() bool {
+					_, err := ms.CacheMultiStoreWithVersion(v)
+					return err != nil
+				}, 5*time.Second, 10*time.Millisecond, "expected error when loading height: %d", v)
 			}
 		})
 	}
@@ -566,6 +569,14 @@ func TestMultiStore_Pruning_SameHeightsTwice(t *testing.T) {
 	}
 
 	require.Equal(t, numVersions, lastCommitInfo.Version)
+
+	// Pruning runs in the background and IAVL writes its deletions with the
+	// next commit: wait for it, then commit once more so they reach the DB.
+	require.Eventually(t, func() bool {
+		_, err := ms.CacheMultiStoreWithVersion(numVersions - int64(keepRecent) - 1)
+		return err != nil
+	}, 5*time.Second, 10*time.Millisecond)
+	ms.Commit()
 
 	for v := int64(1); v < numVersions-int64(keepRecent); v++ {
 		err := ms.LoadVersion(v)
@@ -621,9 +632,12 @@ func TestMultiStore_PruningRestart(t *testing.T) {
 	actualHeightToPrune = ms.pruningManager.GetPruningHeight(ms.LatestVersion())
 	require.Equal(t, int64(8), actualHeightToPrune)
 
+	// Pruning runs in the background, so deletion is eventual.
 	for v := int64(1); v <= actualHeightToPrune; v++ {
-		_, err := ms.CacheMultiStoreWithVersion(v)
-		require.Error(t, err, "expected error when loading height: %d", v)
+		require.Eventually(t, func() bool {
+			_, err := ms.CacheMultiStoreWithVersion(v)
+			return err != nil
+		}, 5*time.Second, 10*time.Millisecond, "expected error when loading height: %d", v)
 	}
 }
 
@@ -1032,7 +1046,7 @@ func TestCommitStores(t *testing.T) {
 			store.Committed = 0
 			var version int64 = 1
 			removalMap := map[types.StoreKey]bool{}
-			res := commitStores(version, storeMap, removalMap)
+			res := commitStores(version, storeMap, removalMap, false)
 			for _, s := range res.StoreInfos {
 				require.Equal(t, version, s.CommitId.Version)
 			}
@@ -1155,7 +1169,10 @@ func TestCheckRollbackToVersionErrors(t *testing.T) {
 		{"invalid target", 0, func(*testing.T, *Store) {}, "invalid rollback height target: 0"},
 		{"no commit info", 6, func(*testing.T, *Store) {}, "commit info at version 6"},
 		{"missing version", 2, func(t *testing.T, ms *Store) {
-			require.NoError(t, ms.GetCommitKVStore(testStoreKey2).(*iavl.Store).DeleteVersionsTo(2))
+			st := ms.GetCommitKVStore(testStoreKey2).(*iavl.Store)
+			require.NoError(t, st.DeleteVersionsTo(2))
+			// Pruning runs in the background, so deletion is eventual.
+			require.Eventually(t, func() bool { return !st.VersionExists(2) }, 5*time.Second, 10*time.Millisecond)
 		}, "store store2 has no version 2"},
 		{"missing root", 3, func(t *testing.T, ms *Store) {
 			store2DB := dbm.NewPrefixDB(ms.db, []byte("s/k:store2/"))

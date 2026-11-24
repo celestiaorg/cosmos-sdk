@@ -112,8 +112,8 @@ github.com/celestiaorg/celestia-core v0.39.11 h1:/CsXN+sK8LxAiw2mX+b+1CwXeKPDtqu
 github.com/celestiaorg/celestia-core v0.39.11/go.mod h1:GxCnrVUUJZ3dtpNlKfHw3otb5TqyOdwjXef1/pNqSzA=
 github.com/celestiaorg/go-square/v3 v3.0.2 h1:eSQOgNII8inK9IhiBZ+6GADQeWbRq4HYY72BOgcduA4=
 github.com/celestiaorg/go-square/v3 v3.0.2/go.mod h1:oFReMLsSDMRs82ICFEeFQFCqNvwdsbIM1BzCcb0f7dM=
-github.com/celestiaorg/iavl v0.0.0-20261123165557-92c18b120688 h1:mFGbPZo8pb9lAxMTN8hVntYyiw4u6ZmmDxFvOxAmpV8=
-github.com/celestiaorg/iavl v0.0.0-20261123165557-92c18b120688/go.mod h1:FRHN4tO+6crf0p2zsqye+nAbsMgiwdkxpWm18DyP6+Y=
+github.com/celestiaorg/iavl v0.0.0-20261124115638-2483695d24be h1:Zo/H484eGuYSXHedbEdkuXv4cjT8f5xA2jenfJe9i74=
+github.com/celestiaorg/iavl v0.0.0-20261124115638-2483695d24be/go.mod h1:FRHN4tO+6crf0p2zsqye+nAbsMgiwdkxpWm18DyP6+Y=
 github.com/celestiaorg/nmt v0.24.2 h1:LlpJSPOd6/Lw1Ig6HUhZuqiINHLka/ZSRTBzlNJpchg=
 github.com/celestiaorg/nmt v0.24.2/go.mod h1:vgLBpWBi8F5KLxTdXSwb7AU4NhiIQ1AQRGa+PzdcLEA=
 github.com/cenkalti/backoff v2.2.1+incompatible h1:tNowT99t7UNflLxfYYSlKYsBpXdEet03Pg2g16Swow4=

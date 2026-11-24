@@ -9,7 +9,7 @@ require (
 	github.com/cometbft/cometbft v0.38.12
 	github.com/cosmos/cosmos-db v1.0.2
 	github.com/cosmos/gogoproto v1.7.0
-	github.com/cosmos/iavl v1.2.0
+	github.com/cosmos/iavl v1.2.8
 	github.com/cosmos/ics23/go v0.11.0
 	github.com/golang/mock v1.6.0
 	github.com/golang/protobuf v1.5.4 // indirect
@@ -80,3 +80,5 @@ require (
 )
 
 replace cosmossdk.io/log => ../log
+
+replace github.com/cosmos/iavl => github.com/celestiaorg/iavl v0.0.0-20261123165557-92c18b120688

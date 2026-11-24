@@ -79,6 +79,16 @@ func (k Keeper) GetParams(ctx context.Context) (params types.Params, err error) 
 		return params, nil
 	}
 
+	var memo *sdk.CelestiaDecodeMemo[types.Params]
+	if sdk.ExecutionCachesEnabled() && k.celestiaCaches != nil {
+		memo = &k.celestiaCaches.params
+		if p, ok := memo.Get(bz, cloneParams); ok {
+			return p, nil
+		}
+	}
 	err = k.cdc.Unmarshal(bz, &params)
+	if err == nil {
+		memo.Put(bz, params, cloneParams)
+	}
 	return params, err
 }

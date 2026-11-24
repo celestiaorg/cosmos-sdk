@@ -24,7 +24,7 @@ const (
 	firstFlush    = 50
 )
 
-func firstFlushBlock(h int64) *rand.Rand { return rand.New(rand.NewSource(h)) }
+func firstFlushBlock(h int64) *rand.Rand { return rand.New(rand.NewSource(h)) } //nolint:gosec // deterministic test data
 
 // stateSyncedSyncNode returns the reference commit IDs for heights
 // 1..firstFlush and a "sync" store restored from a snapshot at restoreHeight
@@ -145,7 +145,7 @@ func TestCelestiaDeferredKillAfterMarker(t *testing.T) {
 func TestCelestiaDeferredEnableFailureWritesNoMarker(t *testing.T) {
 	db := dbm.NewMemDB()
 	ms := openDeferredTest(t, db, DeferredSync, 5, func() time.Time { return headerTime(10) })
-	r := rand.New(rand.NewSource(3))
+	r := rand.New(rand.NewSource(3)) //nolint:gosec // deterministic test data
 	for h := int64(1); h <= 4; h++ {
 		commitBlock(ms, r, h) // at the tip: stock commits, trees keep history
 	}

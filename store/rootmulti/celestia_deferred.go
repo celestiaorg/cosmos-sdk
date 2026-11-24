@@ -153,7 +153,7 @@ func (rs *Store) markStock(batch dbm.Batch, version int64) {
 func setMarker(batch dbm.Batch, mode byte, version int64) {
 	bz := make([]byte, 9)
 	bz[0] = mode
-	binary.BigEndian.PutUint64(bz[1:], uint64(version)) //nolint:gosec // versions are positive
+	binary.BigEndian.PutUint64(bz[1:], uint64(version)) //nolint:gosec,nolintlint // versions are positive (G115 on newer gosec)
 	if err := batch.Set([]byte(persistenceKey), bz); err != nil {
 		panic(err)
 	}

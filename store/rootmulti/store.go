@@ -886,7 +886,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 		return errorsmod.Wrapf(types.ErrLogic, "cannot snapshot future height %v", height)
 	}
 	rs.deferredSnapshotStart()
-	defer rs.deferredSnapshotDone(int64(height)) //nolint:gosec // checked against the latest version above
+	defer rs.deferredSnapshotDone(int64(height)) //nolint:gosec,nolintlint // checked against the latest version above (G115 on newer gosec)
 
 	// Collect stores to snapshot (only IAVL stores are supported)
 	type namedStore struct {

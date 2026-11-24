@@ -74,7 +74,7 @@ func dbDigest(t *testing.T, db dbm.DB) [32]byte {
 // a dry run do, never writes, whatever the mode; a DB with deferred leftovers
 // is refused by a non-deferred open, still without writing.
 func TestCelestiaDeferredOpenWritesNothing(t *testing.T) {
-	r := rand.New(rand.NewSource(1))
+	r := rand.New(rand.NewSource(1)) //nolint:gosec // deterministic test data
 	stock := dbm.NewMemDB()
 	ms := openDeferredTest(t, stock, DeferredOff, 0, nil)
 	for h := int64(1); h <= 20; h++ {
@@ -121,7 +121,7 @@ func TestCelestiaDeferredOpenWritesNothing(t *testing.T) {
 // only changes when data is written. It also checks when the mode is on, and
 // that leaving it restores per-block persistence and rollback.
 func TestCelestiaDeferredSyncMatchesStock(t *testing.T) {
-	rs, rd := rand.New(rand.NewSource(9)), rand.New(rand.NewSource(9))
+	rs, rd := rand.New(rand.NewSource(9)), rand.New(rand.NewSource(9)) //nolint:gosec // deterministic test data
 	ref := openDeferredTest(t, dbm.NewMemDB(), DeferredOff, 0, nil)
 	var now time.Time
 	db := dbm.NewMemDB()

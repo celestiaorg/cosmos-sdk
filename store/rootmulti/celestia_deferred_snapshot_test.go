@@ -22,7 +22,7 @@ import (
 
 // Commit never waits for a snapshot exporter, even on a mandatory flush.
 func TestCelestiaDeferredCommitNeverWaits(t *testing.T) {
-	r := rand.New(rand.NewSource(2))
+	r := rand.New(rand.NewSource(2)) //nolint:gosec // deterministic test data
 	db := dbm.NewMemDB()
 	ms := openDeferredTest(t, db, DeferredAlways, 3, nil)
 	ms.SetSnapshotInterval(5)
@@ -79,7 +79,7 @@ func (w *blockingWriter) Close() error { return nil }
 // A snapshot export spanning flushes keeps the snapshot version of every
 // store, including the ones it has not reached yet.
 func TestCelestiaDeferredSnapshotKeepsAllStores(t *testing.T) {
-	r := rand.New(rand.NewSource(2))
+	r := rand.New(rand.NewSource(2)) //nolint:gosec // deterministic test data
 	db := dbm.NewMemDB()
 	ms := openDeferredTest(t, db, DeferredAlways, 3, nil)
 	ms.SetSnapshotInterval(5)
@@ -107,7 +107,7 @@ func TestCelestiaDeferredSnapshotKeepsAllStores(t *testing.T) {
 // A later upstream run rewrites the deferred marker, so rollback does not
 // trust a stale one.
 func TestCelestiaDeferredStaleMarker(t *testing.T) {
-	r := rand.New(rand.NewSource(5))
+	r := rand.New(rand.NewSource(5)) //nolint:gosec // deterministic test data
 	db := dbm.NewMemDB()
 	var h int64
 	catchUp := func() time.Time { return headerTime(h).Add(time.Hour) }
@@ -137,7 +137,7 @@ func TestCelestiaDeferredStaleMarker(t *testing.T) {
 
 // Going back to "sync" at the tip keeps the retained history.
 func TestCelestiaDeferredSyncAtTipKeepsHistory(t *testing.T) {
-	r := rand.New(rand.NewSource(5))
+	r := rand.New(rand.NewSource(5)) //nolint:gosec // deterministic test data
 	db := dbm.NewMemDB()
 	var h int64
 	now := func() time.Time { return headerTime(h).Add(time.Hour) }
@@ -162,7 +162,7 @@ func TestCelestiaDeferredSyncAtTipKeepsHistory(t *testing.T) {
 
 // Close flushes even while an exporter holds the previous flushed version.
 func TestCelestiaDeferredCloseNeverWaits(t *testing.T) {
-	r := rand.New(rand.NewSource(2))
+	r := rand.New(rand.NewSource(2)) //nolint:gosec // deterministic test data
 	db := dbm.NewMemDB()
 	ms := openDeferredTest(t, db, DeferredAlways, 3, nil)
 	ms.SetSnapshotInterval(5)
@@ -222,7 +222,7 @@ func storeNodes(t *testing.T, db dbm.DB, ms *Store, key types.StoreKey) (onDisk,
 // later upstream run must finish them without leaking nodes, and "sync" must
 // be able to turn on again.
 func TestCelestiaDeferredQueueAfterShutdownDuringSnapshot(t *testing.T) {
-	r := rand.New(rand.NewSource(7))
+	r := rand.New(rand.NewSource(7)) //nolint:gosec // deterministic test data
 	db := dbm.NewMemDB()
 	ms := openDeferredTest(t, db, DeferredAlways, 3, nil)
 	ms.SetSnapshotInterval(5)
@@ -253,7 +253,7 @@ func TestCelestiaDeferredQueueAfterShutdownDuringSnapshot(t *testing.T) {
 	}
 	// Same blocks, upstream from the start: stock pruning has its own small
 	// leak, so compare against it rather than against the live node count.
-	rr := rand.New(rand.NewSource(7))
+	rr := rand.New(rand.NewSource(7)) //nolint:gosec // deterministic test data
 	refDB := dbm.NewMemDB()
 	ref := NewStore(refDB, log.NewNopLogger(), metrics.NewNoOpMetrics())
 	ref.SetPruning(pruningtypes.NewCustomPruningOptions(0, 1))
@@ -287,7 +287,7 @@ func TestCelestiaDeferredQueueAfterShutdownDuringSnapshot(t *testing.T) {
 // A Snapshot call that never returns holds old versions only for a bounded
 // number of flushes.
 func TestCelestiaDeferredStuckSnapshotIsBounded(t *testing.T) {
-	r := rand.New(rand.NewSource(8))
+	r := rand.New(rand.NewSource(8)) //nolint:gosec // deterministic test data
 	db := dbm.NewMemDB()
 	ms := openDeferredTest(t, db, DeferredAlways, 3, nil)
 	ms.SetSnapshotInterval(5)

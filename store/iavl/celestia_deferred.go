@@ -1,3 +1,4 @@
+// Package iavl wraps an IAVL tree as a commit KV store.
 package iavl
 
 import (

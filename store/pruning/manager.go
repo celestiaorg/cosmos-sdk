@@ -3,6 +3,7 @@ package pruning
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"sort"
 	"sync"
 
@@ -134,6 +135,21 @@ func (m *Manager) GetPruningHeight(height int64) int64 {
 		return snHeight
 	}
 	return pruneHeight
+}
+
+// SnapshotPruneLimit returns the highest height that the snapshots taken or
+// still to be taken allow to prune, as GetPruningHeight bounds it: MaxInt64
+// without snapshots, 0 if none is recorded.
+func (m *Manager) SnapshotPruneLimit() int64 {
+	if m.snapshotInterval <= 0 {
+		return math.MaxInt64
+	}
+	m.pruneSnapshotHeightsMx.RLock()
+	defer m.pruneSnapshotHeightsMx.RUnlock()
+	if len(m.pruneSnapshotHeights) == 0 {
+		return 0
+	}
+	return m.pruneSnapshotHeights[0] + int64(m.snapshotInterval) - 1
 }
 
 // LoadSnapshotHeights loads the snapshot heights from the database as a crash recovery.

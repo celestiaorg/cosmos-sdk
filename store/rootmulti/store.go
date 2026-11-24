@@ -81,6 +81,8 @@ type Store struct {
 	commitHeader      cmtproto.Header
 	parallelCommit    bool        // see SetParallelCommit
 	loadedStores      []io.Closer // stores opened by the running loadVersion
+	// celestiaLoadOpts are the store load options of the running loadVersion.
+	celestiaLoadOpts iavl.LoadStoreOptions
 }
 
 var (
@@ -193,8 +195,7 @@ func (rs *Store) StoreKeysByName() map[string]types.StoreKey {
 
 // LoadLatestVersionAndUpgrade implements CommitMultiStore
 func (rs *Store) LoadLatestVersionAndUpgrade(upgrades *types.StoreUpgrades) error {
-	ver := GetLatestVersion(rs.db)
-	return rs.loadVersion(ver, upgrades)
+	return rs.loadLatestVersion(upgrades)
 }
 
 // LoadVersionAndUpgrade allows us to rename substores while loading an older version
@@ -204,13 +205,26 @@ func (rs *Store) LoadVersionAndUpgrade(ver int64, upgrades *types.StoreUpgrades)
 
 // LoadLatestVersion implements CommitMultiStore.
 func (rs *Store) LoadLatestVersion() error {
-	ver := GetLatestVersion(rs.db)
-	return rs.loadVersion(ver, nil)
+	return rs.loadLatestVersion(nil)
 }
 
 // LoadVersion implements CommitMultiStore.
 func (rs *Store) LoadVersion(ver int64) error {
-	return rs.loadVersion(ver, nil)
+	return rs.loadVersionWithOpts(ver, nil, iavl.LoadStoreOptions{})
+}
+
+// loadLatestVersion loads the latest multistore version, discarding IAVL
+// versions a killed commit left above it.
+func (rs *Store) loadLatestVersion(upgrades *types.StoreUpgrades) error {
+	ver := GetLatestVersion(rs.db)
+	return rs.loadVersionWithOpts(ver, upgrades, iavl.LoadStoreOptions{DiscardVersionsAboveTarget: true})
+}
+
+// loadVersionWithOpts is loadVersion with celestia store load options.
+func (rs *Store) loadVersionWithOpts(ver int64, upgrades *types.StoreUpgrades, opts iavl.LoadStoreOptions) error {
+	rs.celestiaLoadOpts = opts
+	defer func() { rs.celestiaLoadOpts = iavl.LoadStoreOptions{} }()
+	return rs.loadVersion(ver, upgrades)
 }
 
 func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) (err error) {
@@ -1041,7 +1055,7 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 		panic("recursive MultiStores not yet supported")
 
 	case types.StoreTypeIAVL:
-		store, err := iavl.LoadStoreWithOpts(db, rs.logger, key, id, params.initialVersion, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.metrics, iavltree.AsyncPruningOption(!rs.iavlSyncPruning))
+		store, err := iavl.LoadStoreWithCelestiaOpts(db, rs.logger, key, id, params.initialVersion, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.metrics, rs.celestiaLoadOpts, iavltree.AsyncPruningOption(!rs.iavlSyncPruning))
 		if err != nil {
 			return nil, err
 		}

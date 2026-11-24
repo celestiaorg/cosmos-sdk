@@ -33,7 +33,7 @@ func TestCelestiaRollbackCheckAfterLeavingSync(t *testing.T) {
 	before := dbDigest(t, db)
 	_, err := ms.CheckRollbackToVersion(leftAt - 1)
 	require.ErrorContains(t, err, "version 25") // no commit info and no IAVL version at S-1
-	_, err = ms.CheckRollbackToVersion(20) // commit info from the flush at 20, IAVL version pruned
+	_, err = ms.CheckRollbackToVersion(20)      // commit info from the flush at 20, IAVL version pruned
 	require.ErrorContains(t, err, "has no version 20")
 	require.Equal(t, before, dbDigest(t, db), "the check writes nothing")
 

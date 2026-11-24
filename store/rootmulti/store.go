@@ -43,6 +43,7 @@ const iavlDisablefastNodeDefault = false
 type Store struct {
 	db                  dbm.DB
 	logger              log.Logger
+	celestiaLogger      log.Logger // deferred persistence and store repair lines; see SetLogger
 	lastCommitInfo      *types.CommitInfo
 	pruningManager      *pruning.Manager
 	iavlCacheSize       int
@@ -62,6 +63,9 @@ type Store struct {
 
 	listeners map[types.StoreKey][]types.WriteListener
 
+	deferred deferredState // deferred persistence (deferred.go)
+	writeMtx sync.Mutex    // WriteLock
+
 	repairAhead   bool // SetRepairAhead
 	loadingLatest bool // set by loadVersion while loading the latest version
 }
@@ -80,6 +84,7 @@ func NewStore(db dbm.DB, logger log.Logger) *Store {
 	return &Store{
 		db:                  db,
 		logger:              logger,
+		celestiaLogger:      logger,
 		iavlCacheSize:       iavl.DefaultIAVLCacheSize,
 		iavlDisableFastNode: iavlDisablefastNodeDefault,
 		storesParams:        make(map[types.StoreKey]storeParams),
@@ -88,6 +93,17 @@ func NewStore(db dbm.DB, logger log.Logger) *Store {
 		listeners:           make(map[types.StoreKey][]types.WriteListener),
 		removalMap:          make(map[types.StoreKey]bool),
 		pruningManager:      pruning.NewManager(db, logger),
+	}
+}
+
+// SetLogger sets the logger for the deferred persistence and store repair
+// lines. store.NewCommitMultiStore (used by BaseApp) creates the store with a
+// no-op logger; BaseApp passes its own logger here. Upstream store logging
+// (pruning, IAVL loading) keeps the logger given to NewStore, so this adds no
+// per-block lines. It must be called before the stores are loaded.
+func (rs *Store) SetLogger(logger log.Logger) {
+	if logger != nil {
+		rs.celestiaLogger = logger
 	}
 }
 
@@ -114,7 +130,7 @@ func (rs *Store) SetIAVLCacheSize(cacheSize int) {
 }
 
 func (rs *Store) SetIAVLDisableFastNode(disableFastNode bool) {
-	rs.iavlDisableFastNode = disableFastNode
+	rs.iavlDisableFastNode = disableFastNode || (rs.deferred.mode != "" && rs.deferred.mode != DeferredOff)
 }
 
 // SetRepairAhead enables the roll back, when loading the latest version, of
@@ -176,28 +192,42 @@ func (rs *Store) StoreKeysByName() map[string]types.StoreKey {
 
 // LoadLatestVersionAndUpgrade implements CommitMultiStore
 func (rs *Store) LoadLatestVersionAndUpgrade(upgrades *types.StoreUpgrades) error {
+	if err := rs.FlushDeferred(); err != nil { // the reload reads the disk
+		return err
+	}
 	ver := GetLatestVersion(rs.db)
 	return rs.loadVersion(ver, upgrades)
 }
 
 // LoadVersionAndUpgrade allows us to rename substores while loading an older version
 func (rs *Store) LoadVersionAndUpgrade(ver int64, upgrades *types.StoreUpgrades) error {
+	if err := rs.FlushDeferred(); err != nil { // the reload reads the disk
+		return err
+	}
 	return rs.loadVersion(ver, upgrades)
 }
 
 // LoadLatestVersion implements CommitMultiStore.
 func (rs *Store) LoadLatestVersion() error {
+	if err := rs.FlushDeferred(); err != nil { // the reload reads the disk
+		return err
+	}
 	ver := GetLatestVersion(rs.db)
 	return rs.loadVersion(ver, nil)
 }
 
 // LoadVersion implements CommitMultiStore.
 func (rs *Store) LoadVersion(ver int64) error {
+	if err := rs.FlushDeferred(); err != nil { // the reload reads the disk
+		return err
+	}
 	return rs.loadVersion(ver, nil)
 }
 
 func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 	infos := make(map[string]types.StoreInfo)
+
+	rs.decideDeferred()
 
 	// Stores ahead of the commit info are only repaired when loading the
 	// latest version (not for historic loads such as export --height).
@@ -287,6 +317,7 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 
 	rs.lastCommitInfo = cInfo
 	rs.stores = newStores
+	rs.deferred.lastFlushed = ver
 
 	// load any pruned heights we missed from disk to be pruned on the next run
 	if err := rs.pruningManager.LoadPruningHeights(rs.db); err != nil {
@@ -425,6 +456,10 @@ func (rs *Store) LastCommitID() types.CommitID {
 
 // Commit implements Committer/CommitStore.
 func (rs *Store) Commit() types.CommitID {
+	if rs.deferredEnabled() {
+		return rs.commitDeferred()
+	}
+
 	var previousHeight, version int64
 	if rs.lastCommitInfo.GetVersion() == 0 && rs.initialVersion > 1 {
 		// This case means that no commit has been made in the store, we
@@ -495,6 +530,20 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 // any store cannot be loaded. This should only be used for querying and
 // iterating at past heights.
 func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStore, error) {
+	if err := rs.checkQueryHeight(version); err != nil {
+		return nil, err
+	}
+	cms, err := rs.cacheMultiStoreWithVersion(version)
+	if err != nil {
+		// a deferred flush may have dropped the height since the check above
+		if derr := rs.checkQueryHeight(version); derr != nil {
+			return nil, derr
+		}
+	}
+	return cms, err
+}
+
+func (rs *Store) cacheMultiStoreWithVersion(version int64) (types.CacheMultiStore, error) {
 	cachedStores := make(map[types.StoreKey]types.CacheWrapper)
 	var commitInfo *types.CommitInfo
 	storeInfos := map[string]bool{}
@@ -677,9 +726,19 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		return sdkerrors.QueryResult(sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "store %s (type %T) doesn't support queries", storeName, store), false)
 	}
 
+	if err := rs.checkQueryHeight(req.Height); err != nil {
+		return sdkerrors.QueryResult(sdkerrors.Wrap(sdkerrors.ErrInvalidHeight, err.Error()), false)
+	}
+
 	// trim the path and make the query
 	req.Path = subpath
 	res := queryable.Query(req)
+	if res.Code != 0 {
+		// a deferred flush may have dropped the height since the check above
+		if err := rs.checkQueryHeight(req.Height); err != nil {
+			return sdkerrors.QueryResult(sdkerrors.Wrap(sdkerrors.ErrInvalidHeight, err.Error()), false)
+		}
+	}
 
 	if !req.Prove || !RequireProof(subpath) {
 		return res
@@ -946,6 +1005,11 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 				return nil, err
 			}
 		}
+		if rs.deferred.active {
+			if err := store.(*iavl.Store).SetDeferredPersistence(true); err != nil {
+				return nil, err
+			}
+		}
 
 		if rs.interBlockCache != nil {
 			// Wrap and get a CommitKVStore with inter-block caching. Note, this should
@@ -1000,6 +1064,9 @@ func (rs *Store) buildCommitInfo(version int64) *types.CommitInfo {
 func (rs *Store) RollbackToVersion(target int64) error {
 	if target <= 0 {
 		return fmt.Errorf("invalid rollback height target: %d", target)
+	}
+	if err := rs.checkRollbackAllowed(target); err != nil {
+		return err
 	}
 
 	for key, store := range rs.stores {

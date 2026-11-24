@@ -88,6 +88,24 @@ func SetStoreRepairAhead(enabled bool) func(*BaseApp) {
 	}
 }
 
+// SetDeferredPersistence configures deferred IAVL persistence ([performance]
+// deferred-persistence and deferred-flush-interval). snapshotInterval is the
+// state sync snapshot interval: snapshots need every height, so deferred
+// persistence stays off when it is > 0.
+func SetDeferredPersistence(mode string, interval int64, snapshotInterval uint64) func(*BaseApp) {
+	return func(bapp *BaseApp) {
+		s, ok := bapp.cms.(interface {
+			SetDeferredPersistence(string, int64, uint64) error
+		})
+		if !ok {
+			return
+		}
+		if err := s.SetDeferredPersistence(mode, interval, snapshotInterval); err != nil {
+			panic(err)
+		}
+	}
+}
+
 // SetInterBlockCache provides a BaseApp option function that sets the
 // inter-block cache.
 func SetInterBlockCache(cache sdk.MultiStorePersistentCache) func(*BaseApp) {

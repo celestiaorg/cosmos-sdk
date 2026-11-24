@@ -211,6 +211,11 @@ func NewBaseApp(
 		},
 		txDecoder: txDecoder,
 	}
+	// The multistore is created with a no-op logger; give it this app's
+	// logger for the deferred persistence and store repair lines.
+	if s, ok := app.cms.(interface{ SetLogger(log.Logger) }); ok && logger != nil {
+		s.SetLogger(logger.With("module", "store"))
+	}
 
 	for _, option := range options {
 		option(app)
@@ -936,7 +941,22 @@ func makeABCIData(msgResponses []*codectypes.Any) ([]byte, error) {
 	return proto.Marshal(&sdk.TxMsgData{MsgResponses: msgResponses})
 }
 
+// deferredFlusher is implemented by rootmulti.Store (deferred IAVL
+// persistence); every method is a no-op when the mode is not active.
+type deferredFlusher interface {
+	FlushDeferred() error
+	ForceFlushNextCommit()
+	ShutdownFlush() error
+	SetCatchingUp(bool)
+}
+
 // Close is called in start cmd to gracefully cleanup resources.
 func (app *BaseApp) Close() error {
+	// deferred persistence: write the last committed block so a graceful
+	// shutdown restarts from it (usually already done by the quit-signal
+	// hook; idempotent)
+	if d, ok := app.cms.(deferredFlusher); ok {
+		return d.ShutdownFlush()
+	}
 	return nil
 }

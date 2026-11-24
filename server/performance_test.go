@@ -11,6 +11,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 )
 
 // A [performance] key missing from app.toml means its default (on).
@@ -29,4 +30,25 @@ func TestSignaturePreverifyOption(t *testing.T) {
 		baseapp.NewBaseApp("test", log.NewNopLogger(), dbm.NewMemDB(), nil, DefaultBaseappOptions(v)...)
 		require.Equal(t, tc.want, secp256k1.SigCacheEnabled(), "set=%v", tc.set)
 	}
+}
+
+func TestDeferredPersistenceOptions(t *testing.T) {
+	v := viper.New()
+	mode, interval, snap := deferredPersistenceOptions(v)
+	require.Equal(t, rootmulti.DeferredSync, mode)
+	require.EqualValues(t, rootmulti.DefaultDeferredFlushInterval, interval)
+	require.Zero(t, snap)
+
+	v.Set(FlagDeferredPersistence, rootmulti.DeferredOff)
+	v.Set(FlagDeferredFlushInterval, 500)
+	v.Set(FlagStateSyncSnapshotInterval, 1000)
+	mode, interval, snap = deferredPersistenceOptions(v)
+	require.Equal(t, rootmulti.DeferredOff, mode)
+	require.EqualValues(t, 500, interval)
+	require.EqualValues(t, 1000, snap)
+
+	// export / rollback
+	v.Set(KeyReadOnlyLoad, true)
+	mode, _, _ = deferredPersistenceOptions(v)
+	require.Equal(t, rootmulti.DeferredOff, mode)
 }

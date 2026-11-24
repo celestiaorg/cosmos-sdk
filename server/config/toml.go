@@ -246,6 +246,36 @@ stop-node-on-err = {{ .Streaming.ABCI.StopNodeOnErr }}
 # Note, this configuration only applies to SDK built-in app-side mempool
 # implementations.
 max-txs = {{ .Mempool.MaxTxs }}
+
+###############################################################################
+###                         Performance                                     ###
+###############################################################################
+
+# Speedups that never change the app hash, events or gas. A missing key means true.
+[performance]
+
+# Cache decoded validators and params during block execution.
+execution-caches = {{ .Performance.ExecutionCaches }}
+
+# Write, hash and commit the stores in parallel.
+parallel-commit = {{ .Performance.ParallelCommit }}
+
+# Prune old IAVL versions in the background instead of inside Commit.
+async-pruning = {{ .Performance.AsyncPruning }}
+
+# When IAVL nodes are written: "sync" keeps them in memory while the node is
+# catching up and writes them every deferred-flush-interval blocks, "always"
+# does so at the tip too (prunes the DB to one version on start), "off" never.
+# While a DB holds deferred writes, an app-state rollback is refused.
+deferred-persistence = "{{ .Performance.DeferredPersistence }}"
+
+# "sync" turns on only for IAVL trees holding a single version (a fresh,
+# state-synced or deferred-written DB). A DB written with pruning keep-recent
+# above zero keeps its history and syncs without it; use pruning = "everything"
+# for a fast sync from genesis.
+# Blocks between flushes in deferred mode (0 uses the default). The node replays at most this many
+# blocks after a crash; unflushed nodes are capped at about 4 million (1-2 GB).
+deferred-flush-interval = {{ .Performance.DeferredFlushInterval }}
 `
 
 var configTemplate *template.Template

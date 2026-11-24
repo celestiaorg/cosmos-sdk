@@ -209,8 +209,9 @@ func (rs *Store) LoadVersion(ver int64) error {
 	return rs.loadVersion(ver, nil, iavl.LoadStoreOptions{})
 }
 
-// loadLatestVersion loads the latest multistore version with the deferred
-// persistence load options.
+// loadLatestVersion loads the latest multistore version. It also removes newer,
+// incomplete IAVL versions left by an interrupted commit. Loading a specific
+// version does not remove newer state.
 func (rs *Store) loadLatestVersion(upgrades *types.StoreUpgrades) error {
 	ver := GetLatestVersion(rs.db)
 	opts, err := rs.deferredLoadOptions()

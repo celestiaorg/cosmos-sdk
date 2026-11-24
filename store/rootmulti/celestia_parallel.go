@@ -31,6 +31,9 @@ func (rs *Store) Close() error {
 	if err := rs.closeDeferred(); err != nil {
 		errs = append(errs, err)
 	}
+	if err := rs.closeChangeset(); err != nil {
+		errs = append(errs, err)
+	}
 	for key := range rs.stores {
 		if c, ok := rs.GetCommitKVStore(key).(io.Closer); ok {
 			if err := c.Close(); err != nil {

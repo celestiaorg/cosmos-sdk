@@ -53,7 +53,7 @@ type (
 		baseApp   *baseapp.BaseApp
 		cdc       *codec.ProtoCodec
 		txConfig  client.TxConfig
-		logBuffer *bytes.Buffer
+		logBuffer *lockedBuffer
 	}
 
 	SnapshotsConfig struct {
@@ -71,7 +71,7 @@ func NewBaseAppSuite(t *testing.T, opts ...func(*baseapp.BaseApp)) *BaseAppSuite
 
 	txConfig := authtx.NewTxConfig(cdc, authtx.DefaultSignModes)
 	db := dbm.NewMemDB()
-	logBuffer := new(bytes.Buffer)
+	logBuffer := new(lockedBuffer)
 	logger := log.NewLogger(logBuffer, log.ColorOption(false))
 
 	app := baseapp.NewBaseApp(t.Name(), logger, db, txConfig.TxDecoder(), opts...)
@@ -1271,4 +1271,23 @@ func TestLoadVersionPruning(t *testing.T) {
 	err = app.LoadLatestVersion()
 	require.Nil(t, err)
 	testLoadVersionHelper(t, app, int64(7), lastCommitID)
+}
+
+// lockedBuffer is a bytes.Buffer that is safe for concurrent writers, such as
+// IAVL stores logging from parallel commit goroutines.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

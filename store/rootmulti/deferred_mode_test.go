@@ -96,8 +96,118 @@ func TestValidateDeferredPersistence(t *testing.T) {
 	require.NoError(t, ValidateDeferredPersistence(DeferredSync, DefaultDeferredFlushInterval))
 	require.NoError(t, ValidateDeferredPersistence(DeferredSync, MaxDeferredFlushInterval))
 	require.Error(t, ValidateDeferredPersistence("yes", 100))
-	require.Error(t, ValidateDeferredPersistence(DeferredSync, 1))
-	require.Error(t, ValidateDeferredPersistence(DeferredSync, MaxDeferredFlushInterval+1))
+	require.Error(t, ValidateDeferredPersistence(DeferredSync, -1))
+	// accepted by cosmos-sdk main, which shares app.toml with this binary in
+	// the multiplexer: they must not stop this binary from starting
+	require.NoError(t, ValidateDeferredPersistence(DeferredAlways, 0))
+	require.NoError(t, ValidateDeferredPersistence("", 1))
+	require.NoError(t, ValidateDeferredPersistence(" Sync ", MaxDeferredFlushInterval+1))
+}
+
+// Every value cosmos-sdk main accepts maps to a value this binary runs with.
+func TestNormalizeDeferredPersistence(t *testing.T) {
+	for _, tc := range []struct {
+		mode         string
+		interval     int64
+		wantMode     string
+		wantInterval int64
+		wantNote     string // substring; "" means no note
+		wantErr      bool
+	}{
+		{DeferredSync, 100, DeferredSync, 100, "", false},
+		{DeferredOff, 7, DeferredOff, 7, "", false},
+		{"", 50, DeferredSync, 50, "", false},
+		{"OFF", 50, DeferredOff, 50, "", false},
+		{" sync\n", 50, DeferredSync, 50, "", false},
+		{DeferredSync, 0, DeferredSync, DefaultDeferredFlushInterval, "", false},
+		{DeferredSync, 1, DeferredSync, 1, "", false},
+		{DeferredAlways, 0, DeferredSync, DefaultDeferredFlushInterval, `"always" runs as "sync"`, false},
+		{"Always", 10, DeferredSync, 10, `"always" runs as "sync"`, false},
+		{DeferredSync, MaxDeferredFlushInterval, DeferredSync, MaxDeferredFlushInterval, "", false},
+		{DeferredSync, 5000, DeferredSync, MaxDeferredFlushInterval, "deferred-flush-interval 5000 runs as 1000", false},
+		{DeferredAlways, 5000, DeferredSync, MaxDeferredFlushInterval, "; deferred-flush-interval", false},
+		{DeferredSync, -1, "", 0, "", true},
+		{"yes", 100, "", 0, "", true},
+		{"true", 100, "", 0, "", true},
+	} {
+		mode, interval, note, err := NormalizeDeferredPersistence(tc.mode, tc.interval)
+		name := fmt.Sprintf("%q/%d", tc.mode, tc.interval)
+		if tc.wantErr {
+			require.Error(t, err, name)
+			continue
+		}
+		require.NoError(t, err, name)
+		require.Equal(t, tc.wantMode, mode, name)
+		require.Equal(t, tc.wantInterval, interval, name)
+		if tc.wantNote == "" {
+			require.Empty(t, note, name)
+		} else {
+			require.Contains(t, note, tc.wantNote, name)
+		}
+	}
+}
+
+// infoRecorder records Info messages and their key-value pairs.
+type infoRecorder struct {
+	log.Logger
+	lines *[]string
+}
+
+func (r infoRecorder) Info(msg string, kv ...interface{}) {
+	*r.lines = append(*r.lines, fmt.Sprint(append([]interface{}{msg}, kv...)...))
+}
+
+func (r infoRecorder) With(...interface{}) log.Logger { return r }
+
+// "always" and interval 0 (valid on cosmos-sdk main) start deferred
+// persistence as "sync" with the default interval, and the store logs one line
+// explaining the adjustment at its first load only.
+func TestDeferredAlwaysRunsAsSync(t *testing.T) {
+	var lines []string
+	db := dbm.NewMemDB()
+	rs := NewStore(db, infoRecorder{Logger: log.NewNopLogger(), lines: &lines})
+	rs.SetPruning(everything)
+	require.NoError(t, rs.SetDeferredPersistence(DeferredAlways, 0, 0))
+	for _, key := range []types.StoreKey{defKey1, defKey2} {
+		rs.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+	}
+	require.NoError(t, rs.LoadLatestVersion())
+	require.True(t, rs.deferredEnabled())
+	require.Equal(t, DeferredSync, rs.deferred.mode)
+	require.EqualValues(t, DefaultDeferredFlushInterval, rs.deferred.every)
+
+	adjusted := 0
+	for _, l := range lines {
+		if strings.Contains(l, "setting adjusted") {
+			adjusted++
+			require.Contains(t, l, `"always" runs as "sync"`)
+		}
+	}
+	require.Equal(t, 1, adjusted, lines)
+
+	// a reload does not log it again
+	require.NoError(t, rs.LoadLatestVersion())
+	n := 0
+	for _, l := range lines {
+		if strings.Contains(l, "setting adjusted") {
+			n++
+		}
+	}
+	require.Equal(t, 1, n)
+}
+
+// With "off", nothing is adjusted at run time and nothing is logged.
+func TestDeferredOffNoAdjustmentLog(t *testing.T) {
+	var lines []string
+	rs := NewStore(dbm.NewMemDB(), infoRecorder{Logger: log.NewNopLogger(), lines: &lines})
+	rs.SetPruning(everything)
+	require.NoError(t, rs.SetDeferredPersistence(DeferredOff, 5000, 0))
+	rs.MountStoreWithDB(defKey1, types.StoreTypeIAVL, nil)
+	require.NoError(t, rs.LoadLatestVersion())
+	require.False(t, rs.deferredEnabled())
+	for _, l := range lines {
+		require.NotContains(t, l, "setting adjusted")
+	}
 }
 
 // Heights between the last flush and the latest version are not kept: queries

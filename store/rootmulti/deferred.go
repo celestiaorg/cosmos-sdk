@@ -16,7 +16,8 @@ package rootmulti
 // the commit info are rolled back on load (repair.go) and the consensus
 // engine replays the missing blocks.
 //
-// Modes: "off"; "sync" (default): deferred only while catching up, i.e.
+// Modes: "off"; "always" (accepted for app.toml compatibility with newer
+// binaries) runs as "sync"; "sync" (default): deferred only while catching up, i.e.
 // while the block time is older than CatchUpThreshold (callers that never
 // report the signal, such as tools, stay deferred). The first block
 // that is not is flushed and the store returns to per-block persistence for
@@ -35,6 +36,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -50,6 +52,10 @@ import (
 const (
 	DeferredOff  = "off"
 	DeferredSync = "sync"
+	// DeferredAlways is accepted for compatibility with the app.toml of newer
+	// binaries (cosmos-sdk main, which the multiplexer parent runs and which
+	// shares its app.toml with this binary) and runs as DeferredSync here.
+	DeferredAlways = "always"
 )
 
 const (
@@ -72,21 +78,52 @@ const deferredMarkerKey = "s/deferred"
 // cannot be rolled back by one height (see DeferredMarker).
 var ErrRollbackDeferred = errors.New("app state cannot be rolled back")
 
-// ValidateDeferredPersistence checks the [performance] settings.
+// ValidateDeferredPersistence checks the [performance] settings. It accepts
+// every value cosmos-sdk main accepts, because the multiplexer parent (main)
+// and this binary share one app.toml: a value valid there must not stop this
+// binary from starting. See NormalizeDeferredPersistence.
 func ValidateDeferredPersistence(mode string, interval int64) error {
-	switch mode {
+	_, _, _, err := NormalizeDeferredPersistence(mode, interval)
+	return err
+}
+
+// NormalizeDeferredPersistence maps the [performance] settings to the ones
+// this binary runs with, and returns a note to log when they differ:
+//   - mode is case-insensitive; "" means "sync".
+//   - "always" runs as "sync": v0.46 has no "always" mode. The difference only
+//     matters at the chain tip; a node running this binary in a multiplexer
+//     replays historical blocks, so it is catching up and "sync" defers too.
+//   - interval 0 means DefaultDeferredFlushInterval; a negative one is an error.
+//   - an interval above MaxDeferredFlushInterval runs as MaxDeferredFlushInterval:
+//     main bounds unflushed nodes by count, this binary by the interval.
+func NormalizeDeferredPersistence(mode string, interval int64) (string, int64, string, error) {
+	var notes []string
+	switch m := strings.ToLower(strings.TrimSpace(mode)); m {
+	case "":
+		mode = DeferredSync
 	case DeferredOff, DeferredSync:
+		mode = m
+	case DeferredAlways:
+		mode = DeferredSync
+		notes = append(notes, `deferred-persistence "always" runs as "sync": this binary (cosmos-sdk v0.46) has no "always" mode, and "sync" defers while replaying historical blocks`)
 	default:
-		return fmt.Errorf("deferred-persistence must be %q or %q, got %q", DeferredSync, DeferredOff, mode)
+		return "", 0, "", fmt.Errorf("deferred-persistence must be %q, %q or %q, got %q", DeferredSync, DeferredAlways, DeferredOff, mode)
 	}
-	if interval < 2 || interval > MaxDeferredFlushInterval {
-		return fmt.Errorf("deferred-flush-interval must be between 2 and %d, got %d", MaxDeferredFlushInterval, interval)
+	switch {
+	case interval < 0:
+		return "", 0, "", fmt.Errorf("deferred-flush-interval must be positive (0 uses the default %d), got %d", DefaultDeferredFlushInterval, interval)
+	case interval == 0:
+		interval = DefaultDeferredFlushInterval
+	case interval > MaxDeferredFlushInterval:
+		notes = append(notes, fmt.Sprintf("deferred-flush-interval %d runs as %d: this binary (cosmos-sdk v0.46) bounds the memory held by unflushed versions by the interval", interval, MaxDeferredFlushInterval))
+		interval = MaxDeferredFlushInterval
 	}
-	return nil
+	return mode, interval, strings.Join(notes, "; "), nil
 }
 
 type deferredState struct {
 	mode             string // configured mode
+	note             string // logged once at the first load (NormalizeDeferredPersistence)
 	every            int64
 	snapshotInterval uint64
 	decided          bool  // effective mode decided (first load)
@@ -104,10 +141,12 @@ type deferredState struct {
 // before the stores are loaded. snapshotInterval is the state sync snapshot
 // interval (deferred persistence is off when it is > 0).
 func (rs *Store) SetDeferredPersistence(mode string, every int64, snapshotInterval uint64) error {
-	if err := ValidateDeferredPersistence(mode, every); err != nil {
+	mode, every, note, err := NormalizeDeferredPersistence(mode, every)
+	if err != nil {
 		return err
 	}
 	rs.deferred.mode, rs.deferred.every, rs.deferred.snapshotInterval = mode, every, snapshotInterval
+	rs.deferred.note = note
 	if mode != DeferredOff {
 		// fast-node index writes are part of SaveVersion; not compatible
 		// with soft commits
@@ -122,6 +161,9 @@ func (rs *Store) decideDeferred() {
 	d := &rs.deferred
 	d.mtx.Lock()
 	defer d.mtx.Unlock()
+	if !d.decided && d.note != "" && d.mode != DeferredOff {
+		rs.logger.Info("deferred IAVL persistence setting adjusted", "note", d.note)
+	}
 	if d.decided || d.mode == "" || d.mode == DeferredOff {
 		d.decided = true
 		return

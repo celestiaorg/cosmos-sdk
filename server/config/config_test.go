@@ -165,3 +165,34 @@ func TestSetConfigTemplate(t *testing.T) {
 	actual := setBuffer.String()
 	require.Equal(t, expected, actual, "resulting config strings")
 }
+
+// The multiplexer parent (cosmos-sdk main) shares app.toml with this binary:
+// every [performance] deferred value it accepts must pass ValidateBasic here.
+func TestValidateBasicDeferredPersistenceSharedWithMain(t *testing.T) {
+	for _, tc := range []struct {
+		mode     string
+		interval int64
+		ok       bool
+	}{
+		{"sync", 100, true},
+		{"off", 100, true},
+		{"always", 100, true},
+		{"", 0, true},
+		{"sync", 0, true},
+		{"sync", 1, true},
+		{"sync", 100000, true},
+		{"sync", -1, false},
+		{"fast", 100, false},
+	} {
+		cfg := DefaultConfig()
+		cfg.MinGasPrices = "0stake"
+		cfg.Performance.DeferredPersistence = tc.mode
+		cfg.Performance.DeferredFlushInterval = tc.interval
+		err := cfg.ValidateBasic()
+		if tc.ok {
+			require.NoError(t, err, "%q/%d", tc.mode, tc.interval)
+		} else {
+			require.Error(t, err, "%q/%d", tc.mode, tc.interval)
+		}
+	}
+}

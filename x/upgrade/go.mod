@@ -231,4 +231,4 @@ replace (
 	github.com/cosmos/cosmos-sdk => ../../.
 )
 
-replace github.com/cosmos/iavl => github.com/celestiaorg/iavl v0.0.0-20261123165557-92c18b120688
+replace github.com/cosmos/iavl => github.com/celestiaorg/iavl v0.0.0-20261124115638-2483695d24be

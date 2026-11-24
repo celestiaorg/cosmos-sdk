@@ -87,6 +87,7 @@ type deferredDriver struct {
 	mu      sync.Mutex // orders Commit and flushes
 	flushed int64      // version recorded in the commit metadata
 
+	offReason        string       // last reason "sync" stayed off (logged once at Info)
 	snapshotHold     int64        // snapshot version every store keeps until its export is done
 	snapshotsRunning atomic.Int32 // Snapshot calls in progress
 	heldFlushes      int          // flushes whose pruning a snapshot held back
@@ -255,25 +256,38 @@ func (d *deferredDriver) catchingUp(header time.Time, lag time.Duration) bool {
 	return d.now().Sub(header) > lag
 }
 
-// deferredBeforeCommit turns "sync" mode on when the node is catching up and
-// every IAVL tree holds a single version, so no history is deleted. It records
-// deferred mode in the marker before the first soft commit, so a kill during
-// the first flush is repaired by the next deferred load.
+// deferredBeforeCommit turns "sync" mode on when the node is catching up.
+// Trees that hold only their latest version are switched directly. Trees with
+// older versions (history from a stock run, or legacy-format versions from an
+// older binary) are first collapsed to their latest version, but only when
+// that deletes nothing the operator asked to keep and the work is small:
+// when every tree holds at most one version below the latest (the shape a
+// binary hop leaves) or, under pruning "everything", no more versions than
+// stock pruning leaves; never while a snapshot may need a version that
+// would go. A refusal or failure leaves the mode off and is
+// retried at the next commit. It records deferred mode in the marker
+// before the first soft commit, so a kill during the first flush is
+// repaired by the next deferred load.
 func (rs *Store) deferredBeforeCommit() {
 	d := rs.celestiaDeferred
 	if d == nil || d.mode != DeferredSync || d.isActive() || !d.catchingUp(rs.commitHeader.Time, catchUpEnterLag) {
 		return
 	}
 	if rs.pruningManager.GetOptions().GetPruningStrategy() == pruningtypes.PruningNothing {
+		rs.deferredStaysOff("pruning is \"nothing\"", nil)
 		return
 	}
-	stores := rs.iavlStores()
-	for i, st := range stores {
-		if err := st.EnableDeferred(); err != nil {
-			for _, s := range stores[:i] {
-				_ = s.DisableDeferred()
-			}
-			rs.logger.Debug("deferred IAVL persistence stays off", "reason", err)
+	stores := rs.namedIAVLStores()
+	if err := enableDeferredAll(stores); err != nil {
+		if !errors.Is(err, iavltree.ErrDeferredHistory) && !errors.Is(err, iavltree.ErrDeferredLegacy) {
+			rs.deferredStaysOff("enabling failed", err)
+			return
+		}
+		if !rs.collapseForDeferred(stores) {
+			return
+		}
+		if err := enableDeferredAll(stores); err != nil {
+			rs.deferredStaysOff("enabling after the collapse failed", err)
 			return
 		}
 	}
@@ -290,7 +304,84 @@ func (rs *Store) deferredBeforeCommit() {
 		}
 		rs.celestiaMarkerDeferred = true
 	}
+	d.offReason = ""
 	rs.deferredAfterLoad(version, true)
+}
+
+// enableDeferredAll turns deferred mode on in every store, or in none.
+func enableDeferredAll(stores []namedIAVLStore) error {
+	for i, st := range stores {
+		if err := st.EnableDeferred(); err != nil {
+			for _, s := range stores[:i] {
+				_ = s.DisableDeferred()
+			}
+			return fmt.Errorf("store %s: %w", st.name, err)
+		}
+	}
+	return nil
+}
+
+// collapseForDeferred deletes every version below the latest in each store,
+// in store-name order, if the pruning policy and snapshots allow it. Nothing
+// is written unless both gates pass. A kill part-way leaves every store's
+// latest version intact and the DB stock (the marker is written only after
+// the collapse), so the next start loads it upstream and retries here.
+func (rs *Store) collapseForDeferred(stores []namedIAVLStore) bool {
+	d := rs.celestiaDeferred
+	version := rs.getLastCommitInfo().GetVersion()
+	// The collapse runs inside Commit, so bound it: at most one version below
+	// the latest (the hop shape), or under "everything" the history stock
+	// pruning leaves in steady state. Larger history is left to stock
+	// (async) pruning, or kept as the strategy asks. FirstVersion counts
+	// legacy-format versions.
+	maxBelow, reason := int64(1), "the pruning strategy keeps history"
+	if opts := rs.pruningManager.GetOptions(); opts.GetPruningStrategy() == pruningtypes.PruningEverything {
+		maxBelow = int64(opts.KeepRecent+opts.Interval) + 1 //nolint:gosec,nolintlint // "everything" is 2 and 10
+		reason = "history larger than the pruning strategy keeps; waiting for stock pruning"
+	}
+	for _, st := range stores {
+		first, err := st.FirstVersion()
+		if err != nil {
+			rs.deferredStaysOff("reading the first version failed", fmt.Errorf("store %s: %w", st.name, err))
+			return false
+		}
+		if first > 0 && first < version-maxBelow {
+			rs.deferredStaysOff(reason, fmt.Errorf("store %s holds versions %d to %d", st.name, first, version))
+			return false
+		}
+	}
+	d.mu.Lock()
+	hold := d.snapshotHold
+	d.mu.Unlock()
+	if d.snapshotsRunning.Load() > 0 || hold != 0 || rs.isSnapshotHeight(version) ||
+		rs.isSnapshotHeight(version-1) || version-1 > rs.pruningManager.SnapshotPruneLimit() {
+		rs.deferredStaysOff("a snapshot may need an older version", nil)
+		return false
+	}
+	for _, st := range stores {
+		if err := st.CollapseToLatest(); err != nil {
+			rs.deferredStaysOff("collapsing to the latest version failed", fmt.Errorf("store %s: %w", st.name, err))
+			return false
+		}
+		if celestiaDeferredTestHook != nil {
+			celestiaDeferredTestHook("collapse", version)
+		}
+	}
+	rs.logger.Info("deferred persistence: deleted the versions below the latest to turn the mode on", "version", version)
+	return true
+}
+
+// deferredStaysOff logs why "sync" mode stays off: at Info the first time a
+// reason comes up, at Debug while it repeats, so it is visible without
+// logging every block.
+func (rs *Store) deferredStaysOff(reason string, err error) {
+	d := rs.celestiaDeferred
+	if d.offReason == reason {
+		rs.logger.Debug("deferred IAVL persistence stays off", "reason", reason, "err", err)
+		return
+	}
+	d.offReason = reason
+	rs.logger.Info("deferred IAVL persistence stays off while catching up", "reason", reason, "err", err)
 }
 
 // writeMarker durably writes the marker on its own.
@@ -423,15 +514,30 @@ func (rs *Store) upgradePlanPending() bool {
 // iavlStores returns the IAVL stores sorted by name, including stores about
 // to be removed.
 func (rs *Store) iavlStores() []*iavl.Store {
+	named := rs.namedIAVLStores()
+	out := make([]*iavl.Store, len(named))
+	for i, st := range named {
+		out[i] = st.Store
+	}
+	return out
+}
+
+type namedIAVLStore struct {
+	*iavl.Store
+	name string
+}
+
+// namedIAVLStores is iavlStores with the store names.
+func (rs *Store) namedIAVLStores() []namedIAVLStore {
 	keys := make([]types.StoreKey, 0, len(rs.stores))
 	for k := range rs.stores {
 		keys = append(keys, k)
 	}
 	sort.Slice(keys, func(i, j int) bool { return keys[i].Name() < keys[j].Name() })
-	out := make([]*iavl.Store, 0, len(keys))
+	out := make([]namedIAVLStore, 0, len(keys))
 	for _, k := range keys {
 		if st, ok := rs.GetCommitKVStore(k).(*iavl.Store); ok {
-			out = append(out, st)
+			out = append(out, namedIAVLStore{Store: st, name: k.Name()})
 		}
 	}
 	return out
@@ -581,5 +687,6 @@ func (rs *Store) deferredStores() []*iavl.Store {
 }
 
 // celestiaDeferredTestHook, if set (tests only), is called after the store
-// phase ("stores") and after the metadata phase ("metadata") of a flush.
+// phase ("stores") and after the metadata phase ("metadata") of a flush
+// and after each store's collapse ("collapse").
 var celestiaDeferredTestHook func(phase string, version int64)

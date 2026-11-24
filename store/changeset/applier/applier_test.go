@@ -1,9 +1,11 @@
 package applier_test
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/rand"
+	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -772,6 +774,21 @@ func TestTamperedChangesetDetected(t *testing.T) {
 			}
 		}
 	})
+	// a single flipped bit in one value byte, re-framed with a valid checksum
+	// (a forged file, not disk damage): the app hash no longer matches
+	tamper("flip_one_value_byte", 83, func(b *changeset.Block) {
+		for si := range b.Stores {
+			for oi := range b.Stores[si].Ops {
+				op := &b.Stores[si].Ops[oi]
+				if op.Kind == changeset.OpSet && len(op.Value) > 0 {
+					op.Value = append([]byte{}, op.Value...)
+					op.Value[len(op.Value)/2] ^= 0x01
+					return
+				}
+			}
+		}
+		t.Fatal("no Set op with a value at height 83")
+	})
 	// the recorded app hash itself is not trusted when a header hash is given
 	t.Run("dropped_store_ops_trusted_header", func(t *testing.T) {
 		out := t.TempDir()
@@ -790,6 +807,41 @@ func TestTamperedChangesetDetected(t *testing.T) {
 		require.EqualValues(t, 91, mm.Height)
 		require.Equal(t, "trusted header", mm.Source)
 	})
+}
+
+// One flipped byte in a changeset file on disk (checksum left as written) is
+// rejected before the block is applied: the run stops with ErrCorrupt and
+// nothing from that height reaches the DB.
+func TestFlippedFileByteRejected(t *testing.T) {
+	dir, c, _ := record(t, "", 1000)
+	out := t.TempDir()
+	path := filepath.Join(out, "cs-000000000001.bin")
+	fw, err := changeset.CreateFile(path)
+	require.NoError(t, err)
+	for _, b := range readAll(t, dir) {
+		require.NoError(t, fw.Write(b))
+	}
+	require.NoError(t, fw.Close())
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	// walk the frames (u32 len | u32 crc32c | payload, little endian) to the
+	// payload of height h and flip one byte in its middle
+	const h = 50
+	off := len("CSET1\n")
+	for i := int64(1); i < h; i++ {
+		off += 8 + int(binary.LittleEndian.Uint32(raw[off:]))
+	}
+	n := int(binary.LittleEndian.Uint32(raw[off:]))
+	raw[off+8+n/2] ^= 0x01
+	require.NoError(t, os.WriteFile(path, raw, 0o600))
+
+	db := dbm.NewMemDB()
+	a, err := apply(t, db, out, "", c.expected, false)
+	require.ErrorIs(t, err, changeset.ErrCorrupt)
+	require.EqualValues(t, h-1, a.Applied)
+	require.EqualValues(t, h-1, rootmulti.GetLatestVersion(db))
+	require.Equal(t, c.hashes[h-1], a.RS.LastCommitID().Hash)
 }
 
 // InitChain with initial height > 1 (SetInitialVersion) is recorded and replayed.

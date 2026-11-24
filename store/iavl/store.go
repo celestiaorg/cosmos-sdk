@@ -47,6 +47,11 @@ type LoadStoreOptions struct {
 	// Set it when an upgrade adds a new store mid-chain.
 	InitialVersion uint64
 
+	// DiscardVersionsAboveTarget deletes a half-written version above id.Version,
+	// left by a commit killed mid-write. Set it on normal startup only. Leave it
+	// unset when loading an older version, where newer versions are real state.
+	DiscardVersionsAboveTarget bool
+
 	// Deferred loads the tree in deferred-persistence mode. id.Version is the
 	// multistore's committed version: newer on-disk versions are deleted, an
 	// interrupted deferred prune is finished and older versions are pruned.
@@ -130,6 +135,12 @@ func loadTree(tree *iavl.MutableTree, logger log.Logger, key types.StoreKey, id 
 			"start the node once with deferred-persistence = \"sync\" to repair it", key.Name(), latest, id.Version)
 	}
 
+	if opts.DiscardVersionsAboveTarget && id.Version > 0 && latest > id.Version {
+		if err := discardVersionsAboveTarget(tree, logger, key, id.Version, latest); err != nil {
+			return nil, err
+		}
+	}
+
 	if logger != nil {
 		logger.Trace("Finished loading IAVL tree")
 	}
@@ -139,6 +150,41 @@ func loadTree(tree *iavl.MutableTree, logger log.Logger, key types.StoreKey, id 
 		logger:  logger,
 		metrics: metrics,
 	}, nil
+}
+
+// discardVersionsAboveTarget removes versions newer than target when latest is
+// incomplete. IAVL writes the root node last, so a missing root means the last
+// commit was interrupted. A complete latest version is preserved.
+func discardVersionsAboveTarget(tree *iavl.MutableTree, logger log.Logger, key types.StoreKey, target, latest int64) error {
+	_, err := tree.GetImmutable(latest)
+	if err == nil {
+		// The IAVL store committed before the multistore did. Replay can commit
+		// this version again without changing it.
+		if logger != nil {
+			logger.Debug(
+				"IAVL tree is ahead of the committed version; keeping it",
+				"store_key", key.Name(),
+				"committed_version", target,
+				"tree_version", latest,
+			)
+		}
+		return nil
+	}
+	if !errors.Is(err, iavl.ErrVersionDoesNotExist) {
+		return err
+	}
+
+	if logger != nil {
+		logger.Info(
+			"discarding IAVL versions left by an interrupted commit; this may rebuild the fast node index and take a while",
+			"store_key", key.Name(),
+			"committed_version", target,
+			"tree_version", latest,
+		)
+	}
+
+	// Reload target and remove every later version, as the rollback command does.
+	return tree.LoadVersionForOverwriting(target)
 }
 
 // UnsafeNewStore returns a reference to a new IAVL Store with a given mutable

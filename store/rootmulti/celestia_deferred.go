@@ -162,7 +162,7 @@ func setMarker(batch dbm.Batch, mode byte, version int64) {
 
 // deferredLoadOptions picks the store load options for loadLatestVersion.
 func (rs *Store) deferredLoadOptions() (iavl.LoadStoreOptions, error) {
-	opts := iavl.LoadStoreOptions{}
+	opts := iavl.LoadStoreOptions{DiscardVersionsAboveTarget: true}
 	_, raw, err := readMarker(rs.db)
 	if err != nil {
 		return opts, err

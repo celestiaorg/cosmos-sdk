@@ -44,6 +44,7 @@ const iavlDisablefastNodeDefault = false
 type Store struct {
 	db                  dbm.DB
 	logger              log.Logger
+	celestiaLogger      log.Logger // deferred persistence and store repair lines; see SetLogger
 	lastCommitInfo      *types.CommitInfo
 	pruningManager      *pruning.Manager
 	iavlCacheSize       int
@@ -85,6 +86,7 @@ func NewStore(db dbm.DB, logger log.Logger) *Store {
 	return &Store{
 		db:                  db,
 		logger:              logger,
+		celestiaLogger:      logger,
 		iavlCacheSize:       iavl.DefaultIAVLCacheSize,
 		iavlDisableFastNode: iavlDisablefastNodeDefault,
 		parallelCommit:      true,
@@ -94,6 +96,17 @@ func NewStore(db dbm.DB, logger log.Logger) *Store {
 		listeners:           make(map[types.StoreKey][]types.WriteListener),
 		removalMap:          make(map[types.StoreKey]bool),
 		pruningManager:      pruning.NewManager(db, logger),
+	}
+}
+
+// SetLogger sets the logger for the deferred persistence and store repair
+// lines. store.NewCommitMultiStore (used by BaseApp) creates the store with a
+// no-op logger; BaseApp passes its own logger here. Upstream store logging
+// (pruning, IAVL loading) keeps the logger given to NewStore, so this adds no
+// per-block lines. It must be called before the stores are loaded.
+func (rs *Store) SetLogger(logger log.Logger) {
+	if logger != nil {
+		rs.celestiaLogger = logger
 	}
 }
 

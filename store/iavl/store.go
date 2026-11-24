@@ -57,13 +57,26 @@ func LoadStoreWithInitialVersion(db dbm.DB, logger log.Logger, key types.StoreKe
 
 // LoadStoreWithOpts opens the store's IAVL tree at id.Version with the given tree options.
 func LoadStoreWithOpts(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, initialVersion uint64, cacheSize int, disableFastNode bool, metrics metrics.StoreMetrics, opts ...iavl.Option) (types.CommitKVStore, error) {
+	return LoadStoreWithCelestiaOpts(db, logger, key, id, initialVersion, cacheSize, disableFastNode, metrics, LoadStoreOptions{}, opts...)
+}
+
+// LoadStoreOptions are celestia store load options.
+type LoadStoreOptions struct {
+	// DiscardVersionsAboveTarget deletes a half-written version above id.Version,
+	// left by a commit killed mid-write. Set it on normal startup only. Leave it
+	// unset when loading an older version, where newer versions are real state.
+	DiscardVersionsAboveTarget bool
+}
+
+// LoadStoreWithCelestiaOpts is LoadStoreWithOpts with celestia load options.
+func LoadStoreWithCelestiaOpts(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, initialVersion uint64, cacheSize int, disableFastNode bool, metrics metrics.StoreMetrics, copts LoadStoreOptions, opts ...iavl.Option) (types.CommitKVStore, error) {
 	// store/v1 and app/v1 flows never require an initial version of 0
 	if initialVersion == 0 {
 		initialVersion = 1
 	}
 	opts = append(opts, iavl.InitialVersionOption(initialVersion))
 	tree := iavl.NewMutableTree(wrapper.NewDBWrapper(db), cacheSize, disableFastNode, logger, opts...)
-	st, err := loadTree(tree, logger, key, id, initialVersion, metrics)
+	st, err := loadTree(tree, logger, key, id, initialVersion, metrics, copts)
 	if err != nil {
 		// Stop the pruning goroutine of a tree we do not return.
 		_ = tree.Close()
@@ -72,7 +85,7 @@ func LoadStoreWithOpts(db dbm.DB, logger log.Logger, key types.StoreKey, id type
 	return st, nil
 }
 
-func loadTree(tree *iavl.MutableTree, logger log.Logger, key types.StoreKey, id types.CommitID, initialVersion uint64, metrics metrics.StoreMetrics) (types.CommitKVStore, error) {
+func loadTree(tree *iavl.MutableTree, logger log.Logger, key types.StoreKey, id types.CommitID, initialVersion uint64, metrics metrics.StoreMetrics, copts LoadStoreOptions) (types.CommitKVStore, error) {
 	isUpgradeable, err := tree.IsUpgradeable()
 	if err != nil {
 		return nil, err
@@ -87,9 +100,16 @@ func loadTree(tree *iavl.MutableTree, logger log.Logger, key types.StoreKey, id 
 		)
 	}
 
-	_, err = tree.LoadVersion(id.Version)
+	// IAVL derives latest from node keys, which may belong to an incomplete version.
+	latest, err := tree.LoadVersion(id.Version)
 	if err != nil {
 		return nil, err
+	}
+
+	if copts.DiscardVersionsAboveTarget && id.Version > 0 && latest > id.Version {
+		if err := discardVersionsAboveTarget(tree, logger, key, id.Version, latest); err != nil {
+			return nil, err
+		}
 	}
 
 	if logger != nil {
@@ -101,6 +121,38 @@ func loadTree(tree *iavl.MutableTree, logger log.Logger, key types.StoreKey, id 
 		logger:  logger,
 		metrics: metrics,
 	}, nil
+}
+
+func discardVersionsAboveTarget(tree *iavl.MutableTree, logger log.Logger, key types.StoreKey, target, latest int64) error {
+	_, err := tree.GetImmutable(latest)
+	if err == nil {
+		// The IAVL store committed before the multistore did. Replay can commit
+		// this version again without changing it.
+		if logger != nil {
+			logger.Debug(
+				"IAVL tree is ahead of the committed version; keeping it",
+				"store_key", key.Name(),
+				"committed_version", target,
+				"tree_version", latest,
+			)
+		}
+		return nil
+	}
+	if !errors.Is(err, iavl.ErrVersionDoesNotExist) {
+		return err
+	}
+
+	if logger != nil {
+		logger.Info(
+			"discarding IAVL versions left by an interrupted commit; this may rebuild the fast node index and take a while",
+			"store_key", key.Name(),
+			"committed_version", target,
+			"tree_version", latest,
+		)
+	}
+
+	// Reload target and remove every later version, as the rollback command does.
+	return tree.LoadVersionForOverwriting(target)
 }
 
 // UnsafeNewStore returns a reference to a new IAVL Store with a given mutable

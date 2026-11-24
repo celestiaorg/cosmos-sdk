@@ -1,6 +1,7 @@
 package rootmulti
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -1171,6 +1172,52 @@ func (rs *Store) RollbackToVersion(target int64) error {
 	rs.flushMetadata(rs.db, target, rs.buildCommitInfo(target))
 
 	return rs.LoadLatestVersion()
+}
+
+// CheckRollbackToVersion checks, without writing, that RollbackToVersion(target)
+// can succeed: the commit info and every IAVL store's version at target exist
+// and match. It returns the app hash at target.
+func (rs *Store) CheckRollbackToVersion(target int64) ([]byte, error) {
+	if target <= 0 {
+		return nil, fmt.Errorf("invalid rollback height target: %d", target)
+	}
+	if err := rs.deferredRollbackCheck(); err != nil {
+		return nil, err
+	}
+
+	cInfo, err := rs.GetCommitInfo(target)
+	if err != nil {
+		return nil, fmt.Errorf("commit info at version %d: %w", target, err)
+	}
+	committed := make(map[string][]byte, len(cInfo.StoreInfos))
+	for _, si := range cInfo.StoreInfos {
+		committed[si.Name] = si.CommitId.Hash
+	}
+
+	for _, key := range keysFromStoreKeyMap(rs.storesParams) {
+		if rs.storesParams[key].typ != types.StoreTypeIAVL {
+			continue
+		}
+		hash, ok := committed[key.Name()]
+		if !ok {
+			return nil, fmt.Errorf("store %s not in commit info at version %d", key.Name(), target)
+		}
+		store, ok := rs.GetCommitKVStore(key).(*iavl.Store)
+		if !ok {
+			return nil, fmt.Errorf("store %s not loaded", key.Name())
+		}
+		if !store.VersionExists(target) {
+			return nil, fmt.Errorf("store %s has no version %d", key.Name(), target)
+		}
+		tree, err := store.GetImmutable(target)
+		if err != nil {
+			return nil, fmt.Errorf("store %s at version %d: %w", key.Name(), target, err)
+		}
+		if !bytes.Equal(tree.LastCommitID().Hash, hash) {
+			return nil, fmt.Errorf("store %s hash at version %d does not match commit info", key.Name(), target)
+		}
+	}
+	return cInfo.CommitID().Hash, nil
 }
 
 // SetCommitHeader sets the commit block header of the store.

@@ -246,6 +246,19 @@ stop-node-on-err = {{ .Streaming.ABCI.StopNodeOnErr }}
 # Note, this configuration only applies to SDK built-in app-side mempool
 # implementations.
 max-txs = {{ .Mempool.MaxTxs }}
+
+###############################################################################
+###                         Performance                                     ###
+###############################################################################
+
+# Speedups that never change the app hash, events or gas. A missing key means true.
+[performance]
+
+# Write, hash and commit the stores in parallel.
+parallel-commit = {{ .Performance.ParallelCommit }}
+
+# Prune old IAVL versions in the background instead of inside Commit.
+async-pruning = {{ .Performance.AsyncPruning }}
 `
 
 var configTemplate *template.Template

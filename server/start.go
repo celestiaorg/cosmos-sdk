@@ -78,7 +78,7 @@ const (
 	FlagDisableIAVLFastNode = "iavl-disable-fastnode"
 	FlagShutdownGrace       = "shutdown-grace"
 
-	// app.toml [performance] keys; a missing key means true.
+	// FlagParallelCommit and FlagAsyncPruning are app.toml [performance] keys; a missing key means true.
 	FlagParallelCommit = "performance.parallel-commit"
 	FlagAsyncPruning   = "performance.async-pruning"
 

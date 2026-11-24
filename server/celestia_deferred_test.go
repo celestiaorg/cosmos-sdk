@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/binary"
+	"errors"
 	"testing"
 
 	cmtcfg "github.com/cometbft/cometbft/config"
@@ -196,4 +197,32 @@ func TestV046RollbackPlan(t *testing.T) {
 	cometOnly, err = v046RollbackPlan(db, false, 3, 4)
 	require.NoError(t, err)
 	require.False(t, cometOnly)
+}
+
+type fakeRollbackChecker struct {
+	target int64
+	err    error
+}
+
+func (f *fakeRollbackChecker) CheckRollbackToVersion(target int64) ([]byte, error) {
+	f.target = target
+	return nil, f.err
+}
+
+// TestCheckAppRollback: the app store is checked at the CometBFT rollback
+// target before CometBFT state is touched; an upstream store is not checked.
+func TestCheckAppRollback(t *testing.T) {
+	cfg := newCometHome(t, 5)
+	require.NoError(t, checkAppRollback(cfg, struct{}{}), "a store without the check passes")
+
+	ok := &fakeRollbackChecker{}
+	require.NoError(t, checkAppRollback(cfg, ok))
+	require.Equal(t, int64(4), ok.target, "state 5, empty block store: target 4")
+
+	bad := &fakeRollbackChecker{err: errors.New("store s1 has no version 4")}
+	err := checkAppRollback(cfg, bad)
+	require.ErrorContains(t, err, "cannot roll back the app state to height 4, nothing was changed")
+	h, err := cometLastBlockHeight(cfg)
+	require.NoError(t, err)
+	require.Equal(t, int64(5), h, "CometBFT state is untouched")
 }

@@ -313,7 +313,6 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) (err erro
 	rs.lastCommitInfo = cInfo
 	rs.stores = newStores
 	rs.loadedStores = nil // in use now
-	rs.loadedStores = nil // in use now
 
 	// load any snapshot heights we missed from disk to be pruned on the next run
 	if err := rs.pruningManager.LoadSnapshotHeights(rs.db); err != nil {

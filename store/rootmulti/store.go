@@ -75,9 +75,13 @@ type Store struct {
 	listeners           map[types.StoreKey]*types.MemoryListener
 	metrics             metrics.StoreMetrics
 	commitHeader        cmtproto.Header
-	parallelCommit      bool        // see SetParallelCommit
-	asyncPruning        bool        // see SetAsyncPruning
-	loadedStores        []io.Closer // stores opened by the running loadVersion
+	celestiaDeferred    *deferredDriver // see SetDeferredPersistence
+	// celestiaMarkerDeferred is true while the persisted marker says deferred.
+	celestiaMarkerDeferred bool
+	snapshotInterval       uint64
+	parallelCommit         bool        // see SetParallelCommit
+	asyncPruning           bool        // see SetAsyncPruning
+	loadedStores           []io.Closer // stores opened by the running loadVersion
 }
 
 var (
@@ -128,6 +132,7 @@ func (rs *Store) SetMetrics(metrics metrics.StoreMetrics) {
 // It is used by the store to determine which heights to retain until after the snapshot is complete.
 func (rs *Store) SetSnapshotInterval(snapshotInterval uint64) {
 	rs.pruningManager.SetSnapshotInterval(snapshotInterval)
+	rs.snapshotInterval = snapshotInterval
 }
 
 func (rs *Store) SetIAVLCacheSize(cacheSize int) {
@@ -209,7 +214,11 @@ func (rs *Store) LoadVersion(ver int64) error {
 // version does not remove newer state.
 func (rs *Store) loadLatestVersion(upgrades *types.StoreUpgrades) error {
 	ver := GetLatestVersion(rs.db)
-	return rs.loadVersion(ver, upgrades, iavl.LoadStoreOptions{DiscardVersionsAboveTarget: true})
+	opts, err := rs.deferredLoadOptions()
+	if err != nil {
+		return err
+	}
+	return rs.loadVersion(ver, upgrades, opts)
 }
 
 // loadVersion loads every mounted store at ver.
@@ -225,6 +234,9 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades, opts iavl
 		}
 		rs.loadedStores = nil
 	}()
+	if err := rs.deferredBeforeLoad(); err != nil {
+		return err
+	}
 	infos := make(map[string]types.StoreInfo)
 
 	rs.logger.Trace("loadVersion", "ver", ver)
@@ -314,6 +326,7 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades, opts iavl
 	rs.setLastCommitInfo(cInfo)
 	rs.stores = newStores
 	rs.loadedStores = nil // in use now
+	rs.deferredAfterLoad(ver, opts.Deferred)
 
 	// load any snapshot heights we missed from disk to be pruned on the next run
 	if err := rs.pruningManager.LoadSnapshotHeights(rs.db); err != nil {
@@ -501,6 +514,10 @@ func (rs *Store) LastCommitID() types.CommitID {
 
 // Commit implements Committer/CommitStore.
 func (rs *Store) Commit() types.CommitID {
+	rs.deferredBeforeCommit()
+	if rs.celestiaDeferred.isActive() {
+		return rs.commitDeferred()
+	}
 	var previousHeight, version int64
 	lastCommitInfo := rs.getLastCommitInfo()
 	if lastCommitInfo.GetVersion() == 0 && rs.initialVersion > 1 {
@@ -886,6 +903,8 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 	if height > uint64(GetLatestVersion(rs.db)) {
 		return errorsmod.Wrapf(types.ErrLogic, "cannot snapshot future height %v", height)
 	}
+	rs.deferredSnapshotStart()
+	defer rs.deferredSnapshotDone(int64(height)) //nolint:gosec // checked against the latest version above
 
 	// Collect stores to snapshot (only IAVL stores are supported)
 	type namedStore struct {
@@ -1155,6 +1174,9 @@ func (rs *Store) RollbackToVersion(target int64) error {
 	if target <= 0 {
 		return fmt.Errorf("invalid rollback height target: %d", target)
 	}
+	if err := rs.deferredRollbackCheck(); err != nil {
+		return err
+	}
 
 	for key, store := range rs.stores {
 		if store.GetStoreType() == types.StoreTypeIAVL {
@@ -1217,6 +1239,7 @@ func (rs *Store) flushMetadata(db dbm.DB, version int64, cInfo *types.CommitInfo
 	}
 
 	flushLatestVersion(batch, version)
+	rs.markStock(batch, version)
 
 	if err := batch.WriteSync(); err != nil {
 		panic(fmt.Errorf("error on batch write %w", err))

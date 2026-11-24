@@ -1,3 +1,4 @@
+// Package cachemulti implements a cache-wrapped multistore.
 package cachemulti
 
 import (

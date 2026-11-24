@@ -283,7 +283,32 @@ func (rs *Store) deferredBeforeCommit() {
 			return
 		}
 	}
-	rs.deferredAfterLoad(rs.getLastCommitInfo().GetVersion(), true)
+	// Mark the DB deferred before the first soft commit: a kill during the
+	// first flush leaves trees with a gap that only a deferred load repairs.
+	version := rs.getLastCommitInfo().GetVersion()
+	if err := rs.writeDeferredMarker(version); err != nil {
+		for _, s := range stores {
+			_ = s.DisableDeferred()
+		}
+		rs.logger.Error("deferred IAVL persistence stays off", "reason", err)
+		return
+	}
+	if celestiaDeferredTestHook != nil {
+		celestiaDeferredTestHook("marker", version)
+	}
+	rs.deferredAfterLoad(version, true)
+}
+
+// writeDeferredMarker durably records that the DB is in deferred state at version.
+func (rs *Store) writeDeferredMarker(version int64) error {
+	batch := rs.db.NewBatch()
+	defer batch.Close()
+	setMarker(batch, markerDeferred, version)
+	if err := batch.WriteSync(); err != nil {
+		return err
+	}
+	rs.celestiaMarkerDeferred = true
+	return nil
 }
 
 func (rs *Store) commitDeferred() types.CommitID {
@@ -569,7 +594,8 @@ func (rs *Store) deferredStores() []*iavl.Store {
 }
 
 // celestiaDeferredTestHook, if set (tests only), is called after the store
-// phase ("stores") and after the metadata phase ("metadata") of a flush.
+// phase ("stores") and after the metadata phase ("metadata") of a flush, and
+// after the marker is written when "sync" turns on at runtime ("marker").
 var celestiaDeferredTestHook func(phase string, version int64)
 
 // getLastCommitInfo and setLastCommitInfo access the last commit info (the

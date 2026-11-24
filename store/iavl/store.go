@@ -125,14 +125,24 @@ func loadTree(tree *iavl.MutableTree, logger log.Logger, key types.StoreKey, id 
 		return &Store{tree: tree, logger: logger, metrics: metrics}, nil
 	}
 
+	// Check before LoadVersion: deferred leftovers may not be contiguous with
+	// id.Version, which LoadVersion cannot load.
+	if copts.RefuseVersionsAboveTarget {
+		latest, err := tree.GetLatestVersion()
+		if err != nil {
+			return nil, err
+		}
+		if latest > id.Version {
+			return nil, fmt.Errorf("store %s has version %d above the committed version %d, left by deferred persistence; "+
+				"start the node once with deferred-persistence = \"sync\" and pruning other than \"nothing\" to repair it",
+				key.Name(), latest, id.Version)
+		}
+	}
+
 	// IAVL derives latest from node keys, which may belong to an incomplete version.
 	latest, err := tree.LoadVersion(id.Version)
 	if err != nil {
 		return nil, err
-	}
-	if copts.RefuseVersionsAboveTarget && latest > id.Version {
-		return nil, fmt.Errorf("store %s has version %d above the committed version %d, left by deferred persistence; "+
-			"start the node once with deferred-persistence = \"sync\" to repair it", key.Name(), latest, id.Version)
 	}
 
 	if copts.DiscardVersionsAboveTarget && id.Version > 0 && latest > id.Version {

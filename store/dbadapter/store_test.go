@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
+	"go.uber.org/mock/gomock" //nolint:depguard // upstream store v1.1.2 test mocks
 
 	"cosmossdk.io/store/cachekv"
 	"cosmossdk.io/store/dbadapter"

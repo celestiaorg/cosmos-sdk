@@ -1,3 +1,4 @@
+// Package rootmulti implements the root multistore that commits every substore.
 package rootmulti
 
 import (

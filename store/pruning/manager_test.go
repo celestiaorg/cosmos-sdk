@@ -7,7 +7,7 @@ import (
 
 	db "github.com/cosmos/cosmos-db"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
+	"go.uber.org/mock/gomock" //nolint:depguard // upstream store v1.1.2 test mocks
 
 	"cosmossdk.io/log"
 	"cosmossdk.io/store/mock"

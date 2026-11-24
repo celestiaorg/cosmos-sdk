@@ -66,7 +66,7 @@ func celestiaEquivalenceWorkload(t *testing.T, on bool) []byte {
 	}
 
 	var trace bytes.Buffer
-	rng := rand.New(rand.NewSource(42))
+	rng := rand.New(rand.NewSource(42)) //nolint:gosec // deterministic test data
 	block := func(ms *Store, v int, live []*types.KVStoreKey) {
 		cms := ms.CacheMultiStore()
 		for _, k := range live {
@@ -81,7 +81,7 @@ func celestiaEquivalenceWorkload(t *testing.T, on bool) []byte {
 					continue
 				}
 				val := make([]byte, 1+rng.Intn(64))
-				rng.Read(val)
+				_, _ = rng.Read(val)
 				st.Set(key, val)
 			}
 		}

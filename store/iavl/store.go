@@ -55,6 +55,7 @@ func LoadStoreWithInitialVersion(db dbm.DB, logger log.Logger, key types.StoreKe
 	return LoadStoreWithOpts(db, logger, key, id, initialVersion, cacheSize, disableFastNode, metrics, iavl.AsyncPruningOption(true))
 }
 
+// LoadStoreWithOpts opens the store's IAVL tree at id.Version with the given tree options.
 func LoadStoreWithOpts(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, initialVersion uint64, cacheSize int, disableFastNode bool, metrics metrics.StoreMetrics, opts ...iavl.Option) (types.CommitKVStore, error) {
 	// store/v1 and app/v1 flows never require an initial version of 0
 	if initialVersion == 0 {

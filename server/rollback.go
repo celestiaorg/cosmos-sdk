@@ -5,9 +5,12 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/server/types"
+	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	"github.com/spf13/cobra"
 	cbftcmd "github.com/tendermint/tendermint/cmd/cometbft/commands"
 )
+
+const flagCometBFTOnly = "cometbft-only"
 
 // NewRollbackCmd creates a command to rollback tendermint and multistore state by one height.
 func NewRollbackCmd(appCreator types.AppCreator, defaultNodeHome string) *cobra.Command {
@@ -30,6 +33,34 @@ application.
 			if err != nil {
 				return err
 			}
+			// A DB last written with deferred IAVL persistence holds only its
+			// last flushed version: its app state cannot be rolled back by one
+			// height. Refuse before anything is written.
+			deferred, lastFlushed, _, err := rootmulti.DeferredMarker(db)
+			if err != nil {
+				return err
+			}
+			cometOnly, _ := cmd.Flags().GetBool(flagCometBFTOnly)
+			if deferred && !cometOnly {
+				return fmt.Errorf("%w: the application DB was last written with deferred IAVL persistence and holds only version %d; "+
+					"run rollback --%s to roll back only the CometBFT state: on restart the handshake replays the blocks after %d",
+					rootmulti.ErrRollbackDeferred, lastFlushed, flagCometBFTOnly, lastFlushed)
+			}
+			if cometOnly {
+				appVersion := rootmulti.GetLatestVersion(db)
+				height, hash, err := cbftcmd.RollbackState(ctx.Config)
+				if err != nil {
+					return fmt.Errorf("failed to rollback tendermint state: %w", err)
+				}
+				if appVersion > height {
+					return fmt.Errorf("rolled back CometBFT state to height %d, but the application is at height %d: the rollback has no effect "+
+						"(the handshake restores height %d); the application state cannot be rolled back", height, appVersion, appVersion)
+				}
+				fmt.Printf("Rolled back CometBFT state to height %d and hash %X; the application is at height %d and replays the blocks after it on restart", height, hash, appVersion)
+				return nil
+			}
+
+			ctx.Viper.Set(KeyReadOnlyLoad, true) // RollbackToVersion is the only write
 			app := appCreator(ctx.Logger, db, nil, ctx.Viper)
 			// rollback tendermint state
 			height, hash, err := cbftcmd.RollbackState(ctx.Config)
@@ -48,5 +79,6 @@ application.
 	}
 
 	cmd.Flags().String(flags.FlagHome, defaultNodeHome, "The application home directory")
+	cmd.Flags().Bool(flagCometBFTOnly, false, "Roll back only the CometBFT state, for an application DB behind it (deferred IAVL persistence); the handshake replays the missing blocks")
 	return cmd
 }

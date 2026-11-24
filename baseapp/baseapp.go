@@ -65,6 +65,11 @@ type BaseApp struct { // nolint: maligned
 	interfaceRegistry codectypes.InterfaceRegistry
 	txDecoder         sdk.TxDecoder // unmarshal []byte into sdk.Tx
 
+	// batchSigPreverifier warms the signature cache for a DeliverTx batch when
+	// sigPreverify is set (see batch_preverify.go).
+	batchSigPreverifier func(ctx sdk.Context, txs []sdk.Tx)
+	sigPreverify        bool
+
 	anteHandler sdk.AnteHandler // ante handler for fee and auth
 	postHandler sdk.AnteHandler // post handler, optional, e.g. for tips
 
@@ -931,7 +936,22 @@ func makeABCIData(msgResponses []*codectypes.Any) ([]byte, error) {
 	return proto.Marshal(&sdk.TxMsgData{MsgResponses: msgResponses})
 }
 
+// deferredFlusher is implemented by rootmulti.Store (deferred IAVL
+// persistence); every method is a no-op when the mode is not active.
+type deferredFlusher interface {
+	FlushDeferred() error
+	ForceFlushNextCommit()
+	ShutdownFlush() error
+	SetCatchingUp(bool)
+}
+
 // Close is called in start cmd to gracefully cleanup resources.
 func (app *BaseApp) Close() error {
+	// deferred persistence: write the last committed block so a graceful
+	// shutdown restarts from it (usually already done by the quit-signal
+	// hook; idempotent)
+	if d, ok := app.cms.(deferredFlusher); ok {
+		return d.ShutdownFlush()
+	}
 	return nil
 }

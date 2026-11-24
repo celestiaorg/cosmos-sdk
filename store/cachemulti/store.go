@@ -8,6 +8,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
+	"github.com/cosmos/cosmos-sdk/store/internal/parallel"
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
 	"github.com/cosmos/cosmos-sdk/store/types"
 )
@@ -30,6 +31,8 @@ type Store struct {
 
 	traceWriter  io.Writer
 	traceContext types.TraceContext
+
+	parallelWrite bool // see WithParallelWrite
 }
 
 var _ types.CacheMultiStore = Store{}
@@ -122,9 +125,32 @@ func (cms Store) GetStoreType() types.StoreType {
 // Write calls Write on each underlying store.
 func (cms Store) Write() {
 	cms.db.Write()
+	if cms.parallelWrite && !cms.TracingEnabled() && len(cms.stores) > 1 {
+		cms.writeParallel()
+		return
+	}
 	for _, store := range cms.stores {
 		store.Write()
 	}
+}
+
+// WithParallelWrite returns cms with Write writing its stores concurrently.
+// Each store writes its sorted changes into its own parent, so the result
+// does not depend on scheduling. Do not use it when the parents stream to
+// ADR-038 listeners, which expect one write at a time.
+func WithParallelWrite(cms Store) Store {
+	cms.parallelWrite = true
+	return cms
+}
+
+// writeParallel writes every store on its own goroutine and re-raises the
+// first panic in the caller.
+func (cms Store) writeParallel() {
+	stores := make([]types.CacheWrap, 0, len(cms.stores))
+	for _, store := range cms.stores {
+		stores = append(stores, store)
+	}
+	parallel.Run(len(stores), func(i int) { stores[i].Write() })
 }
 
 // Implements CacheWrapper.

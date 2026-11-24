@@ -67,6 +67,22 @@ func SetIAVLCacheSize(size int) func(*BaseApp) {
 	return func(bapp *BaseApp) { bapp.cms.SetIAVLCacheSize(size) }
 }
 
+// SetExecutionCaches turns the execution caches on or off for the process
+// (see sdk.ExecutionCachesEnabled). Gas and results do not change.
+func SetExecutionCaches(enabled bool) func(*BaseApp) {
+	return func(*BaseApp) { sdk.SetExecutionCaches(enabled) }
+}
+
+// SetParallelCommit makes the multistore write and commit its stores
+// concurrently. The app hash does not change.
+func SetParallelCommit(enabled bool) func(*BaseApp) {
+	return func(bapp *BaseApp) {
+		if s, ok := bapp.cms.(interface{ SetParallelCommit(bool) }); ok {
+			s.SetParallelCommit(enabled)
+		}
+	}
+}
+
 // SetIAVLDisableFastNode enables(false)/disables(true) fast node usage from the IAVL store.
 func SetIAVLDisableFastNode(disable bool) func(*BaseApp) {
 	return func(bapp *BaseApp) { bapp.cms.SetIAVLDisableFastNode(disable) }
@@ -75,6 +91,35 @@ func SetIAVLDisableFastNode(disable bool) func(*BaseApp) {
 // SetIAVLLazyLoading enables/disables lazy loading of the IAVL store.
 func SetIAVLLazyLoading(lazyLoading bool) func(*BaseApp) {
 	return func(bapp *BaseApp) { bapp.cms.SetLazyLoading(lazyLoading) }
+}
+
+// SetStoreRepairAhead lets loading the latest version roll back IAVL stores
+// whose on-disk versions are ahead of the commit info (left by a flush that
+// was cut short). Commands that only read the DB leave it off.
+func SetStoreRepairAhead(enabled bool) func(*BaseApp) {
+	return func(bapp *BaseApp) {
+		if s, ok := bapp.cms.(interface{ SetRepairAhead(bool) }); ok {
+			s.SetRepairAhead(enabled)
+		}
+	}
+}
+
+// SetDeferredPersistence configures deferred IAVL persistence ([performance]
+// deferred-persistence and deferred-flush-interval). snapshotInterval is the
+// state sync snapshot interval: snapshots need every height, so deferred
+// persistence stays off when it is > 0.
+func SetDeferredPersistence(mode string, interval int64, snapshotInterval uint64) func(*BaseApp) {
+	return func(bapp *BaseApp) {
+		s, ok := bapp.cms.(interface {
+			SetDeferredPersistence(string, int64, uint64) error
+		})
+		if !ok {
+			return
+		}
+		if err := s.SetDeferredPersistence(mode, interval, snapshotInterval); err != nil {
+			panic(err)
+		}
+	}
 }
 
 // SetInterBlockCache provides a BaseApp option function that sets the

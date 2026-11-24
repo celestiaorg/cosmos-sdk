@@ -18,6 +18,8 @@ type Keeper struct {
 	cdc        codec.BinaryCodec
 	sk         types.StakingKeeper
 	paramspace types.ParamSubspace
+
+	pubkeyMemo *pubkeyMemo // see checkPubkey
 }
 
 // NewKeeper creates a slashing keeper
@@ -32,6 +34,7 @@ func NewKeeper(cdc codec.BinaryCodec, key storetypes.StoreKey, sk types.StakingK
 		cdc:        cdc,
 		sk:         sk,
 		paramspace: paramspace,
+		pubkeyMemo: newPubkeyMemo(),
 	}
 }
 
@@ -54,11 +57,23 @@ func (k Keeper) AddPubkey(ctx sdk.Context, pubkey cryptotypes.PubKey) error {
 
 // GetPubkey returns the pubkey from the adddress-pubkey relation
 func (k Keeper) GetPubkey(ctx sdk.Context, a cryptotypes.Address) (cryptotypes.PubKey, error) {
-	store := ctx.KVStore(k.storeKey)
-	bz := store.Get(types.AddrPubkeyRelationKey(a))
+	bz, err := k.getPubkeyBytes(ctx, a)
+	if err != nil {
+		return nil, err
+	}
+	return k.decodePubkey(bz)
+}
+
+// getPubkeyBytes reads the stored pubkey bytes for a.
+func (k Keeper) getPubkeyBytes(ctx sdk.Context, a cryptotypes.Address) ([]byte, error) {
+	bz := ctx.KVStore(k.storeKey).Get(types.AddrPubkeyRelationKey(a))
 	if bz == nil {
 		return nil, fmt.Errorf("address %s not found", sdk.ConsAddress(a))
 	}
+	return bz, nil
+}
+
+func (k Keeper) decodePubkey(bz []byte) (cryptotypes.PubKey, error) {
 	var pk cryptotypes.PubKey
 	return pk, k.cdc.UnmarshalInterface(bz, &pk)
 }

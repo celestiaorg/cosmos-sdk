@@ -60,6 +60,17 @@ const (
 	FlagDisableIAVLFastNode = "iavl-disable-fastnode"
 	FlagIAVLLazyLoading     = "iavl-lazy-loading"
 
+	// [performance] section of app.toml (no command-line flags)
+	FlagSignaturePreverify    = "performance.signature-preverify"
+	FlagDeferredPersistence   = "performance.deferred-persistence"
+	FlagDeferredFlushInterval = "performance.deferred-flush-interval"
+
+	// KeyReadOnlyLoad is set internally by commands that only read the
+	// application DB (export, rollback): loading it must not repair it.
+	KeyReadOnlyLoad     = "celestia-internal.read-only-load"
+	FlagParallelCommit  = "performance.parallel-commit"
+	FlagExecutionCaches = "performance.execution-caches"
+
 	// state sync-related flags
 	FlagStateSyncSnapshotInterval   = "state-sync.snapshot-interval"
 	FlagStateSyncSnapshotKeepRecent = "state-sync.snapshot-keep-recent"

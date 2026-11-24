@@ -106,9 +106,13 @@ func (s Subspace) Get(ctx sdk.Context, key []byte, ptr interface{}) {
 	store := s.kvStore(ctx)
 	bz := store.Get(key)
 
+	if s.celestiaParamsCacheGet(key, bz, ptr) {
+		return
+	}
 	if err := s.legacyAmino.UnmarshalJSON(bz, ptr); err != nil {
 		panic(err)
 	}
+	s.celestiaParamsCachePut(key, bz, ptr)
 }
 
 // GetIfExists queries for a parameter by key from the Subspace's KVStore and
@@ -123,9 +127,13 @@ func (s Subspace) GetIfExists(ctx sdk.Context, key []byte, ptr interface{}) {
 
 	s.checkType(key, ptr)
 
+	if s.celestiaParamsCacheGet(key, bz, ptr) {
+		return
+	}
 	if err := s.legacyAmino.UnmarshalJSON(bz, ptr); err != nil {
 		panic(err)
 	}
+	s.celestiaParamsCachePut(key, bz, ptr)
 }
 
 // IterateKeys iterates over all the keys in the subspace and executes the

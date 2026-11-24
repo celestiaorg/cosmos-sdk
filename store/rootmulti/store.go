@@ -22,6 +22,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/cachemulti"
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
 	"github.com/cosmos/cosmos-sdk/store/iavl"
+	"github.com/cosmos/cosmos-sdk/store/internal/parallel"
 	"github.com/cosmos/cosmos-sdk/store/listenkv"
 	"github.com/cosmos/cosmos-sdk/store/mem"
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
@@ -47,6 +48,7 @@ type Store struct {
 	pruningManager      *pruning.Manager
 	iavlCacheSize       int
 	iavlDisableFastNode bool
+	parallelCommit      bool // see SetParallelCommit
 	storesParams        map[types.StoreKey]storeParams
 	stores              map[types.StoreKey]types.CommitKVStore
 	keysByName          map[string]types.StoreKey
@@ -61,6 +63,12 @@ type Store struct {
 	interBlockCache types.MultiStorePersistentCache
 
 	listeners map[types.StoreKey][]types.WriteListener
+
+	deferred deferredState // deferred persistence (deferred.go)
+	writeMtx sync.Mutex    // WriteLock
+
+	repairAhead   bool // SetRepairAhead
+	loadingLatest bool // set by loadVersion while loading the latest version
 }
 
 var (
@@ -79,6 +87,7 @@ func NewStore(db dbm.DB, logger log.Logger) *Store {
 		logger:              logger,
 		iavlCacheSize:       iavl.DefaultIAVLCacheSize,
 		iavlDisableFastNode: iavlDisablefastNodeDefault,
+		parallelCommit:      true,
 		storesParams:        make(map[types.StoreKey]storeParams),
 		stores:              make(map[types.StoreKey]types.CommitKVStore),
 		keysByName:          make(map[string]types.StoreKey),
@@ -106,12 +115,24 @@ func (rs *Store) SetSnapshotInterval(snapshotInterval uint64) {
 	rs.pruningManager.SetSnapshotInterval(snapshotInterval)
 }
 
+// SetParallelCommit makes the store write and commit its substores
+// concurrently. The commit hash does not change. It is on by default.
+func (rs *Store) SetParallelCommit(enabled bool) {
+	rs.parallelCommit = enabled
+}
+
 func (rs *Store) SetIAVLCacheSize(cacheSize int) {
 	rs.iavlCacheSize = cacheSize
 }
 
 func (rs *Store) SetIAVLDisableFastNode(disableFastNode bool) {
-	rs.iavlDisableFastNode = disableFastNode
+	rs.iavlDisableFastNode = disableFastNode || (rs.deferred.mode != "" && rs.deferred.mode != DeferredOff)
+}
+
+// SetRepairAhead enables the roll back, when loading the latest version, of
+// IAVL stores that are ahead of the commit info (see repairStoreAhead).
+func (rs *Store) SetRepairAhead(enabled bool) {
+	rs.repairAhead = enabled
 }
 
 // SetLazyLoading sets if the iavl store should be loaded lazily or not
@@ -167,28 +188,47 @@ func (rs *Store) StoreKeysByName() map[string]types.StoreKey {
 
 // LoadLatestVersionAndUpgrade implements CommitMultiStore
 func (rs *Store) LoadLatestVersionAndUpgrade(upgrades *types.StoreUpgrades) error {
+	if err := rs.FlushDeferred(); err != nil { // the reload reads the disk
+		return err
+	}
 	ver := GetLatestVersion(rs.db)
 	return rs.loadVersion(ver, upgrades)
 }
 
 // LoadVersionAndUpgrade allows us to rename substores while loading an older version
 func (rs *Store) LoadVersionAndUpgrade(ver int64, upgrades *types.StoreUpgrades) error {
+	if err := rs.FlushDeferred(); err != nil { // the reload reads the disk
+		return err
+	}
 	return rs.loadVersion(ver, upgrades)
 }
 
 // LoadLatestVersion implements CommitMultiStore.
 func (rs *Store) LoadLatestVersion() error {
+	if err := rs.FlushDeferred(); err != nil { // the reload reads the disk
+		return err
+	}
 	ver := GetLatestVersion(rs.db)
 	return rs.loadVersion(ver, nil)
 }
 
 // LoadVersion implements CommitMultiStore.
 func (rs *Store) LoadVersion(ver int64) error {
+	if err := rs.FlushDeferred(); err != nil { // the reload reads the disk
+		return err
+	}
 	return rs.loadVersion(ver, nil)
 }
 
 func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 	infos := make(map[string]types.StoreInfo)
+
+	rs.decideDeferred()
+
+	// Stores ahead of the commit info are only repaired when loading the
+	// latest version (not for historic loads such as export --height).
+	rs.loadingLatest = ver == GetLatestVersion(rs.db)
+	defer func() { rs.loadingLatest = false }()
 
 	cInfo := &types.CommitInfo{}
 
@@ -273,6 +313,7 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 
 	rs.lastCommitInfo = cInfo
 	rs.stores = newStores
+	rs.deferred.lastFlushed = ver
 
 	// load any pruned heights we missed from disk to be pruned on the next run
 	if err := rs.pruningManager.LoadPruningHeights(rs.db); err != nil {
@@ -411,6 +452,10 @@ func (rs *Store) LastCommitID() types.CommitID {
 
 // Commit implements Committer/CommitStore.
 func (rs *Store) Commit() types.CommitID {
+	if rs.deferredEnabled() {
+		return rs.commitDeferred()
+	}
+
 	var previousHeight, version int64
 	if rs.lastCommitInfo.GetVersion() == 0 && rs.initialVersion > 1 {
 		// This case means that no commit has been made in the store, we
@@ -426,7 +471,7 @@ func (rs *Store) Commit() types.CommitID {
 		version = previousHeight + 1
 	}
 
-	rs.lastCommitInfo = commitStores(version, rs.stores, rs.removalMap)
+	rs.lastCommitInfo = commitStores(version, rs.stores, rs.removalMap, rs.parallelCommit)
 	defer rs.flushMetadata(rs.db, version, rs.lastCommitInfo)
 
 	// remove remnants of removed stores
@@ -464,16 +509,23 @@ func (rs *Store) CacheWrapWithTrace(_ io.Writer, _ types.TraceContext) types.Cac
 // It implements the MultiStore interface.
 func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 	stores := make(map[types.StoreKey]types.CacheWrapper)
+	listening := false
 	for k, v := range rs.stores {
 		store := types.KVStore(v)
 		// Wire the listenkv.Store to allow listeners to observe the writes from the cache store,
 		// set same listeners on cache store will observe duplicated writes.
 		if rs.ListeningEnabled(k) {
 			store = listenkv.NewStore(store, k, rs.listeners[k])
+			listening = true
 		}
 		stores[k] = store
 	}
-	return cachemulti.NewStore(rs.db, stores, rs.keysByName, rs.traceWriter, rs.getTracingContext())
+	cms := cachemulti.NewStore(rs.db, stores, rs.keysByName, rs.traceWriter, rs.getTracingContext())
+	if rs.parallelCommit && !listening {
+		// Listeners expect writes one at a time, so they keep the sequential Write.
+		cms = cachemulti.WithParallelWrite(cms)
+	}
+	return cms
 }
 
 // CacheMultiStoreWithVersion is analogous to CacheMultiStore except that it
@@ -481,6 +533,20 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 // any store cannot be loaded. This should only be used for querying and
 // iterating at past heights.
 func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStore, error) {
+	if err := rs.checkQueryHeight(version); err != nil {
+		return nil, err
+	}
+	cms, err := rs.cacheMultiStoreWithVersion(version)
+	if err != nil {
+		// a deferred flush may have dropped the height since the check above
+		if derr := rs.checkQueryHeight(version); derr != nil {
+			return nil, derr
+		}
+	}
+	return cms, err
+}
+
+func (rs *Store) cacheMultiStoreWithVersion(version int64) (types.CacheMultiStore, error) {
 	cachedStores := make(map[types.StoreKey]types.CacheWrapper)
 	var commitInfo *types.CommitInfo
 	storeInfos := map[string]bool{}
@@ -663,9 +729,19 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		return sdkerrors.QueryResult(sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "store %s (type %T) doesn't support queries", storeName, store), false)
 	}
 
+	if err := rs.checkQueryHeight(req.Height); err != nil {
+		return sdkerrors.QueryResult(sdkerrors.Wrap(sdkerrors.ErrInvalidHeight, err.Error()), false)
+	}
+
 	// trim the path and make the query
 	req.Path = subpath
 	res := queryable.Query(req)
+	if res.Code != 0 {
+		// a deferred flush may have dropped the height since the check above
+		if err := rs.checkQueryHeight(req.Height); err != nil {
+			return sdkerrors.QueryResult(sdkerrors.Wrap(sdkerrors.ErrInvalidHeight, err.Error()), false)
+		}
+	}
 
 	if !req.Prove || !RequireProof(subpath) {
 		return res
@@ -927,6 +1003,17 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 			return nil, err
 		}
 
+		if rs.repairAhead && rs.loadingLatest {
+			if err := rs.repairStoreAhead(key, store.(*iavl.Store), id.Version); err != nil {
+				return nil, err
+			}
+		}
+		if rs.deferred.active {
+			if err := store.(*iavl.Store).SetDeferredPersistence(true); err != nil {
+				return nil, err
+			}
+		}
+
 		if rs.interBlockCache != nil {
 			// Wrap and get a CommitKVStore with inter-block caching. Note, this should
 			// only wrap the primary CommitKVStore, not any store that is already
@@ -980,6 +1067,9 @@ func (rs *Store) buildCommitInfo(version int64) *types.CommitInfo {
 func (rs *Store) RollbackToVersion(target int64) error {
 	if target <= 0 {
 		return fmt.Errorf("invalid rollback height target: %d", target)
+	}
+	if err := rs.checkRollbackAllowed(target); err != nil {
+		return err
 	}
 
 	for key, store := range rs.stores {
@@ -1057,30 +1147,28 @@ func GetLatestVersion(db dbm.DB) int64 {
 }
 
 // Commits each store and returns a new commitInfo.
-func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore, removalMap map[types.StoreKey]bool) *types.CommitInfo {
-	storeInfos := make([]types.StoreInfo, 0, len(storeMap))
-
-	for key, store := range storeMap {
-		last := store.LastCommitID()
-
-		// If a commit event execution is interrupted, a new iavl store's version will be larger than the rootmulti's metadata, when the block is replayed, we should avoid committing that iavl store again.
-		var commitID types.CommitID
-		if last.Version >= version {
-			last.Version = version
-			commitID = last
-		} else {
-			commitID = store.Commit()
+func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore, removalMap map[types.StoreKey]bool, parallelCommit bool) *types.CommitInfo {
+	keys := make([]types.StoreKey, 0, len(storeMap))
+	for key := range storeMap {
+		keys = append(keys, key)
+	}
+	commitIDs := make([]types.CommitID, len(keys))
+	commit := func(i int) { commitIDs[i] = commitStore(version, storeMap[keys[i]]) }
+	if parallelCommit && len(keys) > 1 {
+		// Substores are independent trees, and the infos are sorted below.
+		parallel.Run(len(keys), commit)
+	} else {
+		for i := range keys {
+			commit(i)
 		}
-		if store.GetStoreType() == types.StoreTypeTransient {
+	}
+
+	storeInfos := make([]types.StoreInfo, 0, len(storeMap))
+	for i, key := range keys {
+		if storeMap[key].GetStoreType() == types.StoreTypeTransient || removalMap[key] {
 			continue
 		}
-
-		if !removalMap[key] {
-			si := types.StoreInfo{}
-			si.Name = key.Name()
-			si.CommitId = commitID
-			storeInfos = append(storeInfos, si)
-		}
+		storeInfos = append(storeInfos, types.StoreInfo{Name: key.Name(), CommitId: commitIDs[i]})
 	}
 
 	sort.SliceStable(storeInfos, func(i, j int) bool {
@@ -1091,6 +1179,18 @@ func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore
 		Version:    version,
 		StoreInfos: storeInfos,
 	}
+}
+
+// commitStore commits one substore at version and returns its CommitID.
+func commitStore(version int64, store types.CommitKVStore) types.CommitID {
+	last := store.LastCommitID()
+
+	// If a commit event execution is interrupted, a new iavl store's version will be larger than the rootmulti's metadata, when the block is replayed, we should avoid committing that iavl store again.
+	if last.Version >= version {
+		last.Version = version
+		return last
+	}
+	return store.Commit()
 }
 
 func (rs *Store) GetCommitInfo(ver int64) (*types.CommitInfo, error) {

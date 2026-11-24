@@ -27,10 +27,12 @@ import (
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/server/config"
+	"github.com/cosmos/cosmos-sdk/server/shutdown"
 	"github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	"github.com/cosmos/cosmos-sdk/store"
+	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/version"
 	cmtproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -360,6 +362,7 @@ func WaitForQuitSignals() ErrorCode {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-sigs
+	shutdown.Run() // e.g. flush deferred IAVL state
 	return ErrorCode{Code: int(sig.(syscall.Signal)) + 128}
 }
 
@@ -461,9 +464,47 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 		baseapp.SetIndexEvents(cast.ToStringSlice(appOpts.Get(FlagIndexEvents))),
 		baseapp.SetSnapshot(snapshotStore, snapshotOptions),
 		baseapp.SetIAVLCacheSize(cast.ToInt(appOpts.Get(FlagIAVLCacheSize))),
-		baseapp.SetIAVLDisableFastNode(cast.ToBool(appOpts.Get(FlagDisableIAVLFastNode))),
+		// a read-only load must not write the fast-node index upgrade either
+		baseapp.SetIAVLDisableFastNode(cast.ToBool(appOpts.Get(FlagDisableIAVLFastNode)) || cast.ToBool(appOpts.Get(KeyReadOnlyLoad))),
 		baseapp.SetIAVLLazyLoading(cast.ToBool(appOpts.Get(FlagIAVLLazyLoading))),
+		baseapp.SetSignaturePreverify(boolOrDefault(appOpts.Get(FlagSignaturePreverify), true)),
+		baseapp.SetStoreRepairAhead(!cast.ToBool(appOpts.Get(KeyReadOnlyLoad))),
+		baseapp.SetDeferredPersistence(deferredPersistenceOptions(appOpts)),
+		baseapp.SetParallelCommit(boolDefaultTrue(appOpts, FlagParallelCommit)),
+		baseapp.SetExecutionCaches(boolDefaultTrue(appOpts, FlagExecutionCaches)),
 	}
+}
+
+// deferredPersistenceOptions reads [performance] deferred-persistence and
+// deferred-flush-interval (missing keys mean their defaults). Commands that
+// only read the DB (KeyReadOnlyLoad) never use deferred persistence.
+func deferredPersistenceOptions(appOpts types.AppOptions) (string, int64, uint64) {
+	mode := rootmulti.DeferredSync
+	if v := appOpts.Get(FlagDeferredPersistence); v != nil {
+		mode = cast.ToString(v)
+	}
+	if cast.ToBool(appOpts.Get(KeyReadOnlyLoad)) {
+		mode = rootmulti.DeferredOff
+	}
+	interval := int64(rootmulti.DefaultDeferredFlushInterval)
+	if v := appOpts.Get(FlagDeferredFlushInterval); v != nil {
+		interval = cast.ToInt64(v)
+	}
+	return mode, interval, cast.ToUint64(appOpts.Get(FlagStateSyncSnapshotInterval))
+}
+
+// boolDefaultTrue reads a bool option that is on unless set to false.
+func boolDefaultTrue(appOpts types.AppOptions, key string) bool {
+	return boolOrDefault(appOpts.Get(key), true)
+}
+
+// boolOrDefault returns v as a bool, or def if the key is not set (nil), so a
+// key missing from an older app.toml keeps its default.
+func boolOrDefault(v interface{}, def bool) bool {
+	if v == nil {
+		return def
+	}
+	return cast.ToBool(v)
 }
 
 func GetSnapshotStore(appOpts types.AppOptions) (*snapshots.Store, error) {

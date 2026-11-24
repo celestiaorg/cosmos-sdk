@@ -9,6 +9,7 @@ import (
 
 	clientflags "github.com/cosmos/cosmos-sdk/client/flags"
 	pruningtypes "github.com/cosmos/cosmos-sdk/pruning/types"
+	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -246,7 +247,34 @@ type Config struct {
 	StateSync StateSyncConfig  `mapstructure:"state-sync"`
 	Store     StoreConfig      `mapstructure:"store"`
 	Streamers StreamersConfig  `mapstructure:"streamers"`
+
+	// Performance holds speedups that never change results (app hash, events,
+	// gas). A key missing from app.toml means its default.
+	Performance PerformanceConfig `mapstructure:"performance"`
 }
+
+// PerformanceConfig defines the [performance] section of app.toml.
+type PerformanceConfig struct {
+	// SignaturePreverify verifies a block's secp256k1 signatures in parallel
+	// before DeliverTx and caches the valid ones.
+	SignaturePreverify bool `mapstructure:"signature-preverify"`
+
+	// DeferredPersistence writes IAVL state every DeferredFlushInterval blocks
+	// instead of every block while catching up: "sync" or "off".
+	DeferredPersistence   string `mapstructure:"deferred-persistence"`
+	DeferredFlushInterval int64  `mapstructure:"deferred-flush-interval"`
+
+	// ParallelCommit writes and commits the stores concurrently.
+	ParallelCommit bool `mapstructure:"parallel-commit"`
+
+	// ExecutionCaches memoizes decodes (params, validators, bech32) after the
+	// store read, so gas and results are unchanged.
+	ExecutionCaches bool `mapstructure:"execution-caches"`
+}
+
+// MaxIAVLCacheSize caps iavl-cache-size, the per-store IAVL node cache. At a
+// few hundred bytes per node it is already tens of GB per store.
+const MaxIAVLCacheSize = 100_000_000
 
 // SetMinGasPrices sets the validator's minimum gas prices.
 func (c *Config) SetMinGasPrices(gasPrices sdk.DecCoins) {
@@ -331,6 +359,13 @@ func DefaultConfig() *Config {
 		Store: StoreConfig{
 			Streamers: []string{},
 		},
+		Performance: PerformanceConfig{
+			SignaturePreverify:    true,
+			DeferredPersistence:   rootmulti.DeferredSync,
+			DeferredFlushInterval: rootmulti.DefaultDeferredFlushInterval,
+			ParallelCommit:        true,
+			ExecutionCaches:       true,
+		},
 		Streamers: StreamersConfig{
 			File: FileStreamerConfig{
 				Keys:            []string{"*"},
@@ -359,10 +394,16 @@ func (c Config) ValidateBasic() error {
 	if c.BaseConfig.MinGasPrices == "" {
 		return sdkerrors.ErrAppConfig.Wrap("set min gas price in app.toml or flag or env variable")
 	}
+	if err := rootmulti.ValidateDeferredPersistence(c.Performance.DeferredPersistence, c.Performance.DeferredFlushInterval); err != nil {
+		return sdkerrors.ErrAppConfig.Wrap(err.Error())
+	}
 	if c.Pruning == pruningtypes.PruningOptionEverything && c.StateSync.SnapshotInterval > 0 {
 		return sdkerrors.ErrAppConfig.Wrapf(
 			"cannot enable state sync snapshots with '%s' pruning setting", pruningtypes.PruningOptionEverything,
 		)
+	}
+	if c.IAVLCacheSize > MaxIAVLCacheSize {
+		return sdkerrors.ErrAppConfig.Wrapf("iavl-cache-size %d exceeds the maximum %d", c.IAVLCacheSize, MaxIAVLCacheSize)
 	}
 
 	return nil

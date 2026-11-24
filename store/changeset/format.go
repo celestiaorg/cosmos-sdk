@@ -33,11 +33,17 @@
 // loaded the stores before executing this block (v0.50 UpgradeStoreLoader);
 // the ops of deleteKVStore/moveKVStoreData are the first ops of the affected
 // stores. Without it (v0.46) the upgrade ran inside the Commit of this block,
-// after the block's ops. Older readers ignore both bits.
+// after the block's ops. Readers reject unknown flag bits: a block written
+// with a newer flag fails to decode instead of being misread.
 //
 // string/bytes are uvarint length-prefixed. A truncated trailing frame (crash
 // while writing) is ignored by the reader. Files may additionally be zstd
 // compressed as a whole (suffix .zst).
+//
+// Files come from outside the node and are decoded as untrusted input: frame
+// sizes are bounded (MaxFrameSize), every count is bounded by the bytes left
+// in the payload, manifest/store/store-info names must be strictly increasing
+// and upgrade lists free of duplicates, and store types must be known.
 package changeset
 
 import (
@@ -65,6 +71,7 @@ const (
 	FlagStoreInfos     = 1 << 3
 	FlagUpgradeAtLoad  = 1 << 4
 	FlagStoreV1        = 1 << 5
+	knownFlags         = FlagManifest | FlagUpgrade | FlagInitialVersion | FlagStoreInfos | FlagUpgradeAtLoad | FlagStoreV1
 
 	OpSet    byte = 0
 	OpDelete byte = 1
@@ -265,93 +272,143 @@ func (d *dec) byte1() byte {
 	return c
 }
 
-func (d *dec) strs() []string {
+// count reads an element count and bounds it by the bytes left: every
+// element takes at least minSize encoded bytes. Callers allocate with
+// capCount, so a count never allocates more than the input can fill.
+func (d *dec) count(what string, minSize int) int {
 	n := d.uv()
-	if d.err != nil || n > uint64(len(d.b)) {
-		if d.err == nil {
-			d.err = errors.New("changeset: bad count")
-		}
-		return nil
+	if d.err != nil {
+		return 0
 	}
-	out := make([]string, n)
-	for i := range out {
-		out[i] = d.str()
+	if n > uint64(len(d.b)/minSize) {
+		d.err = fmt.Errorf("changeset: bad %s count %d (%d bytes left)", what, n, len(d.b))
+		return 0
+	}
+	return int(n)
+}
+
+// capCount is the initial capacity for n decoded elements; slices grow by
+// append as elements actually decode.
+func capCount(n int) int { return min(n, 4096) }
+
+func (d *dec) strs(what string) []string {
+	n := d.count(what, 1)
+	out := make([]string, 0, capCount(n))
+	for i := 0; i < n && d.err == nil; i++ {
+		out = append(out, d.str())
 	}
 	return out
 }
+
+func (d *dec) fail(format string, args ...any) {
+	if d.err == nil {
+		d.err = fmt.Errorf("changeset: "+format, args...)
+	}
+}
+
+// increasing requires names strictly increasing (sorted, no duplicates).
+func (d *dec) increasing(what, prev, name string) {
+	if name <= prev {
+		d.fail("%s names not strictly increasing: %q after %q", what, name, prev)
+	}
+}
+
+// unique requires names free of duplicates (upgrade lists are in app order).
+func (d *dec) unique(what string, names []string) {
+	seen := make(map[string]bool, len(names))
+	for _, n := range names {
+		if seen[n] {
+			d.fail("duplicate %s store %q", what, n)
+			return
+		}
+		seen[n] = true
+	}
+}
+
+func validStoreType(t byte) bool { return t >= StoreIAVL && t <= StoreDB }
 
 // DecodeBlock decodes one block payload. Key/value slices alias payload.
 func DecodeBlock(payload []byte) (*Block, error) {
 	d := &dec{b: payload}
 	b := &Block{Height: int64(d.uv())}
 	flags := d.byte1()
+	if flags&^knownFlags != 0 {
+		d.fail("unknown flag bits %#x", flags&^knownFlags)
+	}
 	b.UpgradeAtLoad = flags&FlagUpgradeAtLoad != 0
 	b.StoreV1 = flags&FlagStoreV1 != 0
-	if flags&FlagManifest != 0 {
-		n := d.uv()
-		if n > uint64(len(d.b)) {
-			return nil, errors.New("changeset: bad manifest count")
-		}
-		b.Manifest = make([]StoreDecl, n)
-		for i := range b.Manifest {
-			b.Manifest[i].Name = d.str()
-			b.Manifest[i].Type = d.byte1()
+	if flags&FlagManifest != 0 && d.err == nil {
+		n := d.count("manifest", 2)
+		b.Manifest = make([]StoreDecl, 0, capCount(n))
+		for i := 0; i < n && d.err == nil; i++ {
+			sd := StoreDecl{Name: d.str(), Type: d.byte1()}
+			if d.err == nil && !validStoreType(sd.Type) {
+				d.fail("store %q has unknown type %d", sd.Name, sd.Type)
+			}
+			if i > 0 {
+				d.increasing("manifest", b.Manifest[i-1].Name, sd.Name)
+			}
+			b.Manifest = append(b.Manifest, sd)
 		}
 	}
 	if flags&FlagInitialVersion != 0 {
 		b.InitialVersion = int64(d.uv())
 	}
-	if flags&FlagUpgrade != 0 {
+	if flags&FlagUpgrade != 0 && d.err == nil {
 		u := &Upgrade{}
-		u.Added = d.strs()
-		u.Deleted = d.strs()
-		n := d.uv()
-		if n > uint64(len(d.b)) {
-			return nil, errors.New("changeset: bad rename count")
-		}
-		for i := uint64(0); i < n; i++ {
+		u.Added = d.strs("added")
+		u.Deleted = d.strs("deleted")
+		n := d.count("rename", 2)
+		for i := 0; i < n && d.err == nil; i++ {
 			u.Renamed = append(u.Renamed, Rename{Old: d.str(), New: d.str()})
 		}
+		d.unique("added", u.Added)
+		d.unique("deleted", u.Deleted)
+		olds, news := make([]string, len(u.Renamed)), make([]string, len(u.Renamed))
+		for i, r := range u.Renamed {
+			olds[i], news[i] = r.Old, r.New
+		}
+		d.unique("renamed (old)", olds)
+		d.unique("renamed (new)", news)
 		b.Upgrade = u
 	}
-	ns := d.uv()
-	if ns > uint64(len(d.b)) {
-		return nil, errors.New("changeset: bad store count")
-	}
-	b.Stores = make([]StoreOps, ns)
-	for i := range b.Stores {
-		b.Stores[i].Name = d.str()
-		nops := d.uv()
-		if nops > uint64(len(d.b)) {
-			return nil, errors.New("changeset: bad op count")
+	ns := d.count("store", 2)
+	b.Stores = make([]StoreOps, 0, capCount(ns))
+	for i := 0; i < ns && d.err == nil; i++ {
+		so := StoreOps{Name: d.str()}
+		if i > 0 {
+			d.increasing("store", b.Stores[i-1].Name, so.Name)
 		}
-		ops := make([]Op, nops)
-		for j := range ops {
-			ops[j].Kind = d.byte1()
-			ops[j].Key = d.bytes()
-			switch ops[j].Kind {
+		// an op is at least kind, key length and one key byte: KV stores
+		// reject empty keys, so none is ever recorded
+		nops := d.count("op", 3)
+		so.Ops = make([]Op, 0, capCount(nops))
+		for j := 0; j < nops && d.err == nil; j++ {
+			op := Op{Kind: d.byte1(), Key: d.bytes()}
+			if d.err == nil && len(op.Key) == 0 {
+				d.fail("empty key in store %q", so.Name)
+			}
+			switch op.Kind {
 			case OpSet:
-				ops[j].Value = d.bytes()
+				op.Value = d.bytes()
 			case OpDelete:
 			default:
-				if d.err == nil {
-					d.err = fmt.Errorf("changeset: bad op kind %d", ops[j].Kind)
-				}
+				d.fail("bad op kind %d", op.Kind)
 			}
+			so.Ops = append(so.Ops, op)
 		}
-		b.Stores[i].Ops = ops
+		b.Stores = append(b.Stores, so)
 	}
 	b.AppHash = d.bytes()
-	if flags&FlagStoreInfos != 0 {
-		n := d.uv()
-		if n > uint64(len(d.b)) {
-			return nil, errors.New("changeset: bad storeinfo count")
-		}
-		b.StoreInfos = make([]StoreInfo, n)
-		for i := range b.StoreInfos {
-			b.StoreInfos[i].Name = d.str()
-			b.StoreInfos[i].Version = int64(d.uv())
-			b.StoreInfos[i].Hash = d.bytes()
+	if flags&FlagStoreInfos != 0 && d.err == nil {
+		n := d.count("storeinfo", 3)
+		b.StoreInfos = make([]StoreInfo, 0, capCount(n))
+		for i := 0; i < n && d.err == nil; i++ {
+			si := StoreInfo{Name: d.str(), Version: int64(d.uv()), Hash: d.bytes()}
+			if i > 0 {
+				d.increasing("storeinfo", b.StoreInfos[i-1].Name, si.Name)
+			}
+			b.StoreInfos = append(b.StoreInfos, si)
 		}
 	}
 	if d.err != nil {
@@ -363,8 +420,12 @@ func DecodeBlock(payload []byte) (*Block, error) {
 	return b, nil
 }
 
-// WriteFrame writes one framed block payload.
+// WriteFrame writes one framed block payload. A payload above MaxFrameSize
+// is refused: no reader would accept it.
 func WriteFrame(w io.Writer, payload []byte) error {
+	if len(payload) > MaxFrameSize {
+		return fmt.Errorf("changeset: block payload of %d bytes exceeds %d", len(payload), MaxFrameSize)
+	}
 	var hdr [8]byte
 	binary.LittleEndian.PutUint32(hdr[0:4], uint32(len(payload)))
 	binary.LittleEndian.PutUint32(hdr[4:8], crc32.Checksum(payload, crcTable))
@@ -411,9 +472,10 @@ func OpenFile(path string) (*FileReader, error) {
 	return fr, nil
 }
 
-// MaxFrameSize bounds one block payload. Real blocks are far smaller (tens
-// of KB); a larger length is corruption.
-const MaxFrameSize = 256 << 20
+// MaxFrameSize bounds one block payload. Real blocks are far smaller (KB to
+// low MB, including the largest store upgrade block); a larger length is
+// corruption.
+const MaxFrameSize = 64 << 20
 
 // ErrCorrupt reports a changeset file that is damaged before its end.
 var ErrCorrupt = errors.New("changeset: corrupt file")
@@ -566,10 +628,7 @@ func Stream(dir string, from int64, fn func(*Block) error) error {
 			if b.Upgrade != nil {
 				cur = ApplyUpgrade(cur, b.Upgrade)
 			}
-			if from > 0 && b.Height <= last {
-				continue
-			}
-			if delivered && b.Height <= last {
+			if (from > 0 || delivered) && b.Height <= last {
 				continue
 			}
 			if (delivered || from > 0) && b.Height != last+1 {

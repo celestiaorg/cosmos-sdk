@@ -116,6 +116,16 @@ github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core v0.39.11
 - `[high]` covers `x/` module state machine logic, baseapp/ABCI, store, ante handlers, migrations, and consensus-breaking changes. Use the higher level when unsure.
 - Include the tag in the description with a brief reason, e.g. `Review level: [low] — documentation only.`
 
+## Benchmarking
+
+Every PR that changes non-test Go code must be benchmarked against its base branch before it is opened or marked ready, to show it does not regress performance.
+
+- Write a benchmark that targets exactly the code path the PR changes, with realistic inputs; existing benchmarks rarely isolate the change.
+- Run that same benchmark on the base commit and on the PR head, on the same machine: `go test -run '^$' -bench <Name> -benchmem -count 10 ./<pkg> > {base,head}.txt`, then `benchstat base.txt head.txt`. If the benchmark calls new APIs, write it against the behaviour both versions share.
+- Keep the benchmark code out of the PR diff; put the benchstat summary (or a short before/after table) in the PR description and note that it was run out of tree.
+- Fix any statistically significant regression in time, bytes, or allocs per op, or justify it in the PR description.
+- Docs, CI, and test-only changes are exempt.
+
 ## Security PRs
 
 - For PRs that resolve Hacken bug bounty reports, do not include details about the bug in the PR description. Instead, link to a Linear issue that contains more details on the bug and the link to the Hacken bug bounty report.

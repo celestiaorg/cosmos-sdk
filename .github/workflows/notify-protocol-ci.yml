@@ -1,7 +1,7 @@
 name: Notify protocol-ci on failure
 
 # Posts a message to the #protocol-ci Slack channel when a CI workflow fails on
-# the default branch (post-merge) or on a scheduled run. A single
+# main or a release branch (post-merge) or on a scheduled run. A single
 # workflow_run-triggered file watches several workflows so we don't have to add
 # a notify job to each one. The repo name is included in the message so
 # #protocol-ci can aggregate failures across Protocol repos.
@@ -16,6 +16,7 @@ on:
     types:
       - completed
     branches:
+      - main
       - release/v0.52.x-celestia
 
 # The notifier only calls an external Slack webhook; it needs no GITHUB_TOKEN

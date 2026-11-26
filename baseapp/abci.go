@@ -1003,6 +1003,14 @@ func (app *BaseApp) workingHash() []byte {
 	app.checkStateMu.Lock()
 	defer app.checkStateMu.Unlock()
 
+	// CheckTx must not see this block's writes until Commit. The exclusive lock means no reader is mid-read.
+	if app.freezeCheckState != nil {
+		if err := app.freezeCheckState(); err != nil {
+			app.logger.Error("failed to pin check state to the committed version", "err", err)
+		}
+		app.freezeCheckState = nil
+	}
+
 	// Write the FinalizeBlock state into branched storage and commit the MultiStore.
 	// The write to the FinalizeBlock state writes all state transitions to the root
 	// MultiStore (app.cms) so when Commit() is called it persists those values.

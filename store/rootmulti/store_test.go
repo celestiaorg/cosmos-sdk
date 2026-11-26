@@ -128,6 +128,34 @@ func TestCacheMultiStoreWithVersion(t *testing.T) {
 	})
 }
 
+func TestCacheMultiStoreFreezable(t *testing.T) {
+	db := dbm.NewMemDB()
+	ms := newMultiStoreWithMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+	require.NoError(t, ms.LoadLatestVersion())
+	store1 := ms.GetStoreByName("store1").(types.KVStore)
+	store1.Set([]byte("k"), []byte("v1"))
+	ms.Commit()
+
+	// After freeze, writes to the live stores stay invisible.
+	cms, freeze := ms.CacheMultiStoreFreezable()
+	require.NoError(t, freeze())
+	store1.Set([]byte("k"), []byte("v2"))
+	store1.Set([]byte("j"), []byte("v2"))
+	frozen := cms.GetKVStore(ms.keysByName["store1"])
+	require.Equal(t, []byte("v1"), frozen.Get([]byte("k")))
+	require.Nil(t, frozen.Get([]byte("j")))
+	ms.Commit()
+
+	// A pending store rename keeps the live layout, which already holds the moved data.
+	ms.GetStoreByName("store2").(types.KVStore).Set([]byte("r"), []byte("moved"))
+	ms.Commit()
+	restore, upgrades := newMultiStoreWithModifiedMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+	require.NoError(t, restore.LoadLatestVersionAndUpgrade(upgrades))
+	cms, freeze = restore.CacheMultiStoreFreezable()
+	require.NoError(t, freeze())
+	require.Equal(t, []byte("moved"), cms.GetKVStore(restore.keysByName["restore2"]).Get([]byte("r")))
+}
+
 func TestHashStableWithEmptyCommit(t *testing.T) {
 	var db dbm.DB = dbm.NewMemDB()
 	ms := newMultiStoreWithMounts(db, pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))

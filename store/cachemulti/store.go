@@ -38,6 +38,8 @@ type Store struct {
 
 	traceWriter  io.Writer
 	traceContext types.TraceContext
+
+	parallelWrite bool // see WithParallelWrite
 }
 
 var _ types.CacheMultiStore = Store{}
@@ -117,6 +119,10 @@ func (cms Store) Write() {
 	cms.db.Write()
 	cms.mu.Lock()
 	defer cms.mu.Unlock()
+	if cms.parallelWrite && !cms.TracingEnabled() && len(cms.stores) > 1 {
+		cms.writeParallelLocked()
+		return
+	}
 	for _, store := range cms.stores {
 		store.Write()
 	}

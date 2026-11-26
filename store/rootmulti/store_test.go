@@ -111,8 +111,15 @@ func TestCacheMultiStoreWithVersion(t *testing.T) {
 	ms.Commit()
 
 	// cache multistore of version before adding store4 should works
-	_, err = ms.CacheMultiStoreWithVersion(1)
+	oldCMS, err := ms.CacheMultiStoreWithVersion(1)
 	require.NoError(t, err)
+
+	// store4 did not exist at version 1, so it reads as empty
+	store4 := oldCMS.GetKVStore(ms.keysByName["store4"])
+	require.Nil(t, store4.Get(k))
+	it := store4.Iterator(nil, nil)
+	require.False(t, it.Valid())
+	require.NoError(t, it.Close())
 
 	// require we cannot commit (write) to a cache-versioned multi-store
 	require.Panics(t, func() {

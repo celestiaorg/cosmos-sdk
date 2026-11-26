@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is Celestia's standalone Cosmos SDK repository (`celestiaorg/cosmos-sdk`), derived from `cosmos/cosmos-sdk` v0.52.x and consumed by celestia-app through a `replace` directive. CometBFT is replaced with `celestiaorg/celestia-core`. The `origin` remote is this repository, upstream Cosmos SDK is `cosmos/cosmos-sdk`, and the primary branch is `release/v0.52.x-celestia`. Pull requests opened before October 2026 live in `celestiaorg/cosmos-sdk-archive`.
+This is Celestia's standalone Cosmos SDK repository (`celestiaorg/cosmos-sdk`), derived from `cosmos/cosmos-sdk` v0.52.x and consumed by celestia-app through a `replace` directive. CometBFT is replaced with `celestiaorg/celestia-core`. The `origin` remote is this repository, upstream Cosmos SDK is `cosmos/cosmos-sdk`, and the default branch is `main`. Release lines live on `release/*` branches (for example `release/v0.52.x-celestia`). Pull requests opened before October 2026 live in `celestiaorg/cosmos-sdk-archive`.
 
 Key Celestia-specific changes: lazy migrations for x/staking and x/slashing, CIP-30 support, BlockAPI exposure through app gRPC server, distribution rewards are not auto-claimed, default ABCI gRPC port changed to 36658, default keyring backend changed to `test`.
 
@@ -100,10 +100,10 @@ When tidying dependencies: `make tidy-all` runs `go mod tidy` across all sub-mod
 
 ## Key Replace Directives
 
-In `go.mod`, CometBFT is replaced with celestia-core:
+In `go.mod`, CometBFT is replaced with celestia-core. Check `go.mod` for the pinned version:
 
 ```go
-github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core v0.39.11
+github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core vX.Y.Z
 ```
 
 ## Code Conventions

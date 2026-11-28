@@ -657,6 +657,20 @@ func TestApplierRejectsBadNamesAndRenames(t *testing.T) {
 		require.ErrorContains(t, err, tc.want, name)
 		require.EqualValues(t, 30, rootmulti.GetLatestVersion(db), name)
 	}
+	// names in a block passed to Apply directly are checked too
+	for name, blk := range map[string]*changeset.Block{
+		"ops":       {Height: 31, Stores: []changeset.StoreOps{{Name: "bank/n", Ops: []changeset.Op{{Kind: changeset.OpSet, Key: []byte("k"), Value: []byte("v")}}}}},
+		"storeinfo": {Height: 31, StoreInfos: []changeset.StoreInfo{{Name: "a/b"}}},
+		"manifest":  {Height: 31, Manifest: []changeset.StoreDecl{{Name: "", Type: changeset.StoreIAVL}}},
+		"deleted":   {Height: 31, Upgrade: &changeset.Upgrade{Deleted: []string{"x/y"}}},
+	} {
+		db := copyDB(t, snaps[30])
+		a, err := applier.Open(db, baseManifest(), opts)
+		require.NoError(t, err)
+		_, err = a.Apply(blk)
+		require.ErrorContains(t, err, "invalid store name", name)
+		require.EqualValues(t, 30, rootmulti.GetLatestVersion(db), name)
+	}
 	for _, bad := range []string{"", "a/b"} {
 		var err error
 		require.NotPanics(t, func() {

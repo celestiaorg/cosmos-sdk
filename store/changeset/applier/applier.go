@@ -284,6 +284,26 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 	if b.StoreV1 {
 		return types.CommitID{}, fmt.Errorf("applier: height %d was recorded by the SDK v0.50 store (app v4+): use cstool50", b.Height)
 	}
+	// every store name the block carries is valid (never '/'), also for a
+	// block passed to Apply directly
+	names := make([]string, 0, len(b.Manifest)+len(b.Stores)+len(b.StoreInfos))
+	for _, d := range b.Manifest {
+		names = append(names, d.Name)
+	}
+	for _, so := range b.Stores {
+		names = append(names, so.Name)
+	}
+	for _, si := range b.StoreInfos {
+		names = append(names, si.Name)
+	}
+	if b.Upgrade != nil {
+		names = append(append(names, b.Upgrade.Added...), b.Upgrade.Deleted...)
+	}
+	for _, n := range names {
+		if !changeset.ValidStoreName(n) {
+			return types.CommitID{}, fmt.Errorf("applier: height %d: invalid store name %q", b.Height, n)
+		}
+	}
 	if b.Manifest != nil && a.Latest != 0 && !equalDecls(b.Manifest, a.manifest()) {
 		return types.CommitID{}, fmt.Errorf("applier: height %d: the block's manifest does not match the current store set", b.Height)
 	}

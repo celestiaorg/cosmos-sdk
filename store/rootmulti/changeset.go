@@ -181,24 +181,19 @@ func ChangesetCommitInfo(db dbm.DB, version int64) (*types.CommitInfo, error) {
 
 // ChangesetRollbackPoint is what the changeset applier needs to undo the
 // next Commit exactly: the raw multistore metadata before it and every IAVL
-// tree that will save the new version (stores pending removal included),
-// with the version each tree had before it (0: none, a created tree).
+// tree that will save the new version (stores pending removal included).
 type ChangesetRollbackPoint struct {
 	version int64  // last version on disk before the Commit
 	latest  []byte // raw latest-version record (nil: none)
 	info    []byte // raw commit info of version (nil: none)
-	stores  map[types.StoreKey]rollbackTree
-}
-
-type rollbackTree struct {
-	st  *iavl.Store
-	pre int64 // the tree's version before the Commit
+	stores  map[string]*iavl.Store
+	empty   map[string]bool // trees with no saved version before the Commit
 }
 
 // ChangesetRollbackPoint captures the state the next Commit changes. Call it
 // right before Commit.
 func (rs *Store) ChangesetRollbackPoint() (*ChangesetRollbackPoint, error) {
-	p := &ChangesetRollbackPoint{version: GetLatestVersion(rs.db), stores: map[types.StoreKey]rollbackTree{}}
+	p := &ChangesetRollbackPoint{version: GetLatestVersion(rs.db), stores: map[string]*iavl.Store{}, empty: map[string]bool{}}
 	var err error
 	if p.latest, err = rs.db.Get([]byte(latestVersionKey)); err != nil {
 		return nil, err
@@ -208,18 +203,18 @@ func (rs *Store) ChangesetRollbackPoint() (*ChangesetRollbackPoint, error) {
 	}
 	for key := range rs.stores {
 		if st, ok := rs.GetCommitKVStore(key).(*iavl.Store); ok {
-			p.stores[key] = rollbackTree{st: st, pre: st.LastCommitID().Version}
+			p.stores[key.Name()] = st
+			p.empty[key.Name()] = st.LastCommitID().Version == 0
 		}
 	}
 	return p, nil
 }
 
 // ChangesetRollback undoes the Commit after p on disk: every tree goes back
-// to the version it had before (a tree the Commit created loses the versions
-// it saved) and the raw metadata is restored byte for byte. It never
-// rebuilds commit info from the mounted stores (RollbackToVersion does) and
-// never deletes by store-name prefix: only versions the trees saved are
-// removed. Nothing is written unless every tree can go back. The store must
+// to p's version, a tree created by that Commit is deleted, and the raw
+// metadata is restored byte for byte (as the v0.50 store's applier does). It
+// never rebuilds commit info from the mounted stores (RollbackToVersion
+// does). Nothing is written unless every tree can go back. The store must
 // not be used afterwards. A height that only exists in memory (deferred
 // persistence, not flushed) needs no rollback.
 func (rs *Store) ChangesetRollback(p *ChangesetRollbackPoint) error {
@@ -230,19 +225,46 @@ func (rs *Store) ChangesetRollback(p *ChangesetRollbackPoint) error {
 	if deferred, _, _, err := DeferredMarker(rs.db); err != nil || deferred {
 		return errors.Join(err, fmt.Errorf("height %d was flushed by deferred persistence, which keeps no older version", GetLatestVersion(rs.db)))
 	}
-	for key, t := range p.stores {
-		if t.pre > 0 && !t.st.VersionExists(t.pre) {
-			return fmt.Errorf("store %s has no version %d", key.Name(), t.pre)
+	var prev map[string]bool
+	if p.info != nil {
+		ci := &types.CommitInfo{}
+		if err := ci.Unmarshal(p.info); err != nil {
+			return err
+		}
+		prev = map[string]bool{}
+		for _, si := range ci.StoreInfos {
+			prev[si.Name] = true
 		}
 	}
-	for key, t := range p.stores {
-		// pre == 0 deletes every version of a tree the Commit created
-		if _, err := t.st.LoadVersionForOverwriting(t.pre); err != nil {
-			return fmt.Errorf("store %s: %w", key.Name(), err)
+	// A tree that had no version before the Commit is deleted with its DB
+	// prefix, which then holds only what that Commit wrote: store names
+	// never contain '/', so no other store's prefix lies inside it.
+	var created []string
+	back := map[string]bool{}
+	for name, st := range p.stores {
+		switch {
+		case p.version > 0 && st.VersionExists(p.version):
+			back[name] = true
+		case !prev[name] && p.empty[name] && changeset.ValidStoreName(name):
+			created = append(created, name)
+		default:
+			return fmt.Errorf("store %s cannot be rolled back to version %d", name, p.version)
+		}
+	}
+	for name, st := range p.stores {
+		if back[name] {
+			if _, err := st.LoadVersionForOverwriting(p.version); err != nil {
+				return fmt.Errorf("store %s: %w", name, err)
+			}
 		}
 	}
 	batch := rs.db.NewBatch()
 	defer batch.Close()
+	for _, name := range created {
+		if err := deletePrefix(rs.db, batch, []byte("s/k:"+name+"/")); err != nil {
+			return err
+		}
+	}
 	if err := batch.Delete([]byte(fmt.Sprintf(commitInfoKeyFmt, h))); err != nil {
 		return err
 	}
@@ -258,6 +280,23 @@ func (rs *Store) ChangesetRollback(p *ChangesetRollbackPoint) error {
 		}
 	}
 	return batch.WriteSync()
+}
+
+// deletePrefix adds the deletion of every key under prefix to batch.
+func deletePrefix(db dbm.DB, batch dbm.Batch, prefix []byte) error {
+	end := append([]byte(nil), prefix...)
+	end[len(end)-1]++ // prefixes end in '/', never 0xff
+	it, err := db.Iterator(prefix, end)
+	if err != nil {
+		return err
+	}
+	defer it.Close()
+	for ; it.Valid(); it.Next() {
+		if err := batch.Delete(append([]byte(nil), it.Key()...)); err != nil {
+			return err
+		}
+	}
+	return it.Error()
 }
 
 // Version is the last on-disk version the rollback point returns to.

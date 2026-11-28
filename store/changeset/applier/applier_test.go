@@ -487,10 +487,14 @@ func TestTamperedChangesetDetected(t *testing.T) {
 				var mm *applier.MismatchError
 				require.True(t, errors.As(err, &mm), "expected mismatch, got %v", err)
 				require.Equal(t, h, mm.Height)
-				// the unverified height is rolled back, or (an upgrade height,
-				// whose added stores have no earlier version) the error says so
-				if rootmulti.GetLatestVersion(db) != h-1 {
-					require.Contains(t, mm.Detail, "discard this DB")
+				// the unverified height is rolled back exactly (also at an
+				// upgrade height): the genuine log then applies to the end
+				require.EqualValues(t, h-1, rootmulti.GetLatestVersion(db), mm.Detail)
+				require.Contains(t, mm.Detail, fmt.Sprintf("rolled the DB back to height %d", h-1))
+				if exp != nil {
+					rest, err := apply(t, db, dir, 0, exp, false)
+					require.NoError(t, err)
+					require.EqualValues(t, nBlocks-h+1, rest.CheckedExt)
 				}
 				require.EqualValues(t, h, a.Applied) // Applied counts the failing block
 				if wantStore != "" {
@@ -906,4 +910,104 @@ func TestRecordedAcrossInterruptedUpgradeCommit(t *testing.T) {
 	a, err := apply(t, dbm.NewMemDB(), dir, 0, c.expected, false)
 	require.NoError(t, err)
 	require.EqualValues(t, 60, a.CheckedExt)
+}
+
+// A block whose manifest omits a mounted store fails verification; the
+// rollback restores the previous commit info byte for byte (not rebuilt from
+// the stores the applier mounted), so the DB still opens with every store
+// at the previous height and hash.
+func TestRollbackKeepsStoresTheManifestOmits(t *testing.T) {
+	dir := t.TempDir()
+	rec, err := changeset.New(dir, changeset.Options{BlocksPerFile: 100, StoreInfos: true})
+	require.NoError(t, err)
+	db := dbm.NewMemDB()
+	open := func(db dbm.DB, rec *changeset.Recorder) *rootmulti.Store {
+		rs := rootmulti.NewStore(db, log.NewNopLogger(), metrics.NewNoOpMetrics())
+		rs.SetChangesetRecorder(rec)
+		rs.SetPruning(pruningtypes.NewPruningOptions(pruningtypes.PruningEverything))
+		for _, n := range []string{"a", "bank"} {
+			rs.MountStoreWithDB(types.NewKVStoreKey(n), types.StoreTypeIAVL, nil)
+		}
+		require.NoError(t, rs.LoadLatestVersion())
+		return rs
+	}
+	src := open(db, rec)
+	hashes := map[int64][]byte{}
+	for h := int64(1); h <= 3; h++ {
+		for _, n := range []string{"a", "bank"} {
+			src.GetKVStore(src.StoreKeysByName()[n]).Set([]byte(fmt.Sprint("k", h)), []byte(n))
+		}
+		hashes[h] = src.Commit().Hash
+	}
+	require.NoError(t, src.Close())
+	blocks := readAll(t, dir)
+	// block 3 claims only store "a" is mounted (and carries only its ops)
+	blocks[2].Manifest = []changeset.StoreDecl{{Name: "a", Type: changeset.StoreIAVL}}
+	blocks[2].Stores = blocks[2].Stores[:1]
+	exp := func(h int64) ([]byte, bool, error) { v, ok := hashes[h]; return v, ok, nil }
+
+	dst := dbm.NewMemDB()
+	_, err = applier.Run(dst, writeBlocks(t, blocks), 0, applier.DefaultOptions(), exp, nil)
+	var mm *applier.MismatchError
+	require.True(t, errors.As(err, &mm), "got %v", err)
+	require.EqualValues(t, 3, mm.Height)
+	require.Contains(t, mm.Detail, "rolled the DB back to height 2")
+	rs := open(dst, nil)
+	require.Equal(t, types.CommitID{Version: 2, Hash: hashes[2]}, rs.LastCommitID())
+	require.Equal(t, []byte("bank"), rs.GetKVStore(rs.StoreKeysByName()["bank"]).Get([]byte("k2")))
+	require.Nil(t, rs.GetKVStore(rs.StoreKeysByName()["a"]).Get([]byte("k3")))
+	require.NoError(t, rs.Close())
+
+	// the genuine block 3 then applies
+	a, err := applier.Run(dst, dir, 0, applier.DefaultOptions(), exp, nil)
+	require.NoError(t, err)
+	require.EqualValues(t, 3, a.LastTrusted)
+}
+
+// Manifests and upgrades must agree with the commit info of the latest height
+// before anything is applied.
+func TestStoreSetChecks(t *testing.T) {
+	dir, c := record(t, 0, 1000)
+	for name, tc := range map[string]struct {
+		h   int64
+		mut func(b *changeset.Block)
+		msg string
+	}{
+		"unknown_manifest_store": {20, func(b *changeset.Block) {
+			m := append(segmentAt(20).decls(), changeset.StoreDecl{Name: "zzz", Type: changeset.StoreIAVL})
+			sort.Slice(m, func(i, j int) bool { return m[i].Name < m[j].Name })
+			b.Manifest = m
+		}, `manifest store "zzz" does not exist`},
+		"add_existing":   {40, func(b *changeset.Block) { b.Upgrade.Added = append(b.Upgrade.Added, "acc") }, `adds existing store "acc"`},
+		"delete_missing": {95, func(b *changeset.Block) { b.Upgrade.Deleted = []string{"crisis"} }, `deletes missing store "crisis"`},
+		"rename_missing_old": {95, func(b *changeset.Block) {
+			b.Upgrade.Renamed = []changeset.Rename{{Old: "nope", New: "new2"}}
+		}, `renames "nope" -> "new2"`},
+		"rename_to_existing": {95, func(b *changeset.Block) {
+			b.Upgrade.Renamed = []changeset.Rename{{Old: "bank", New: "acc"}}
+		}, `renames "bank" -> "acc"`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			blocks := readAll(t, dir)
+			tc.mut(blocks[tc.h-1])
+			db := dbm.NewMemDB()
+			_, err := apply(t, db, writeBlocks(t, blocks), 0, c.expected, false)
+			require.ErrorContains(t, err, tc.msg)
+			require.EqualValues(t, tc.h-1, rootmulti.GetLatestVersion(db))
+		})
+	}
+}
+
+func (s segment) decls() []changeset.StoreDecl {
+	var out []changeset.StoreDecl
+	for _, n := range s.iavl {
+		out = append(out, changeset.StoreDecl{Name: n, Type: changeset.StoreIAVL})
+	}
+	for _, n := range s.mem {
+		out = append(out, changeset.StoreDecl{Name: n, Type: changeset.StoreMemory})
+	}
+	for _, n := range s.trans {
+		out = append(out, changeset.StoreDecl{Name: n, Type: changeset.StoreTransient})
+	}
+	return out
 }

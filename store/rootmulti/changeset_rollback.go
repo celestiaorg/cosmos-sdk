@@ -6,6 +6,7 @@ import (
 
 	dbm "github.com/cosmos/cosmos-db"
 
+	"cosmossdk.io/store/changeset"
 	"cosmossdk.io/store/iavl"
 	"cosmossdk.io/store/types"
 )
@@ -34,12 +35,13 @@ type ChangesetRollbackPoint struct {
 	latest  []byte // raw latest-version record (nil: none)
 	info    []byte // raw commit info of version (nil: none)
 	stores  map[string]*iavl.Store
+	empty   map[string]bool // trees with no saved version before the Commit
 }
 
 // ChangesetRollbackPoint captures the state the next Commit changes. Call it
 // right before Commit.
 func (rs *Store) ChangesetRollbackPoint() (*ChangesetRollbackPoint, error) {
-	p := &ChangesetRollbackPoint{version: GetLatestVersion(rs.db), stores: map[string]*iavl.Store{}}
+	p := &ChangesetRollbackPoint{version: GetLatestVersion(rs.db), stores: map[string]*iavl.Store{}, empty: map[string]bool{}}
 	var err error
 	if p.latest, err = rs.db.Get([]byte(latestVersionKey)); err != nil {
 		return nil, err
@@ -50,6 +52,7 @@ func (rs *Store) ChangesetRollbackPoint() (*ChangesetRollbackPoint, error) {
 	for key := range rs.stores {
 		if st, ok := rs.GetCommitKVStore(key).(*iavl.Store); ok {
 			p.stores[key.Name()] = st
+			p.empty[key.Name()] = st.LastCommitID().Version == 0
 		}
 	}
 	return p, nil
@@ -80,18 +83,23 @@ func (rs *Store) ChangesetRollback(p *ChangesetRollbackPoint) error {
 			prev[si.Name] = true
 		}
 	}
+	// A tree that had no version before the Commit is deleted with its DB
+	// prefix, which then holds only what that Commit wrote: store names
+	// never contain '/', so no other store's prefix lies inside it.
 	var created []string
+	back := map[string]bool{}
 	for name, st := range p.stores {
 		switch {
 		case p.version > 0 && st.VersionExists(p.version):
-		case !prev[name]:
+			back[name] = true
+		case !prev[name] && p.empty[name] && changeset.ValidStoreName(name):
 			created = append(created, name)
 		default:
-			return fmt.Errorf("store %s has no version %d", name, p.version)
+			return fmt.Errorf("store %s cannot be rolled back to version %d", name, p.version)
 		}
 	}
 	for name, st := range p.stores {
-		if p.version > 0 && prev[name] {
+		if back[name] {
 			if err := st.LoadVersionForOverwriting(p.version); err != nil {
 				return fmt.Errorf("store %s: %w", name, err)
 			}

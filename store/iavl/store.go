@@ -13,6 +13,7 @@ import (
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/log"
 	"cosmossdk.io/store/cachekv"
+	"cosmossdk.io/store/changeset"
 	"cosmossdk.io/store/internal/kv"
 	"cosmossdk.io/store/metrics"
 	pruningtypes "cosmossdk.io/store/pruning/types"
@@ -38,6 +39,11 @@ type Store struct {
 	tree    Tree
 	logger  log.Logger
 	metrics metrics.StoreMetrics
+
+	// changeset recording (changeset.go); nil unless enabled
+	cs     *changeset.Recorder
+	csName string
+	csOps  []changeset.Op
 }
 
 // LoadStore returns an IAVL Store as a CommitKVStore. Internally, it will load the
@@ -245,6 +251,9 @@ func (st *Store) Commit() types.CommitID {
 	if err != nil {
 		panic(err)
 	}
+	if st.cs != nil {
+		st.flushRecordedOps()
+	}
 
 	return types.CommitID{
 		Version: version,
@@ -310,6 +319,9 @@ func (st *Store) Set(key, value []byte) {
 	if err != nil && st.logger != nil {
 		st.logger.Error("iavl set error", "error", err.Error())
 	}
+	if st.cs != nil && err == nil {
+		st.recordOp(changeset.OpSet, key, value)
+	}
 }
 
 // Implements types.KVStore.
@@ -338,6 +350,9 @@ func (st *Store) Delete(key []byte) {
 	_, _, err := st.tree.Remove(key)
 	if err != nil {
 		panic(err)
+	}
+	if st.cs != nil {
+		st.recordOp(changeset.OpDelete, key, nil)
 	}
 }
 

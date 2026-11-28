@@ -418,7 +418,10 @@ func (rs *Store) commitDeferred() types.CommitID {
 	rs.recordCommit(version, flush)
 	if flush {
 		// before removed stores leave rs.stores, so they are flushed too
-		if err := rs.flushDeferredLocked(version, rs.lastCommitInfo); err != nil && !errors.Is(err, errFlushRefused) {
+		err := rs.flushDeferredLocked(version, rs.lastCommitInfo)
+		if errors.Is(err, errFlushRefused) {
+			leave = false // version is not on disk: stay deferred
+		} else if err != nil {
 			panic(err)
 		}
 	}

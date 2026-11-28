@@ -162,49 +162,135 @@ func (rs *Store) SetDeferredFlushGate(gate func(version int64, appHash []byte) b
 	rs.deferred.mtx.Unlock()
 }
 
-// MetadataSnapshot is the raw multistore metadata (the latest version and
-// the commit info of Version) as stored, for RestoreMetadata.
-type MetadataSnapshot struct {
-	Version int64
-	latest  []byte
-	info    []byte
+// LastCommitInfoForChangeset returns the commit info of the last commit,
+// soft (deferred, not yet on disk) commits included.
+func (rs *Store) LastCommitInfoForChangeset() *types.CommitInfo { return rs.lastCommitInfo }
+
+// ChangesetCommitInfo reads the commit info of version from db (nil if none).
+func ChangesetCommitInfo(db dbm.DB, version int64) (*types.CommitInfo, error) {
+	bz, err := db.Get([]byte(fmt.Sprintf(commitInfoKeyFmt, version)))
+	if err != nil || bz == nil {
+		return nil, err
+	}
+	ci := &types.CommitInfo{}
+	if err := ci.Unmarshal(bz); err != nil {
+		return nil, err
+	}
+	return ci, nil
 }
 
-// SnapshotMetadata reads the raw metadata of version (the current latest).
-func SnapshotMetadata(db dbm.DB, version int64) (MetadataSnapshot, error) {
-	s := MetadataSnapshot{Version: version}
+// ChangesetRollbackPoint is what the changeset applier needs to undo the
+// next Commit exactly: the raw multistore metadata before it and every IAVL
+// tree that will save the new version (stores pending removal included).
+type ChangesetRollbackPoint struct {
+	version int64  // last version on disk before the Commit
+	latest  []byte // raw latest-version record (nil: none)
+	info    []byte // raw commit info of version (nil: none)
+	stores  map[string]*iavl.Store
+}
+
+// ChangesetRollbackPoint captures the state the next Commit changes. Call it
+// right before Commit.
+func (rs *Store) ChangesetRollbackPoint() (*ChangesetRollbackPoint, error) {
+	p := &ChangesetRollbackPoint{version: GetLatestVersion(rs.db), stores: map[string]*iavl.Store{}}
 	var err error
-	if s.latest, err = db.Get([]byte(latestVersionKey)); err != nil {
-		return s, err
+	if p.latest, err = rs.db.Get([]byte(latestVersionKey)); err != nil {
+		return nil, err
 	}
-	if version > 0 {
-		s.info, err = db.Get([]byte(fmt.Sprintf(commitInfoKeyFmt, version)))
+	if p.info, err = rs.db.Get([]byte(fmt.Sprintf(commitInfoKeyFmt, p.version))); err != nil {
+		return nil, err
 	}
-	return s, err
+	for key := range rs.stores {
+		if st, ok := rs.GetCommitKVStore(key).(*iavl.Store); ok {
+			p.stores[key.Name()] = st
+		}
+	}
+	return p, nil
 }
 
-// RestoreMetadata writes back the exact bytes of s and deletes the commit
-// info of discard, in one synced batch. Unlike RollbackToVersion it does not
-// rebuild the commit info from the mounted stores.
-func RestoreMetadata(db dbm.DB, s MetadataSnapshot, discard int64) error {
-	batch := db.NewBatch()
-	defer batch.Close()
-	set := func(key string, val []byte) error {
-		if val == nil {
-			return batch.Delete([]byte(key))
+// ChangesetRollback undoes the Commit after p on disk: every tree goes back
+// to p's version (a tree created by that Commit is deleted) and the raw
+// metadata is restored byte for byte. It never rebuilds commit info from the
+// mounted stores (RollbackToVersion does). Nothing is written unless every
+// tree can go back. The store must not be used afterwards. A height that
+// only exists in memory (deferred persistence, not flushed) needs no
+// rollback.
+func (rs *Store) ChangesetRollback(p *ChangesetRollbackPoint) error {
+	h := p.version + 1
+	if GetLatestVersion(rs.db) < h {
+		return nil
+	}
+	if deferred, _, _, err := DeferredMarker(rs.db); err != nil || deferred {
+		return errors.Join(err, fmt.Errorf("height %d was flushed by deferred persistence, which keeps no older version", GetLatestVersion(rs.db)))
+	}
+	var prev map[string]bool
+	if p.info != nil {
+		ci := &types.CommitInfo{}
+		if err := ci.Unmarshal(p.info); err != nil {
+			return err
 		}
-		return batch.Set([]byte(key), val)
+		prev = map[string]bool{}
+		for _, si := range ci.StoreInfos {
+			prev[si.Name] = true
+		}
 	}
-	if err := set(latestVersionKey, s.latest); err != nil {
-		return err
+	var created []string
+	for name, st := range p.stores {
+		switch {
+		case p.version > 0 && st.VersionExists(p.version):
+		case !prev[name]:
+			created = append(created, name)
+		default:
+			return fmt.Errorf("store %s has no version %d", name, p.version)
+		}
 	}
-	if s.Version > 0 {
-		if err := set(fmt.Sprintf(commitInfoKeyFmt, s.Version), s.info); err != nil {
+	for name, st := range p.stores {
+		if p.version > 0 && prev[name] {
+			if _, err := st.LoadVersionForOverwriting(p.version); err != nil {
+				return fmt.Errorf("store %s: %w", name, err)
+			}
+		}
+	}
+	batch := rs.db.NewBatch()
+	defer batch.Close()
+	for _, name := range created {
+		if err := deletePrefix(rs.db, batch, []byte("s/k:"+name+"/")); err != nil {
 			return err
 		}
 	}
-	if err := batch.Delete([]byte(fmt.Sprintf(commitInfoKeyFmt, discard))); err != nil {
+	if err := batch.Delete([]byte(fmt.Sprintf(commitInfoKeyFmt, h))); err != nil {
 		return err
+	}
+	for k, v := range map[string][]byte{latestVersionKey: p.latest, fmt.Sprintf(commitInfoKeyFmt, p.version): p.info} {
+		var err error
+		if v == nil {
+			err = batch.Delete([]byte(k))
+		} else {
+			err = batch.Set([]byte(k), v)
+		}
+		if err != nil {
+			return err
+		}
 	}
 	return batch.WriteSync()
 }
+
+// deletePrefix adds the deletion of every key under prefix to batch.
+func deletePrefix(db dbm.DB, batch dbm.Batch, prefix []byte) error {
+	end := append([]byte(nil), prefix...)
+	end[len(end)-1]++ // prefixes end in '/', never 0xff
+	it, err := db.Iterator(prefix, end)
+	if err != nil {
+		return err
+	}
+	defer it.Close()
+	for ; it.Valid(); it.Next() {
+		if err := batch.Delete(append([]byte(nil), it.Key()...)); err != nil {
+			return err
+		}
+	}
+	return it.Error()
+}
+
+// Version is the last on-disk version the rollback point returns to.
+func (p *ChangesetRollbackPoint) Version() int64 { return p.version }

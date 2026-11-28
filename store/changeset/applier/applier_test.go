@@ -507,28 +507,25 @@ func baseManifest() []changeset.StoreDecl {
 	return m
 }
 
-// The manifest must list exactly the stores of the DB's latest commit info.
-func TestOpenRequiresMatchingStoreSet(t *testing.T) {
+// Every IAVL or DB store the manifest declares must exist in the DB's latest
+// commit info. A store of the commit info the manifest does not declare
+// drops out (unmounted), as in the v0.50 store's applier.
+func TestOpenRequiresDeclaredStoresExist(t *testing.T) {
 	_, _, snaps := record(t, "", 1000, 30)
 	opts := applier.DefaultOptions()
 	_, err := applier.Open(copyDB(t, snaps[30]), baseManifest(), opts)
 	require.NoError(t, err)
-	var missing, extra, retyped []changeset.StoreDecl
+	extra := append(baseManifest(), changeset.StoreDecl{Name: "zzz", Type: changeset.StoreIAVL})
+	_, err = applier.Open(copyDB(t, snaps[30]), extra, opts)
+	require.ErrorContains(t, err, `manifest store "zzz" does not exist`)
+	var missing []changeset.StoreDecl
 	for _, d := range baseManifest() {
 		if d.Name != "staking" {
 			missing = append(missing, d)
 		}
-		if d.Name == "acc" {
-			retyped = append(retyped, changeset.StoreDecl{Name: d.Name, Type: changeset.StoreMemory})
-		} else {
-			retyped = append(retyped, d)
-		}
 	}
-	extra = append(baseManifest(), changeset.StoreDecl{Name: "zzz", Type: changeset.StoreIAVL})
-	for name, m := range map[string][]changeset.StoreDecl{"missing": missing, "extra": extra, "retyped": retyped} {
-		_, err := applier.Open(copyDB(t, snaps[30]), m, opts)
-		require.ErrorContains(t, err, "does not match the DB's stores", name)
-	}
+	_, err = applier.Open(copyDB(t, snaps[30]), missing, opts)
+	require.NoError(t, err)
 }
 
 // An upgrade must fit the current store set; nothing is committed otherwise.
@@ -538,11 +535,10 @@ func TestUpgradeMustFitStoreSet(t *testing.T) {
 		u    changeset.Upgrade
 		want string
 	}{
-		"added exists":     {changeset.Upgrade{Added: []string{"bank"}}, `added store "bank" already exists`},
-		"deleted absent":   {changeset.Upgrade{Deleted: []string{"nope"}}, `deleted store "nope" is not a mounted IAVL store`},
-		"deleted not IAVL": {changeset.Upgrade{Deleted: []string{"mem_capability"}}, "is not a mounted IAVL store"},
-		"renamed absent":   {changeset.Upgrade{Renamed: []changeset.Rename{{Old: "nope", New: "x"}}}, `renamed store "nope" is not a mounted IAVL store`},
-		"rename target":    {changeset.Upgrade{Renamed: []changeset.Rename{{Old: "acc", New: "bank"}}}, `rename target store "bank" already exists`},
+		"added exists":   {changeset.Upgrade{Added: []string{"bank"}}, `upgrade adds existing store "bank"`},
+		"deleted absent": {changeset.Upgrade{Deleted: []string{"nope"}}, `upgrade deletes missing store "nope"`},
+		"renamed absent": {changeset.Upgrade{Renamed: []changeset.Rename{{Old: "nope", New: "x"}}}, `upgrade renames "nope" -> "x"`},
+		"rename target":  {changeset.Upgrade{Renamed: []changeset.Rename{{Old: "acc", New: "bank"}}}, `upgrade renames "acc" -> "bank"`},
 	} {
 		db := copyDB(t, snaps[30])
 		opts := applier.DefaultOptions()

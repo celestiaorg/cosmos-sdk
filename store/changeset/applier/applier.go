@@ -94,8 +94,8 @@ type Applier struct {
 	verified int64
 	// cur is the block being applied (the deferred flush gate checks it)
 	cur *changeset.Block
-	// rb restores the DB to before cur if cur was written but fails
-	rb *rollbackPoint
+	// rollback restores the DB to before cur if cur was written but fails
+	rollback *rootmulti.ChangesetRollbackPoint
 
 	OpsTime, CommitTime time.Duration
 }
@@ -135,12 +135,15 @@ func Open(db dbm.DB, manifest []changeset.StoreDecl, opts Options) (*Applier, er
 		a.mount(d.Name, typ)
 	}
 	if latest := rootmulti.GetLatestVersion(db); latest > 0 {
-		ci, err := rs.GetCommitInfo(latest)
+		ci, err := rootmulti.ChangesetCommitInfo(db, latest)
+		if err == nil && ci == nil {
+			err = errors.New("not found")
+		}
 		if err != nil {
 			return nil, fmt.Errorf("applier: commit info of height %d: %w", latest, err)
 		}
-		if err := checkStoreSet(manifest, ci); err != nil {
-			return nil, fmt.Errorf("applier: height %d: %w", latest, err)
+		if err := a.checkStoreSet(latest, ci, manifest, nil); err != nil {
+			return nil, err
 		}
 	}
 	if err := rs.LoadLatestVersion(); err != nil {
@@ -151,39 +154,50 @@ func Open(db dbm.DB, manifest []changeset.StoreDecl, opts Options) (*Applier, er
 	return a, nil
 }
 
-// checkStoreSet requires the manifest to list exactly the stores of the
-// commit info: IAVL stores are those with a version, memory and DB stores
-// have none, transient stores are not in the commit info.
-func checkStoreSet(manifest []changeset.StoreDecl, ci *types.CommitInfo) error {
-	have := map[string]bool{} // name -> IAVL
+// checkStoreSet checks a pre-block manifest and upgrade against the commit
+// info of the latest height (as the v0.50 store's applier does): every IAVL
+// or DB store the manifest declares exists there, and the upgrade adds or
+// renames to absent names and deletes or renames present ones. Stores of the
+// commit info the manifest does not declare drop out of the next commit
+// (unmounted): logged, and caught by the app hash if wrong.
+func (a *Applier) checkStoreSet(latest int64, ci *types.CommitInfo, pre []changeset.StoreDecl, u *changeset.Upgrade) error {
+	have := map[string]bool{}
 	for _, si := range ci.StoreInfos {
-		have[si.Name] = si.CommitId.Version != 0
+		have[si.Name] = true
 	}
-	var diffs []string
-	seen := map[string]bool{}
-	for _, d := range manifest {
-		if d.Type == changeset.StoreTransient {
-			continue
-		}
-		seen[d.Name] = true
-		iavl, ok := have[d.Name]
-		switch {
-		case !ok:
-			diffs = append(diffs, fmt.Sprintf("%s: in the manifest, not in the DB", d.Name))
-		case iavl != (d.Type == changeset.StoreIAVL):
-			diffs = append(diffs, fmt.Sprintf("%s: type %d in the manifest does not match the DB", d.Name, d.Type))
+	bad := func(format string, args ...any) error {
+		return fmt.Errorf("applier: "+format+" (commit info at %d)", append(args, latest)...)
+	}
+	declared := map[string]bool{}
+	for _, d := range pre {
+		declared[d.Name] = true
+		if (d.Type == changeset.StoreIAVL || d.Type == changeset.StoreDB) && !have[d.Name] {
+			return bad("manifest store %q does not exist", d.Name)
 		}
 	}
-	for name := range have {
-		if !seen[name] {
-			diffs = append(diffs, fmt.Sprintf("%s: in the DB, not in the manifest", name))
+	if u != nil {
+		for _, n := range u.Added {
+			if have[n] {
+				return bad("upgrade adds existing store %q", n)
+			}
+		}
+		for _, n := range u.Deleted {
+			if !have[n] {
+				return bad("upgrade deletes missing store %q", n)
+			}
+		}
+		for _, r := range u.Renamed {
+			if !have[r.Old] || have[r.New] {
+				return bad("upgrade renames %q -> %q, but the old name must exist and the new one must not", r.Old, r.New)
+			}
 		}
 	}
-	if len(diffs) == 0 {
-		return nil
+	for _, si := range ci.StoreInfos {
+		if !declared[si.Name] {
+			a.opts.Logger.Info("changeset applier: store of the commit info is not mounted and drops out", "store", si.Name, "height", latest)
+		}
 	}
-	sort.Strings(diffs)
-	return fmt.Errorf("changeset manifest does not match the DB's stores: %s", strings.Join(diffs, "; "))
+	return nil
 }
 
 // manifest returns the current store set.
@@ -205,43 +219,6 @@ func (a *Applier) manifest() []changeset.StoreDecl {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
-}
-
-// checkUpgrade requires an upgrade to fit the current store set: added and
-// new (renamed) stores are not mounted, deleted and old stores are IAVL
-// stores that are.
-func (a *Applier) checkUpgrade(h int64, u *changeset.Upgrade) error {
-	absent := func(what, n string) error {
-		if _, ok := a.keys[n]; ok {
-			return fmt.Errorf("applier: height %d: %s store %q already exists", h, what, n)
-		}
-		return nil
-	}
-	present := func(what, n string) error {
-		if a.types[n] != types.StoreTypeIAVL {
-			return fmt.Errorf("applier: height %d: %s store %q is not a mounted IAVL store", h, what, n)
-		}
-		return nil
-	}
-	for _, n := range u.Added {
-		if err := absent("added", n); err != nil {
-			return err
-		}
-	}
-	for _, n := range u.Deleted {
-		if err := present("deleted", n); err != nil {
-			return err
-		}
-	}
-	for _, r := range u.Renamed {
-		if err := present("renamed", r.Old); err != nil {
-			return err
-		}
-		if err := absent("rename target", r.New); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (a *Applier) mount(name string, typ types.StoreType) {
@@ -294,9 +271,9 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 	if b.Manifest != nil && a.Latest != 0 && !equalDecls(b.Manifest, a.manifest()) {
 		return types.CommitID{}, fmt.Errorf("applier: height %d: the block's manifest does not match the current store set", b.Height)
 	}
-	if b.Upgrade != nil {
-		if err := a.checkUpgrade(b.Height, b.Upgrade); err != nil {
-			return types.CommitID{}, err
+	if ci := a.RS.LastCommitInfoForChangeset(); a.Latest != 0 && ci != nil {
+		if err := a.checkStoreSet(a.Latest, ci, a.manifest(), b.Upgrade); err != nil {
+			return types.CommitID{}, fmt.Errorf("height %d: %w", b.Height, err)
 		}
 	}
 	pre, post := b.Stores, []changeset.StoreOps(nil)
@@ -349,11 +326,11 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 	if err := a.applyOps(post); err != nil {
 		return types.CommitID{}, err
 	}
-	rb, err := a.rollbackPoint(b.Height)
+	rp, err := a.RS.ChangesetRollbackPoint()
 	if err != nil {
-		return types.CommitID{}, err
+		return types.CommitID{}, fmt.Errorf("height %d: %w", b.Height, err)
 	}
-	a.rb, a.cur = rb, b
+	a.rollback, a.cur = rp, b
 	t1 := time.Now()
 	id := a.RS.Commit()
 	a.pending = b.Height
@@ -504,61 +481,8 @@ func (a *Applier) flushGate(version int64, appHash []byte) bool {
 	if a.cur == nil || version != a.cur.Height {
 		return false
 	}
-	_, err := a.check(a.cur, appHash, false)
-	return err == nil
-}
-
-// rollbackPoint is what the applier restores when a height it wrote fails:
-// the exact metadata bytes of the previous height and every IAVL tree that
-// saves the height (deleted, renamed and added stores included).
-type rollbackPoint struct {
-	height int64
-	meta   rootmulti.MetadataSnapshot
-	trees  []rollbackTree
-}
-
-type rollbackTree struct {
-	name    string
-	st      *iavl.Store
-	existed bool // has the previous height (an added store does not)
-}
-
-func (a *Applier) rollbackPoint(height int64) (*rollbackPoint, error) {
-	meta, err := rootmulti.SnapshotMetadata(a.db, height-1)
-	if err != nil {
-		return nil, err
-	}
-	rb := &rollbackPoint{height: height, meta: meta}
-	for name, key := range a.keys {
-		if a.types[name] != types.StoreTypeIAVL {
-			continue
-		}
-		st := a.RS.IAVLStore(key)
-		if st == nil {
-			return nil, fmt.Errorf("applier: store %q is not an IAVL store", name)
-		}
-		rb.trees = append(rb.trees, rollbackTree{name: name, st: st, existed: height > 1 && st.VersionExists(height-1)})
-	}
-	return rb, nil
-}
-
-// restore makes the previous height the latest again: the metadata first
-// (a restart then loads the previous height), then each tree drops the
-// height (an added store all of its versions).
-func (rb *rollbackPoint) restore(db dbm.DB) error {
-	if err := rootmulti.RestoreMetadata(db, rb.meta, rb.height); err != nil {
-		return err
-	}
-	for _, t := range rb.trees {
-		target := rb.height - 1
-		if !t.existed {
-			target = 0
-		}
-		if _, err := t.st.LoadVersionForOverwriting(target); err != nil {
-			return fmt.Errorf("store %s: %w", t.name, err)
-		}
-	}
-	return nil
+	how, err := a.check(a.cur, appHash, false)
+	return err == nil && how != "none"
 }
 
 func equalDecls(x, y []changeset.StoreDecl) bool {
@@ -701,17 +625,19 @@ func (a *Applier) discardUnverified(db dbm.DB, height int64, cause error) error 
 		return cause
 	}
 	var note string
-	switch latest := rootmulti.GetLatestVersion(db); {
-	case latest < height:
-		note = fmt.Sprintf("height %d did not reach the disk; the DB is at height %d", height, latest)
-	case a.rb == nil || a.rb.height != height:
+	written := rootmulti.GetLatestVersion(db) >= height
+	switch {
+	case a.rollback == nil || a.rollback.Version() != height-1 && written:
 		note = fmt.Sprintf("height %d is on disk and could not be rolled back (no rollback point): discard this DB", height)
 	default:
-		if err := a.rb.restore(db); err != nil {
+		if err := a.RS.ChangesetRollback(a.rollback); err != nil {
 			note = fmt.Sprintf("height %d is on disk and could not be rolled back (%v): discard this DB", height, err)
-		} else {
+		} else if written {
 			note = fmt.Sprintf("rolled the DB back to height %d", height-1)
+		} else {
+			note = fmt.Sprintf("height %d did not reach the disk; the DB is at height %d", height, rootmulti.GetLatestVersion(db))
 		}
+		a.RS = nil // its trees are not usable any more
 	}
 	var mm *MismatchError
 	if errors.As(cause, &mm) {

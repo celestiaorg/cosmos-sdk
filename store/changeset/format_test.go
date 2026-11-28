@@ -224,3 +224,28 @@ func TestDecodeBlockBoundsCounts(t *testing.T) {
 func TestWriteFrameRejectsOversizedPayload(t *testing.T) {
 	require.Error(t, WriteFrame(io.Discard, make([]byte, MaxFrameSize+1)))
 }
+
+// Each store name takes part in at most one change of an upgrade.
+func TestDecodeBlockRejectsConflictingUpgrade(t *testing.T) {
+	for name, u := range map[string]*Upgrade{
+		"rename_to_itself":       {Renamed: []Rename{{"a", "a"}}},
+		"rename_chain":           {Renamed: []Rename{{"a", "b"}, {"b", "c"}}},
+		"rename_old_added":       {Added: []string{"a"}, Renamed: []Rename{{"a", "b"}}},
+		"rename_new_added":       {Added: []string{"b"}, Renamed: []Rename{{"a", "b"}}},
+		"rename_old_deleted":     {Deleted: []string{"a"}, Renamed: []Rename{{"a", "b"}}},
+		"rename_new_deleted":     {Deleted: []string{"b"}, Renamed: []Rename{{"a", "b"}}},
+		"added_and_deleted":      {Added: []string{"a"}, Deleted: []string{"a"}},
+		"rename_swap_old_is_new": {Renamed: []Rename{{"a", "b"}, {"c", "a"}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			b := testBlock(1)
+			b.Upgrade = u
+			_, err := DecodeBlock(AppendBlock(nil, b))
+			require.Error(t, err)
+		})
+	}
+	b := testBlock(1)
+	b.Upgrade = &Upgrade{Added: []string{"x"}, Deleted: []string{"y"}, Renamed: []Rename{{"a", "b"}, {"c", "d"}}}
+	_, err := DecodeBlock(AppendBlock(nil, b))
+	require.NoError(t, err)
+}

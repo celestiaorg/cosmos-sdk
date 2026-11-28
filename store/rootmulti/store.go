@@ -85,6 +85,7 @@ type Store struct {
 	asyncPruning           bool                // see SetAsyncPruning
 	loadedStores           []io.Closer         // stores opened by the running loadVersion
 	cs                     *changeset.Recorder // changeset recording (changeset.go); nil unless enabled
+	csApply                bool                // changeset applier mode (changeset.go)
 }
 
 var (
@@ -299,7 +300,8 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades, opts iavl
 
 		// If it was deleted, remove all data
 		if upgrades.IsDeleted(key.Name()) {
-			if err := deleteKVStore(store.(types.KVStore)); err != nil {
+			// the changeset applier replays the recorded deletes instead
+			if err := rs.deleteKVStoreUnlessApplying(store.(types.KVStore)); err != nil {
 				return errorsmod.Wrapf(err, "failed to delete store %s", key.Name())
 			}
 			rs.removalMap[key] = true
@@ -316,7 +318,8 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades, opts iavl
 			}
 
 			// move all data
-			if err := moveKVStoreData(oldStore.(types.KVStore), store.(types.KVStore)); err != nil {
+			// the changeset applier replays the recorded moves instead
+			if err := rs.moveKVStoreDataUnlessApplying(oldStore.(types.KVStore), store.(types.KVStore)); err != nil {
 				return errorsmod.Wrapf(err, "failed to move store %s -> %s", oldName, key.Name())
 			}
 

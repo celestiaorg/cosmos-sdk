@@ -109,6 +109,9 @@ type Applier struct {
 	retryDeferredAt int64
 	pending         int64 // committed height not yet verified (0: none)
 	rollback        *rootmulti.ChangesetRollbackPoint
+	verified        int64            // last height that passed verification
+	cur             *changeset.Block // block being committed (flush gate)
+	curWant         []byte           // its trusted hash (nil: recorded only)
 
 	OpsTime, CommitTime time.Duration
 }
@@ -221,6 +224,7 @@ func (a *Applier) reopen(mounts []changeset.StoreDecl, u *changeset.Upgrade) err
 	a.RS = rs
 	a.mounted = sortedDecls(mounts)
 	a.Latest = rs.LastCommitID().Version
+	a.verified = max(a.verified, a.Latest) // what is on disk is the starting point
 	return nil
 }
 
@@ -242,6 +246,8 @@ func (a *Applier) open(mounts []changeset.StoreDecl, u *changeset.Upgrade, flush
 		if err := rs.SetDeferredPersistence(rootmulti.DeferredAlways, flushInterval); err != nil {
 			return nil, err
 		}
+		// a deferred flush never writes a height that has not passed verification
+		rs.SetDeferredFlushGate(a.flushGate)
 	}
 	for _, d := range mounts {
 		typ, err := rootmulti.ChangesetToStoreType(d.Type)
@@ -357,7 +363,7 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 	if err != nil {
 		return types.CommitID{}, fmt.Errorf("height %d: %w", b.Height, err)
 	}
-	a.rollback = rp
+	a.rollback, a.cur, a.curWant = rp, b, trusted
 	id := a.RS.Commit()
 	a.pending = id.Version
 	a.OpsTime += t1.Sub(t0)
@@ -371,7 +377,7 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 	if err := a.verify(b, id, trusted); err != nil {
 		return id, err
 	}
-	a.pending = 0
+	a.pending, a.verified, a.cur = 0, id.Version, nil
 	return id, nil
 }
 
@@ -432,6 +438,24 @@ func (a *Applier) checkStoreSet(h int64, pre []changeset.StoreDecl, u *changeset
 		}
 	}
 	return nil
+}
+
+// flushGate approves a deferred flush of version once it passed
+// verification, or if it is the block being committed and its hash is the
+// one verification will require.
+func (a *Applier) flushGate(version int64, appHash []byte) bool {
+	if version <= a.verified {
+		return true
+	}
+	if a.cur == nil || version != a.cur.Height {
+		return false
+	}
+	want := a.curWant
+	if want == nil {
+		want = a.cur.AppHash
+	}
+	return len(want) > 0 && bytes.Equal(want, appHash) &&
+		(len(a.cur.AppHash) == 0 || bytes.Equal(a.cur.AppHash, appHash))
 }
 
 // trustedHash returns the trusted hash of b's height (nil if unknown and

@@ -1011,3 +1011,35 @@ func (s segment) decls() []changeset.StoreDecl {
 	}
 	return out
 }
+
+// With deferred persistence, a height that fails verification at a flush
+// height is never flushed (the applier's flush gate), so it rolls back
+// cleanly instead of "discard this DB": the DB stays at a verified height
+// and the genuine log applies from there.
+func TestDeferredFlushGateKeepsFailedHeightOffDisk(t *testing.T) {
+	const k, h = 5, 75 // 75 is a flush height
+	dir, c := record(t, 0, 1000)
+	blocks := readAll(t, dir)
+	for si := range blocks[h-1].Stores {
+		for oi := range blocks[h-1].Stores[si].Ops {
+			if op := &blocks[h-1].Stores[si].Ops[oi]; op.Kind == changeset.OpSet {
+				op.Value = append([]byte("tampered"), op.Value...)
+			}
+		}
+	}
+	db := dbm.NewMemDB()
+	_, err := apply(t, db, writeBlocks(t, blocks), k, c.expected, false)
+	var mm *applier.MismatchError
+	require.True(t, errors.As(err, &mm), "got %v", err)
+	require.EqualValues(t, h, mm.Height)
+	require.NotContains(t, mm.Detail, "discard this DB")
+	latest := rootmulti.GetLatestVersion(db)
+	require.Less(t, latest, int64(h))
+	require.Positive(t, latest)
+
+	// the DB opens at that verified height and the genuine log applies
+	a, err := apply(t, db, dir, k, c.expected, false)
+	require.NoError(t, err)
+	require.EqualValues(t, nBlocks-latest, a.CheckedExt)
+	compareWithSource(t, db, c)
+}

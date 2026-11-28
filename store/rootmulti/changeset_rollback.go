@@ -10,6 +10,22 @@ import (
 	"cosmossdk.io/store/types"
 )
 
+// errFlushRefused: the deferred flush gate refused a version.
+var errFlushRefused = errors.New("refused by the deferred flush gate")
+
+// SetDeferredFlushGate makes every deferred flush ask gate(version, appHash)
+// first; a refused version is not written and stays in memory. nil (the
+// default) changes nothing. The changeset applier sets it so that a height it
+// has not verified never reaches the disk. Call it after
+// SetDeferredPersistence; without deferred persistence it does nothing.
+func (rs *Store) SetDeferredFlushGate(gate func(version int64, appHash []byte) bool) {
+	if d := rs.celestiaDeferred; d != nil {
+		d.mu.Lock()
+		d.gate = gate
+		d.mu.Unlock()
+	}
+}
+
 // ChangesetRollbackPoint is what the changeset applier needs to undo the
 // next Commit exactly: the raw multistore metadata before it and every IAVL
 // tree that will save the new version (stores pending removal included).
@@ -51,7 +67,7 @@ func (rs *Store) ChangesetRollback(p *ChangesetRollbackPoint) error {
 		return nil
 	}
 	if _, deferred, err := ReadDeferredMarker(rs.db); err != nil || deferred {
-		return errors.Join(err, fmt.Errorf("height %d was flushed by deferred persistence, which keeps no older version", h))
+		return errors.Join(err, fmt.Errorf("height %d was flushed by deferred persistence, which keeps no older version", GetLatestVersion(rs.db)))
 	}
 	var prev map[string]bool
 	if p.info != nil {

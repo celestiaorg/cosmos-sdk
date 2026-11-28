@@ -417,6 +417,7 @@ func (rs *Store) commitDeferred() types.CommitID {
 	rs.recordCommit(version, false) // a flush of version syncs the log first
 
 	leave := d.mode == DeferredSync && !d.catchingUp(rs.commitHeader.Time, catchUpLeaveLag)
+	refused := false
 	reason := rs.deferredFlushReason(version)
 	if leave {
 		reason = "caught up"
@@ -424,7 +425,7 @@ func (rs *Store) commitDeferred() types.CommitID {
 	if reason != "" {
 		err := rs.flushDeferredLocked(version, newCommitInfo)
 		if errors.Is(err, errFlushRefused) {
-			leave = false
+			leave, refused = false, true
 		} else if err != nil {
 			panic(fmt.Errorf("deferred persistence: flush at %d (%s): %w", version, reason, err))
 		}
@@ -434,6 +435,10 @@ func (rs *Store) commitDeferred() types.CommitID {
 		rs.leaveDeferredLocked(version)
 	}
 
+	if refused {
+		// removed stores stay until a flush persists their deletes
+		return types.CommitID{Version: version, Hash: newCommitInfo.Hash()}
+	}
 	for sk := range rs.removalMap {
 		if _, ok := rs.stores[sk]; ok {
 			delete(rs.stores, sk)

@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"testing"
 
@@ -439,5 +440,118 @@ func TestReplayFromSnapshot(t *testing.T) {
 			require.EqualValues(t, nBlocks-tc.snap, a.Applied)
 			require.EqualValues(t, nBlocks-tc.snap, a.CheckedExt)
 		})
+	}
+}
+
+// A failing height at an upgrade that deletes a store and adds two must be
+// rolled back to the exact previous state: the commit info of the previous
+// height keeps the deleted store and not the added ones, the added stores
+// lose their only version, and a run with the good log continues on the same
+// DB to the last height. With deferred persistence the height never reaches
+// the disk (flush gate).
+func TestRollbackAtUpgradeKeepsStoreSet(t *testing.T) {
+	dir, c, _ := record(t, "", 1000)
+	const h = 40 // Added signal, icahost; Deleted blobstream
+	for _, store := range []string{"bank", "signal"} {
+		bad := rewrite(t, dir, func(b *changeset.Block) {
+			if b.Height != h {
+				return
+			}
+			for si := range b.Stores {
+				if b.Stores[si].Name == store {
+					op := &b.Stores[si].Ops[len(b.Stores[si].Ops)-1]
+					op.Kind, op.Value = changeset.OpSet, []byte("tampered")
+					return
+				}
+			}
+			t.Fatalf("no ops for %s at %d", store, h)
+		})
+		for _, dstK := range []string{"", "7"} {
+			db := dbm.NewMemDB()
+			_, err := applyStrict(db, bad, dstK, c.expected)
+			var mm *applier.MismatchError
+			require.True(t, errors.As(err, &mm), "%s K=%q: %v", store, dstK, err)
+			require.EqualValues(t, h, mm.Height)
+			require.NotContains(t, mm.Error(), "discard this DB")
+			latest := rootmulti.GetLatestVersion(db)
+			require.Less(t, latest, int64(h))
+			if dstK == "" {
+				require.EqualValues(t, h-1, latest)
+				require.Contains(t, mm.Error(), "rolled the DB back")
+			} else {
+				require.Contains(t, mm.Error(), "did not reach the disk")
+			}
+			ci, err := rootmulti.NewStore(db, log.NewNopLogger()).GetCommitInfo(latest)
+			require.NoError(t, err)
+			names := map[string]bool{}
+			for _, si := range ci.StoreInfos {
+				names[si.Name] = true
+			}
+			require.True(t, names["blobstream"], "%s K=%q", store, dstK)
+			require.False(t, names["signal"] || names["icahost"], "%s K=%q", store, dstK)
+
+			a, err := applyStrict(db, dir, dstK, c.expected)
+			require.NoError(t, err, "%s K=%q: rerun", store, dstK)
+			require.EqualValues(t, nBlocks, a.LastTrusted)
+			require.Equal(t, c.hashes[nBlocks], a.RS.LastCommitID().Hash)
+		}
+	}
+}
+
+func baseManifest() []changeset.StoreDecl {
+	m := []changeset.StoreDecl{{Name: "mem_capability", Type: changeset.StoreMemory}, {Name: "transient_params", Type: changeset.StoreTransient}}
+	for _, n := range baseStores {
+		m = append(m, changeset.StoreDecl{Name: n, Type: changeset.StoreIAVL})
+	}
+	sort.Slice(m, func(i, j int) bool { return m[i].Name < m[j].Name })
+	return m
+}
+
+// The manifest must list exactly the stores of the DB's latest commit info.
+func TestOpenRequiresMatchingStoreSet(t *testing.T) {
+	_, _, snaps := record(t, "", 1000, 30)
+	opts := applier.DefaultOptions()
+	_, err := applier.Open(copyDB(t, snaps[30]), baseManifest(), opts)
+	require.NoError(t, err)
+	var missing, extra, retyped []changeset.StoreDecl
+	for _, d := range baseManifest() {
+		if d.Name != "staking" {
+			missing = append(missing, d)
+		}
+		if d.Name == "acc" {
+			retyped = append(retyped, changeset.StoreDecl{Name: d.Name, Type: changeset.StoreMemory})
+		} else {
+			retyped = append(retyped, d)
+		}
+	}
+	extra = append(baseManifest(), changeset.StoreDecl{Name: "zzz", Type: changeset.StoreIAVL})
+	for name, m := range map[string][]changeset.StoreDecl{"missing": missing, "extra": extra, "retyped": retyped} {
+		_, err := applier.Open(copyDB(t, snaps[30]), m, opts)
+		require.ErrorContains(t, err, "does not match the DB's stores", name)
+	}
+}
+
+// An upgrade must fit the current store set; nothing is committed otherwise.
+func TestUpgradeMustFitStoreSet(t *testing.T) {
+	_, _, snaps := record(t, "", 1000, 30)
+	for name, tc := range map[string]struct {
+		u    changeset.Upgrade
+		want string
+	}{
+		"added exists":     {changeset.Upgrade{Added: []string{"bank"}}, `added store "bank" already exists`},
+		"deleted absent":   {changeset.Upgrade{Deleted: []string{"nope"}}, `deleted store "nope" is not a mounted IAVL store`},
+		"deleted not IAVL": {changeset.Upgrade{Deleted: []string{"mem_capability"}}, "is not a mounted IAVL store"},
+		"renamed absent":   {changeset.Upgrade{Renamed: []changeset.Rename{{Old: "nope", New: "x"}}}, `renamed store "nope" is not a mounted IAVL store`},
+		"rename target":    {changeset.Upgrade{Renamed: []changeset.Rename{{Old: "acc", New: "bank"}}}, `rename target store "bank" already exists`},
+	} {
+		db := copyDB(t, snaps[30])
+		opts := applier.DefaultOptions()
+		opts.AllowUnverified = true
+		a, err := applier.Open(db, baseManifest(), opts)
+		require.NoError(t, err)
+		u := tc.u
+		_, err = a.Apply(&changeset.Block{Height: 31, Upgrade: &u})
+		require.ErrorContains(t, err, tc.want, name)
+		require.EqualValues(t, 30, rootmulti.GetLatestVersion(db), name)
 	}
 }

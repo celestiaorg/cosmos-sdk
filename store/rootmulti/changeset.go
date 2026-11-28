@@ -6,7 +6,10 @@ package rootmulti
 // and initial versions, and exposes the hooks the changeset applier needs.
 
 import (
+	"errors"
 	"fmt"
+
+	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/store/changeset"
 	"github.com/cosmos/cosmos-sdk/store/iavl"
@@ -145,4 +148,63 @@ func recordSkippedStores(skipped []*iavl.Store) {
 func (rs *Store) IAVLStore(key types.StoreKey) *iavl.Store {
 	st, _ := rs.GetCommitKVStore(key).(*iavl.Store)
 	return st
+}
+
+// errFlushRefused: the flush gate refused a version (it stays in memory).
+var errFlushRefused = errors.New("refused by the flush gate")
+
+// SetDeferredFlushGate makes every deferred flush ask gate(version, appHash)
+// first; a refused version is not written. The changeset applier uses it so
+// that a height it has not verified never reaches the disk.
+func (rs *Store) SetDeferredFlushGate(gate func(version int64, appHash []byte) bool) {
+	rs.deferred.mtx.Lock()
+	rs.deferred.gate = gate
+	rs.deferred.mtx.Unlock()
+}
+
+// MetadataSnapshot is the raw multistore metadata (the latest version and
+// the commit info of Version) as stored, for RestoreMetadata.
+type MetadataSnapshot struct {
+	Version int64
+	latest  []byte
+	info    []byte
+}
+
+// SnapshotMetadata reads the raw metadata of version (the current latest).
+func SnapshotMetadata(db dbm.DB, version int64) (MetadataSnapshot, error) {
+	s := MetadataSnapshot{Version: version}
+	var err error
+	if s.latest, err = db.Get([]byte(latestVersionKey)); err != nil {
+		return s, err
+	}
+	if version > 0 {
+		s.info, err = db.Get([]byte(fmt.Sprintf(commitInfoKeyFmt, version)))
+	}
+	return s, err
+}
+
+// RestoreMetadata writes back the exact bytes of s and deletes the commit
+// info of discard, in one synced batch. Unlike RollbackToVersion it does not
+// rebuild the commit info from the mounted stores.
+func RestoreMetadata(db dbm.DB, s MetadataSnapshot, discard int64) error {
+	batch := db.NewBatch()
+	defer batch.Close()
+	set := func(key string, val []byte) error {
+		if val == nil {
+			return batch.Delete([]byte(key))
+		}
+		return batch.Set([]byte(key), val)
+	}
+	if err := set(latestVersionKey, s.latest); err != nil {
+		return err
+	}
+	if s.Version > 0 {
+		if err := set(fmt.Sprintf(commitInfoKeyFmt, s.Version), s.info); err != nil {
+			return err
+		}
+	}
+	if err := batch.Delete([]byte(fmt.Sprintf(commitInfoKeyFmt, discard))); err != nil {
+		return err
+	}
+	return batch.WriteSync()
 }

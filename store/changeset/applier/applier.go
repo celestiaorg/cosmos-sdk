@@ -62,9 +62,11 @@ func DefaultOptions() Options {
 
 // Applier owns a rootmulti store opened on a node's application DB.
 type Applier struct {
-	RS   *rootmulti.Store
-	opts Options
-	keys map[string]types.StoreKey
+	RS    *rootmulti.Store
+	db    dbm.DB
+	opts  Options
+	keys  map[string]types.StoreKey
+	types map[string]types.StoreType
 	// Expected returns the trusted app hash for a height (e.g. the AppHash
 	// of header h+1). ok=false means "unknown": without AllowUnverified the
 	// height is not accepted; with it only the recorded hash is checked.
@@ -88,6 +90,12 @@ type Applier struct {
 	// pending is the height committed but not yet verified; Run rolls it
 	// back if the block fails after its commit.
 	pending int64
+	// verified is the last height that passed verification
+	verified int64
+	// cur is the block being applied (the deferred flush gate checks it)
+	cur *changeset.Block
+	// rb restores the DB to before cur if cur was written but fails
+	rb *rollbackPoint
 
 	OpsTime, CommitTime time.Duration
 }
@@ -113,7 +121,9 @@ func Open(db dbm.DB, manifest []changeset.StoreDecl, opts Options) (*Applier, er
 	if opts.InterBlockCache {
 		rs.SetInterBlockCache(cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize))
 	}
-	a := &Applier{RS: rs, opts: opts, keys: map[string]types.StoreKey{}}
+	a := &Applier{RS: rs, db: db, opts: opts, keys: map[string]types.StoreKey{}, types: map[string]types.StoreType{}}
+	// a deferred flush never writes a height that has not passed verification
+	rs.SetDeferredFlushGate(a.flushGate)
 	for _, d := range manifest {
 		if _, dup := a.keys[d.Name]; dup {
 			return nil, fmt.Errorf("applier: manifest lists store %q twice", d.Name)
@@ -124,11 +134,114 @@ func Open(db dbm.DB, manifest []changeset.StoreDecl, opts Options) (*Applier, er
 		}
 		a.mount(d.Name, typ)
 	}
+	if latest := rootmulti.GetLatestVersion(db); latest > 0 {
+		ci, err := rs.GetCommitInfo(latest)
+		if err != nil {
+			return nil, fmt.Errorf("applier: commit info of height %d: %w", latest, err)
+		}
+		if err := checkStoreSet(manifest, ci); err != nil {
+			return nil, fmt.Errorf("applier: height %d: %w", latest, err)
+		}
+	}
 	if err := rs.LoadLatestVersion(); err != nil {
 		return nil, err
 	}
 	a.Latest = rs.LastCommitID().Version
+	a.verified = a.Latest
 	return a, nil
+}
+
+// checkStoreSet requires the manifest to list exactly the stores of the
+// commit info: IAVL stores are those with a version, memory and DB stores
+// have none, transient stores are not in the commit info.
+func checkStoreSet(manifest []changeset.StoreDecl, ci *types.CommitInfo) error {
+	have := map[string]bool{} // name -> IAVL
+	for _, si := range ci.StoreInfos {
+		have[si.Name] = si.CommitId.Version != 0
+	}
+	var diffs []string
+	seen := map[string]bool{}
+	for _, d := range manifest {
+		if d.Type == changeset.StoreTransient {
+			continue
+		}
+		seen[d.Name] = true
+		iavl, ok := have[d.Name]
+		switch {
+		case !ok:
+			diffs = append(diffs, fmt.Sprintf("%s: in the manifest, not in the DB", d.Name))
+		case iavl != (d.Type == changeset.StoreIAVL):
+			diffs = append(diffs, fmt.Sprintf("%s: type %d in the manifest does not match the DB", d.Name, d.Type))
+		}
+	}
+	for name := range have {
+		if !seen[name] {
+			diffs = append(diffs, fmt.Sprintf("%s: in the DB, not in the manifest", name))
+		}
+	}
+	if len(diffs) == 0 {
+		return nil
+	}
+	sort.Strings(diffs)
+	return fmt.Errorf("changeset manifest does not match the DB's stores: %s", strings.Join(diffs, "; "))
+}
+
+// manifest returns the current store set.
+func (a *Applier) manifest() []changeset.StoreDecl {
+	out := make([]changeset.StoreDecl, 0, len(a.types))
+	for name, t := range a.types {
+		var c byte
+		switch t {
+		case types.StoreTypeIAVL:
+			c = changeset.StoreIAVL
+		case types.StoreTypeMemory:
+			c = changeset.StoreMemory
+		case types.StoreTypeTransient:
+			c = changeset.StoreTransient
+		case types.StoreTypeDB:
+			c = changeset.StoreDB
+		}
+		out = append(out, changeset.StoreDecl{Name: name, Type: c})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// checkUpgrade requires an upgrade to fit the current store set: added and
+// new (renamed) stores are not mounted, deleted and old stores are IAVL
+// stores that are.
+func (a *Applier) checkUpgrade(h int64, u *changeset.Upgrade) error {
+	absent := func(what, n string) error {
+		if _, ok := a.keys[n]; ok {
+			return fmt.Errorf("applier: height %d: %s store %q already exists", h, what, n)
+		}
+		return nil
+	}
+	present := func(what, n string) error {
+		if a.types[n] != types.StoreTypeIAVL {
+			return fmt.Errorf("applier: height %d: %s store %q is not a mounted IAVL store", h, what, n)
+		}
+		return nil
+	}
+	for _, n := range u.Added {
+		if err := absent("added", n); err != nil {
+			return err
+		}
+	}
+	for _, n := range u.Deleted {
+		if err := present("deleted", n); err != nil {
+			return err
+		}
+	}
+	for _, r := range u.Renamed {
+		if err := present("renamed", r.Old); err != nil {
+			return err
+		}
+		if err := absent("rename target", r.New); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (a *Applier) mount(name string, typ types.StoreType) {
@@ -142,6 +255,7 @@ func (a *Applier) mount(name string, typ types.StoreType) {
 		key = types.NewKVStoreKey(name)
 	}
 	a.keys[name] = key
+	a.types[name] = typ
 	a.RS.MountStoreWithDB(key, typ, nil)
 }
 
@@ -176,6 +290,14 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 	}
 	if b.StoreV1 {
 		return types.CommitID{}, fmt.Errorf("applier: height %d was recorded by the SDK v0.50 store (app v4+): use cstool50", b.Height)
+	}
+	if b.Manifest != nil && a.Latest != 0 && !equalDecls(b.Manifest, a.manifest()) {
+		return types.CommitID{}, fmt.Errorf("applier: height %d: the block's manifest does not match the current store set", b.Height)
+	}
+	if b.Upgrade != nil {
+		if err := a.checkUpgrade(b.Height, b.Upgrade); err != nil {
+			return types.CommitID{}, err
+		}
 	}
 	pre, post := b.Stores, []changeset.StoreOps(nil)
 	if b.Upgrade != nil {
@@ -215,14 +337,10 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 			su.Renamed = append(su.Renamed, types.StoreRename{OldKey: r.Old, NewKey: r.New})
 		}
 		for _, n := range b.Upgrade.Added {
-			if _, ok := a.keys[n]; !ok {
-				a.mount(n, types.StoreTypeIAVL)
-			}
+			a.mount(n, types.StoreTypeIAVL)
 		}
 		for _, r := range b.Upgrade.Renamed {
-			if _, ok := a.keys[r.New]; !ok {
-				a.mount(r.New, types.StoreTypeIAVL)
-			}
+			a.mount(r.New, types.StoreTypeIAVL)
 		}
 		if err := a.RS.LoadLatestVersionAndUpgrade(su); err != nil {
 			return types.CommitID{}, fmt.Errorf("height %d: store upgrade: %w", b.Height, err)
@@ -231,6 +349,11 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 	if err := a.applyOps(post); err != nil {
 		return types.CommitID{}, err
 	}
+	rb, err := a.rollbackPoint(b.Height)
+	if err != nil {
+		return types.CommitID{}, err
+	}
+	a.rb, a.cur = rb, b
 	t1 := time.Now()
 	id := a.RS.Commit()
 	a.pending = b.Height
@@ -239,9 +362,11 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 	if b.Upgrade != nil {
 		for _, n := range b.Upgrade.Deleted {
 			delete(a.keys, n)
+			delete(a.types, n)
 		}
 		for _, r := range b.Upgrade.Renamed {
 			delete(a.keys, r.Old)
+			delete(a.types, r.Old)
 		}
 	}
 	a.Latest = id.Version
@@ -316,35 +441,136 @@ func (a *Applier) applyOps(stores []changeset.StoreOps) error {
 	return nil
 }
 
-func (a *Applier) verify(b *changeset.Block, id types.CommitID) error {
+// check verifies hash for b and says against what: "trusted", "recorded"
+// or "none" (AllowUnverified without any hash). diff adds per-store
+// differences to a mismatch.
+func (a *Applier) check(b *changeset.Block, hash []byte, diff bool) (string, error) {
+	detail := func() string {
+		if diff {
+			return a.storeDiff(b)
+		}
+		return ""
+	}
 	want, ok, err := a.trusted(b.Height)
 	if err != nil {
-		return fmt.Errorf("applier: height %d: trusted app hash: %w", b.Height, err)
+		return "", fmt.Errorf("applier: height %d: trusted app hash: %w", b.Height, err)
 	}
 	if ok {
-		if !bytes.Equal(want, id.Hash) {
-			return &MismatchError{Height: b.Height, Got: id.Hash, Want: want, Source: "trusted header", Detail: a.storeDiff(b)}
+		if !bytes.Equal(want, hash) {
+			return "", &MismatchError{Height: b.Height, Got: hash, Want: want, Source: "trusted header", Detail: detail()}
 		}
 		// the recorded hash must agree too (else the changeset is mislabelled)
-		if (len(b.AppHash) > 0 || !a.opts.AllowUnverified) && !bytes.Equal(b.AppHash, id.Hash) {
-			return &MismatchError{Height: b.Height, Got: id.Hash, Want: b.AppHash, Source: "recorded (header matched!)"}
+		if (len(b.AppHash) > 0 || !a.opts.AllowUnverified) && !bytes.Equal(b.AppHash, hash) {
+			return "", &MismatchError{Height: b.Height, Got: hash, Want: b.AppHash, Source: "recorded (header matched!)"}
 		}
-		a.CheckedExt++
-		a.LastTrusted = b.Height
-		return nil
+		return "trusted", nil
 	}
 	if !a.opts.AllowUnverified {
-		return fmt.Errorf("applier: no trusted app hash for height %d (set AllowUnverified only for synthetic input)", b.Height)
+		return "", fmt.Errorf("applier: no trusted app hash for height %d (set AllowUnverified only for synthetic input)", b.Height)
 	}
 	if len(b.AppHash) == 0 {
+		return "none", nil
+	}
+	if !bytes.Equal(b.AppHash, hash) {
+		return "", &MismatchError{Height: b.Height, Got: hash, Want: b.AppHash, Source: "recorded", Detail: detail()}
+	}
+	return "recorded", nil
+}
+
+func (a *Applier) verify(b *changeset.Block, id types.CommitID) error {
+	how, err := a.check(b, id.Hash, true)
+	if err != nil {
+		return err
+	}
+	switch how {
+	case "trusted":
+		a.CheckedExt++
+		a.LastTrusted = b.Height
+	case "recorded":
+		a.CheckedLocal++
+	default:
 		a.Unverified++
-		return nil
 	}
-	if !bytes.Equal(b.AppHash, id.Hash) {
-		return &MismatchError{Height: b.Height, Got: id.Hash, Want: b.AppHash, Source: "recorded", Detail: a.storeDiff(b)}
-	}
-	a.CheckedLocal++
+	a.verified = b.Height
 	return nil
+}
+
+// flushGate approves a deferred flush of version only once it is verified,
+// or if it is the block being committed and passes verification.
+func (a *Applier) flushGate(version int64, appHash []byte) bool {
+	if version <= a.verified {
+		return true
+	}
+	if a.cur == nil || version != a.cur.Height {
+		return false
+	}
+	_, err := a.check(a.cur, appHash, false)
+	return err == nil
+}
+
+// rollbackPoint is what the applier restores when a height it wrote fails:
+// the exact metadata bytes of the previous height and every IAVL tree that
+// saves the height (deleted, renamed and added stores included).
+type rollbackPoint struct {
+	height int64
+	meta   rootmulti.MetadataSnapshot
+	trees  []rollbackTree
+}
+
+type rollbackTree struct {
+	name    string
+	st      *iavl.Store
+	existed bool // has the previous height (an added store does not)
+}
+
+func (a *Applier) rollbackPoint(height int64) (*rollbackPoint, error) {
+	meta, err := rootmulti.SnapshotMetadata(a.db, height-1)
+	if err != nil {
+		return nil, err
+	}
+	rb := &rollbackPoint{height: height, meta: meta}
+	for name, key := range a.keys {
+		if a.types[name] != types.StoreTypeIAVL {
+			continue
+		}
+		st := a.RS.IAVLStore(key)
+		if st == nil {
+			return nil, fmt.Errorf("applier: store %q is not an IAVL store", name)
+		}
+		rb.trees = append(rb.trees, rollbackTree{name: name, st: st, existed: height > 1 && st.VersionExists(height-1)})
+	}
+	return rb, nil
+}
+
+// restore makes the previous height the latest again: the metadata first
+// (a restart then loads the previous height), then each tree drops the
+// height (an added store all of its versions).
+func (rb *rollbackPoint) restore(db dbm.DB) error {
+	if err := rootmulti.RestoreMetadata(db, rb.meta, rb.height); err != nil {
+		return err
+	}
+	for _, t := range rb.trees {
+		target := rb.height - 1
+		if !t.existed {
+			target = 0
+		}
+		if _, err := t.st.LoadVersionForOverwriting(target); err != nil {
+			return fmt.Errorf("store %s: %w", t.name, err)
+		}
+	}
+	return nil
+}
+
+func equalDecls(x, y []changeset.StoreDecl) bool {
+	if len(x) != len(y) {
+		return false
+	}
+	for i := range x {
+		if x[i] != y[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *Applier) storeDiff(b *changeset.Block) string {
@@ -466,19 +692,26 @@ func Run(db dbm.DB, dir string, to int64, opts Options, expected func(int64) ([]
 
 // discardUnverified keeps a height that was committed but failed afterwards
 // (verification, or an error while verifying) off disk. Close is skipped (it
-// would flush the deferred state of that height), and if the commit already
-// wrote it (upstream commit, or a deferred flush height) the store is rolled
-// back to the previous height. If that is impossible the error says the DB
-// must be discarded.
+// would flush the deferred state of that height); a deferred flush never
+// wrote it (the flush gate), and a written height is rolled back to the
+// exact previous metadata and trees. If that is impossible the error says
+// the DB must be discarded.
 func (a *Applier) discardUnverified(db dbm.DB, height int64, cause error) error {
-	if a.RS == nil || rootmulti.GetLatestVersion(db) < height {
+	if a.RS == nil {
 		return cause
 	}
 	var note string
-	if err := a.RS.RollbackToVersion(height - 1); err != nil {
-		note = fmt.Sprintf("height %d is on disk and could not be rolled back (%v): discard this DB", height, err)
-	} else {
-		note = fmt.Sprintf("rolled the DB back to height %d", height-1)
+	switch latest := rootmulti.GetLatestVersion(db); {
+	case latest < height:
+		note = fmt.Sprintf("height %d did not reach the disk; the DB is at height %d", height, latest)
+	case a.rb == nil || a.rb.height != height:
+		note = fmt.Sprintf("height %d is on disk and could not be rolled back (no rollback point): discard this DB", height)
+	default:
+		if err := a.rb.restore(db); err != nil {
+			note = fmt.Sprintf("height %d is on disk and could not be rolled back (%v): discard this DB", height, err)
+		} else {
+			note = fmt.Sprintf("rolled the DB back to height %d", height-1)
+		}
 	}
 	var mm *MismatchError
 	if errors.As(cause, &mm) {

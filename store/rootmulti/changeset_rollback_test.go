@@ -64,3 +64,52 @@ func TestDeferredFlushGateKeepsRemovedStoreUntilFlushed(t *testing.T) {
 	require.EqualValues(t, 4, rs.LastCommitID().Version)
 	require.NoError(t, rs.Close())
 }
+
+// Rolling back a store created by the rolled-back Commit must never touch
+// another store's data, whatever the created store is called: "bank/f" has
+// the DB prefix s/k:bank/f/, which holds bank's fast-node entries for keys
+// starting with "/".
+func TestChangesetRollbackNeverTouchesOtherStores(t *testing.T) {
+	db := dbm.NewMemDB()
+	open := func(names []string, u *types.StoreUpgrades) *Store {
+		rs := NewStore(db, log.NewNopLogger(), metrics.NewNoOpMetrics())
+		rs.SetChangesetRecorder(nil)
+		rs.SetIAVLDisableFastNode(false)
+		rs.SetPruning(pruningtypes.NewPruningOptions(pruningtypes.PruningEverything))
+		for _, n := range names {
+			rs.MountStoreWithDB(types.NewKVStoreKey(n), types.StoreTypeIAVL, nil)
+		}
+		if u != nil {
+			require.NoError(t, rs.LoadLatestVersionAndUpgrade(u))
+		} else {
+			require.NoError(t, rs.LoadLatestVersion())
+		}
+		return rs
+	}
+	rs := open([]string{"bank"}, nil)
+	rs.GetKVStore(rs.StoreKeysByName()["bank"]).Set([]byte("/x"), []byte("v"))
+	rs.Commit()
+	rs.GetKVStore(rs.StoreKeysByName()["bank"]).Set([]byte("y"), []byte("v"))
+	before := rs.Commit()
+	require.NoError(t, rs.Close())
+	fastKey := []byte("s/k:bank/f/x")
+	has, err := db.Has(fastKey)
+	require.NoError(t, err)
+	require.True(t, has, "fixture: bank's fast node for key /x")
+
+	rs = open([]string{"bank", "bank/f"}, &types.StoreUpgrades{Added: []string{"bank/f"}})
+	p, err := rs.ChangesetRollbackPoint()
+	require.NoError(t, err)
+	rs.GetKVStore(rs.StoreKeysByName()["bank/f"]).Set([]byte("k"), []byte("v"))
+	rs.Commit()
+	// an invalid name is refused (the applier rejects it before committing)
+	require.ErrorContains(t, rs.ChangesetRollback(p), "cannot be rolled back")
+
+	has, err = db.Has(fastKey)
+	require.NoError(t, err)
+	require.True(t, has, "the rollback deleted bank's data")
+	rs = open([]string{"bank"}, nil)
+	require.Equal(t, []byte("v"), rs.GetKVStore(rs.StoreKeysByName()["bank"]).Get([]byte("/x")))
+	require.NoError(t, rs.Close())
+	_ = before
+}

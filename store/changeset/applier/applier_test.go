@@ -54,24 +54,23 @@ var segments = []segment{
 		mem: []string{"mem_capability"}, trans: []string{"transient_params"},
 	},
 	// app-version change with store upgrade: add 2, delete the non-empty
-	// blobstream store, rename the non-empty params store, and delete an
-	// unmounted name (no-op, as v4.1.0's crisis/blobstream)
+	// blobstream store, and delete an unmounted name (no-op, as v4.1.0's
+	// crisis/blobstream). No rename: no celestia-app v4+ upgrade renames.
 	{
-		start: 40, iavl: []string{"acc", "bank", "blobstream", "circuit", "consensus", "distribution", "params2", "slashing", "staking", "upgrade"},
+		start: 40, iavl: []string{"acc", "bank", "blobstream", "circuit", "consensus", "distribution", "params", "slashing", "staking", "upgrade"},
 		mem: []string{"mem_capability"}, trans: []string{"transient_params"},
 		upgrades: &types.StoreUpgrades{
 			Added: []string{"circuit", "consensus"}, Deleted: []string{"blobstream", "crisis"},
-			Renamed: []types.StoreRename{{OldKey: "params", NewKey: "params2"}},
 		},
 	},
 	// new process with a different memory/transient set and no upgrade record
 	{
-		start: 70, iavl: []string{"acc", "bank", "circuit", "consensus", "distribution", "params2", "slashing", "staking", "upgrade"},
+		start: 70, iavl: []string{"acc", "bank", "circuit", "consensus", "distribution", "params", "slashing", "staking", "upgrade"},
 		mem: []string{"mem_capability", "mem_other"},
 	},
 	// second upgrade (add only), like v9 -> v10 (extra, valaddr)
 	{
-		start: 95, iavl: []string{"acc", "bank", "circuit", "consensus", "distribution", "extra", "params2", "slashing", "staking", "upgrade"},
+		start: 95, iavl: []string{"acc", "bank", "circuit", "consensus", "distribution", "extra", "params", "slashing", "staking", "upgrade"},
 		mem: []string{"mem_capability"}, upgrades: &types.StoreUpgrades{Added: []string{"extra"}},
 	},
 }
@@ -214,9 +213,9 @@ func (c *chain) writeBlock(fb types.CacheMultiStore, h int64, s segment) {
 			}
 		}
 		fb.GetKVStore(c.keys["upgrade"]).Set([]byte("done/"+fmt.Sprint(h)), []byte{1})
-		if _, ok := c.keys["params2"]; ok {
-			// migration touching the renamed store
-			fb.GetKVStore(c.keys["params2"]).Set([]byte("k0001"), []byte("migrated"))
+		if _, ok := c.keys["params"]; ok {
+			// migration touching an existing store
+			fb.GetKVStore(c.keys["params"]).Set([]byte("k0001"), []byte("migrated"))
 		}
 	}
 	if h%9 != 0 { // every 9th block is empty
@@ -322,14 +321,14 @@ func TestRecordedStructure(t *testing.T) {
 	require.NotNil(t, u)
 	require.Equal(t, []string{"circuit", "consensus"}, u.Added)
 	require.Equal(t, []string{"blobstream"}, u.Deleted) // "crisis" was not mounted: filtered
-	require.Equal(t, []changeset.Rename{{Old: "params", New: "params2"}}, u.Renamed)
+	require.Empty(t, u.Renamed)
 	require.NotNil(t, blocks[94].Upgrade)
 	for i, b := range blocks {
 		if i != 39 && i != 94 {
 			require.Nil(t, b.Upgrade, "height %d", b.Height)
 		}
 	}
-	// migration ops are recorded: blobstream deletes, params -> params2 moves (first ops of the stores)
+	// migration ops are recorded: blobstream deletes (the first ops of the store)
 	byName := map[string][]changeset.Op{}
 	for _, s := range blocks[39].Stores {
 		byName[s.Name] = s.Ops
@@ -338,10 +337,7 @@ func TestRecordedStructure(t *testing.T) {
 	for _, op := range byName["blobstream"] {
 		require.Equal(t, changeset.OpDelete, op.Kind)
 	}
-	require.NotEmpty(t, byName["params"])
-	require.NotEmpty(t, byName["params2"])
-	require.True(t, len(byName["params2"]) > len(byName["params"])) // moves + migration write
-	require.Equal(t, changeset.OpSet, byName["params2"][0].Kind)
+	require.NotEmpty(t, byName["params"]) // the migration write
 	// memory stores are not in the commit info (v0.50)
 	for _, si := range blocks[50].StoreInfos {
 		require.NotContains(t, si.Name, "mem_")
@@ -524,10 +520,10 @@ func TestTamperedChangesetDetected(t *testing.T) {
 			}
 		}
 	})
-	// dropping the recorded move of one key into the renamed store
-	tamper("dropped_rename_move", 40, "params2", func(b *changeset.Block) {
+	// dropping the first op of an added store at the upgrade height
+	tamper("dropped_added_store_op", 40, "circuit", func(b *changeset.Block) {
 		for si := range b.Stores {
-			if b.Stores[si].Name == "params2" {
+			if b.Stores[si].Name == "circuit" {
 				b.Stores[si].Ops = b.Stores[si].Ops[1:]
 			}
 		}
@@ -978,14 +974,11 @@ func TestStoreSetChecks(t *testing.T) {
 			sort.Slice(m, func(i, j int) bool { return m[i].Name < m[j].Name })
 			b.Manifest = m
 		}, `manifest store "zzz" does not exist`},
-		"add_existing":   {40, func(b *changeset.Block) { b.Upgrade.Added = append(b.Upgrade.Added, "acc") }, `adds existing store "acc"`},
+		"add_existing":   {40, func(b *changeset.Block) { b.Upgrade.Added = append(b.Upgrade.Added, "acc") }, `adds store "acc", which is already mounted`},
 		"delete_missing": {95, func(b *changeset.Block) { b.Upgrade.Deleted = []string{"crisis"} }, `deletes missing store "crisis"`},
-		"rename_missing_old": {95, func(b *changeset.Block) {
-			b.Upgrade.Renamed = []changeset.Rename{{Old: "nope", New: "new2"}}
-		}, `renames "nope" -> "new2"`},
-		"rename_to_existing": {95, func(b *changeset.Block) {
-			b.Upgrade.Renamed = []changeset.Rename{{Old: "bank", New: "acc"}}
-		}, `renames "bank" -> "acc"`},
+		"rename": {95, func(b *changeset.Block) {
+			b.Upgrade.Renamed = []changeset.Rename{{Old: "bank", New: "bank2"}}
+		}, `renames stores`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			blocks := readAll(t, dir)
@@ -1098,7 +1091,7 @@ func TestReAddOfDeletedStoreRefusedBeforeCommit(t *testing.T) {
 			blocks[3].Upgrade, blocks[3].UpgradeAtLoad = u, true
 			dst := dbm.NewMemDB()
 			_, err := applier.Run(dst, writeBlocks(t, blocks), 0, applier.DefaultOptions(), exp, nil)
-			require.ErrorContains(t, err, "initial version set to 4, but found earlier version")
+			require.Error(t, err) // IAVL: "initial version set to 4, but found earlier version"; renames are refused
 			require.EqualValues(t, 3, rootmulti.GetLatestVersion(dst))
 			a, err := applier.Run(dst, dir, 0, applier.DefaultOptions(), exp, nil)
 			require.NoError(t, err)
@@ -1129,4 +1122,41 @@ func TestFlushGateAllowsUnverifiedBlocks(t *testing.T) {
 	require.EqualValues(t, nBlocks, a.Unverified)
 	require.EqualValues(t, nBlocks, rootmulti.GetLatestVersion(db))
 	compareWithSource(t, db, c)
+}
+
+// Blocks handed to Apply directly (not decoded) get the same store-name and
+// store-set checks, before anything is committed, also on an empty DB.
+func TestApplyRejectsBadStoreNamesAndMountedAdds(t *testing.T) {
+	dir, c := record(t, 0, 1000)
+	blocks := readAll(t, dir)
+	for name, tc := range map[string]struct {
+		h   int64
+		mut func(b *changeset.Block)
+	}{
+		"added_slash":     {40, func(b *changeset.Block) { b.Upgrade.Added = append(b.Upgrade.Added, "bank/f") }},
+		"added_empty":     {40, func(b *changeset.Block) { b.Upgrade.Added = append(b.Upgrade.Added, "") }},
+		"added_transient": {40, func(b *changeset.Block) { b.Upgrade.Added = append(b.Upgrade.Added, "transient_params") }},
+		"added_memory":    {40, func(b *changeset.Block) { b.Upgrade.Added = append(b.Upgrade.Added, "mem_capability") }},
+		"store_ops_slash": {41, func(b *changeset.Block) { b.Stores = append(b.Stores, changeset.StoreOps{Name: "acc/x"}) }},
+		"genesis_added_memory": {1, func(b *changeset.Block) {
+			b.Upgrade, b.UpgradeAtLoad = &changeset.Upgrade{Added: []string{"mem_capability"}}, true
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			db := dbm.NewMemDB()
+			a := applier.New(db, applier.DefaultOptions())
+			a.Expected = c.expected
+			var err error
+			for _, b := range readAll(t, dir)[:tc.h-1] {
+				_, err = a.Apply(b)
+				require.NoError(t, err)
+			}
+			b := readAll(t, dir)[tc.h-1]
+			tc.mut(b)
+			require.NotPanics(t, func() { _, err = a.Apply(b) })
+			require.Error(t, err)
+			require.EqualValues(t, tc.h-1, rootmulti.GetLatestVersion(db), "nothing may be committed")
+		})
+	}
+	_ = blocks
 }

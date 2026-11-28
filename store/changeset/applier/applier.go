@@ -322,7 +322,7 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 	if b.Manifest != nil {
 		pre = sortedDecls(b.Manifest)
 	}
-	if err := a.checkStoreSet(b.Height, pre, b.Upgrade); err != nil {
+	if err := a.checkStoreSet(b, pre); err != nil {
 		return types.CommitID{}, err
 	}
 	switch {
@@ -388,13 +388,49 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 	return id, nil
 }
 
-// checkStoreSet checks the block's pre-block manifest and upgrade against the
-// commit info of the latest height: every IAVL or DB store the manifest
-// declares exists there, and the upgrade adds or renames to absent names and
-// deletes or renames present ones. Stores of the commit info the manifest
-// does not declare drop out of the next commit (unmounted, as v4.1.0 did
-// with crisis and blobstream): logged, and caught by the app hash if wrong.
-func (a *Applier) checkStoreSet(h int64, pre []changeset.StoreDecl, u *changeset.Upgrade) error {
+// checkStoreSet checks the block's names, pre-block manifest and upgrade
+// before anything is applied, also on an empty DB:
+//   - every store name is valid (changeset.ValidStoreName: never '/', so no
+//     store's DB prefix lies in another's);
+//   - the upgrade adds names that nothing mounts (of any type) and renames
+//     nothing: no celestia-app v4+ upgrade renames a store, so a rename is
+//     refused rather than replayed;
+//   - against the commit info of the latest height: every IAVL or DB store
+//     the manifest declares exists, added names do not, deleted names do.
+//
+// Stores of the commit info the manifest does not declare drop out of the
+// next commit (unmounted, as v4.1.0 did with crisis and blobstream): logged,
+// and caught by the app hash if wrong.
+func (a *Applier) checkStoreSet(b *changeset.Block, pre []changeset.StoreDecl) error {
+	h, u := b.Height, b.Upgrade
+	bad := func(format string, args ...any) error {
+		return fmt.Errorf("applier: height %d: "+format, append([]any{h}, args...)...)
+	}
+	names := make([]string, 0, len(pre)+len(b.Stores))
+	declared := map[string]bool{}
+	for _, d := range pre {
+		names = append(names, d.Name)
+		declared[d.Name] = true
+	}
+	for _, so := range b.Stores {
+		names = append(names, so.Name)
+	}
+	if u != nil {
+		names = append(append(names, u.Added...), u.Deleted...)
+		if len(u.Renamed) > 0 {
+			return bad("the upgrade renames stores, which no supported upgrade does")
+		}
+		for _, n := range u.Added {
+			if declared[n] {
+				return bad("upgrade adds store %q, which is already mounted", n)
+			}
+		}
+	}
+	for _, n := range names {
+		if !changeset.ValidStoreName(n) {
+			return bad("invalid store name %q", n)
+		}
+	}
 	if a.Latest == 0 {
 		return nil
 	}
@@ -412,30 +448,20 @@ func (a *Applier) checkStoreSet(h int64, pre []changeset.StoreDecl, u *changeset
 	for _, si := range ci.StoreInfos {
 		have[si.Name] = true
 	}
-	bad := func(format string, args ...any) error {
-		return fmt.Errorf("applier: height %d: "+format+" (commit info at %d)", append([]any{h}, append(args, a.Latest)...)...)
-	}
-	declared := map[string]bool{}
 	for _, d := range pre {
-		declared[d.Name] = true
 		if (d.Type == changeset.StoreIAVL || d.Type == changeset.StoreDB) && !have[d.Name] {
-			return bad("manifest store %q does not exist", d.Name)
+			return bad("manifest store %q does not exist (commit info at %d)", d.Name, a.Latest)
 		}
 	}
 	if u != nil {
 		for _, n := range u.Added {
 			if have[n] {
-				return bad("upgrade adds existing store %q", n)
+				return bad("upgrade adds existing store %q (commit info at %d)", n, a.Latest)
 			}
 		}
 		for _, n := range u.Deleted {
 			if !have[n] {
-				return bad("upgrade deletes missing store %q", n)
-			}
-		}
-		for _, r := range u.Renamed {
-			if !have[r.Old] || have[r.New] {
-				return bad("upgrade renames %q -> %q, but the old name must exist and the new one must not", r.Old, r.New)
+				return bad("upgrade deletes missing store %q (commit info at %d)", n, a.Latest)
 			}
 		}
 	}

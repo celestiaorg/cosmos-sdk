@@ -374,16 +374,16 @@ func (d *dec) renames(u *Upgrade) {
 const MaxStoreNameLen = 64
 
 // ValidStoreName reports whether name is a store name the format accepts:
-// 1 to MaxStoreNameLen bytes of [A-Za-z0-9_] (every celestia store name is).
-// Names are used as key prefixes ("s/k:<name>/"), so anything else, "/" in
-// particular, could address another store's keys.
+// 1 to MaxStoreNameLen bytes of [A-Za-z0-9_.:-] (the rule of the v0.50
+// store's reader). Names are key prefixes ("s/k:<name>/") and never contain
+// "/", so no store's DB prefix lies in another's.
 func ValidStoreName(name string) bool {
 	if len(name) == 0 || len(name) > MaxStoreNameLen {
 		return false
 	}
 	for i := 0; i < len(name); i++ {
 		c := name[i]
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_') {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '.' || c == ':' || c == '-') {
 			return false
 		}
 	}

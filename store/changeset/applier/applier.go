@@ -1,5 +1,10 @@
 // Package applier replays recorded changesets into a rootmulti store and
 // verifies the resulting app hash at every height.
+//
+// Memory: a block is decoded whole. A frame is at most
+// changeset.MaxFrameSize (64 MiB), and a well-formed frame of minimal ops
+// decodes to about 28 times its size, so one block can take up to about
+// 1.8 GiB in the worst case (real blocks are KB to low MB).
 package applier
 
 import (

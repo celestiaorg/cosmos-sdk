@@ -174,7 +174,7 @@ func TestDecodeRejectsDuplicateNames(t *testing.T) {
 	require.Equal(t, b.Upgrade.Deleted, got.Upgrade.Deleted)
 }
 
-func TestDecodeRejectsUnknownFlagsTypesAndEmptyKeys(t *testing.T) {
+func TestDecodeRejectsUnknownFlagsTypesAndOverflow(t *testing.T) {
 	payload := AppendBlock(nil, testBlock(2))
 	for _, bit := range []byte{1 << 6, 1 << 7} {
 		p := append([]byte{}, payload...)
@@ -185,7 +185,9 @@ func TestDecodeRejectsUnknownFlagsTypesAndEmptyKeys(t *testing.T) {
 	for _, typ := range []byte{0, StoreDB + 1, 0xFF} {
 		decodeErr(t, &Block{Height: 1, Manifest: []StoreDecl{{"a", typ}}}, "unknown type")
 	}
-	decodeErr(t, &Block{Height: 1, Stores: []StoreOps{{"a", []Op{{Kind: OpSet, Key: nil, Value: []byte{1}}}}}}, "empty key")
+	over := binary.AppendUvarint(nil, 1<<63)
+	_, err := DecodeBlock(append(over, 0))
+	require.ErrorContains(t, err, "exceeds int64")
 }
 
 // counts claiming far more elements than the payload holds fail at once and
@@ -202,7 +204,7 @@ func TestDecodeHugeCountsBounded(t *testing.T) {
 		"store":      cat([]byte{1, 0}, huge, pad),
 		"op":         cat([]byte{1, 0, 1, 1, 'a'}, huge, pad),
 		"storeinfo":  cat([]byte{1, FlagStoreInfos, 0, 0}, huge, pad),
-		"just_above": cat([]byte{1, 0, 1, 1, 'a', 22}, make([]byte, 65)), // 22 ops need >= 66 bytes
+		"just_above": cat([]byte{1, 0, 1, 1, 'a', 33}, make([]byte, 65)), // 33 ops need >= 66 bytes
 	}
 	for name, p := range cases {
 		var before, after runtime.MemStats
@@ -214,14 +216,14 @@ func TestDecodeHugeCountsBounded(t *testing.T) {
 	}
 }
 
-// A tiny .zst file expanding into a large frame of zeros claiming a huge op
-// count is rejected with bounded memory.
+// A tiny .zst file expanding into a large frame is rejected with bounded
+// memory: the frame is read without allocating its claimed size up front.
 func TestZstdFrameBombBounded(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "cs-000000000001.bin")
-	payload := make([]byte, 16<<20)
+	payload := bytes.Repeat([]byte{0xFF}, 16<<20)
 	hdr := []byte{1, 0, 1, 1, 'a'}
-	hdr = binary.AppendUvarint(hdr, uint64(len(payload)/3-8)) // passes the count bound
+	hdr = binary.AppendUvarint(hdr, uint64(len(payload)/2-8)) // passes the count bound
 	copy(payload, hdr)
 	var buf bytes.Buffer
 	zw, err := zstd.NewWriter(&buf)
@@ -241,6 +243,6 @@ func TestZstdFrameBombBounded(t *testing.T) {
 	runtime.ReadMemStats(&before)
 	_, err = heights(t, dir)
 	runtime.ReadMemStats(&after)
-	require.ErrorContains(t, err, "empty key") // zero bytes: a set with an empty key
+	require.ErrorContains(t, err, "changeset: bad uvarint") // 0xFF bytes: the first op fails
 	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(256<<20))
 }

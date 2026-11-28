@@ -54,6 +54,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -243,6 +244,16 @@ func (d *dec) uv() uint64 {
 	return x
 }
 
+// i64 reads a uvarint that must fit an int64 (heights, versions).
+func (d *dec) i64() int64 {
+	x := d.uv()
+	if x > math.MaxInt64 {
+		d.fail("value exceeds int64")
+		return 0
+	}
+	return int64(x)
+}
+
 func (d *dec) bytes() []byte {
 	n := d.uv()
 	if d.err != nil {
@@ -330,7 +341,7 @@ func validStoreType(t byte) bool { return t >= StoreIAVL && t <= StoreDB }
 // DecodeBlock decodes one block payload. Key/value slices alias payload.
 func DecodeBlock(payload []byte) (*Block, error) {
 	d := &dec{b: payload}
-	b := &Block{Height: int64(d.uv())}
+	b := &Block{Height: d.i64()}
 	flags := d.byte1()
 	if flags&^knownFlags != 0 {
 		d.fail("unknown flag bits %#x", flags&^knownFlags)
@@ -352,7 +363,7 @@ func DecodeBlock(payload []byte) (*Block, error) {
 		}
 	}
 	if flags&FlagInitialVersion != 0 {
-		b.InitialVersion = int64(d.uv())
+		b.InitialVersion = d.i64()
 	}
 	if flags&FlagUpgrade != 0 && d.err == nil {
 		u := &Upgrade{}
@@ -379,15 +390,10 @@ func DecodeBlock(payload []byte) (*Block, error) {
 		if i > 0 {
 			d.increasing("store", b.Stores[i-1].Name, so.Name)
 		}
-		// an op is at least kind, key length and one key byte: KV stores
-		// reject empty keys, so none is ever recorded
-		nops := d.count("op", 3)
+		nops := d.count("op", 2)
 		so.Ops = make([]Op, 0, capCount(nops))
 		for j := 0; j < nops && d.err == nil; j++ {
 			op := Op{Kind: d.byte1(), Key: d.bytes()}
-			if d.err == nil && len(op.Key) == 0 {
-				d.fail("empty key in store %q", so.Name)
-			}
 			switch op.Kind {
 			case OpSet:
 				op.Value = d.bytes()
@@ -404,7 +410,7 @@ func DecodeBlock(payload []byte) (*Block, error) {
 		n := d.count("storeinfo", 3)
 		b.StoreInfos = make([]StoreInfo, 0, capCount(n))
 		for i := 0; i < n && d.err == nil; i++ {
-			si := StoreInfo{Name: d.str(), Version: int64(d.uv()), Hash: d.bytes()}
+			si := StoreInfo{Name: d.str(), Version: d.i64(), Hash: d.bytes()}
 			if i > 0 {
 				d.increasing("storeinfo", b.StoreInfos[i-1].Name, si.Name)
 			}

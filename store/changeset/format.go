@@ -336,6 +336,37 @@ func (d *dec) unique(what string, names []string) {
 	}
 }
 
+// renames rejects renames that are no-ops or chained (Old == New, or an Old
+// that is another rename's New) and rename names that are also added or
+// deleted in the same upgrade.
+func (d *dec) renames(u *Upgrade) {
+	other := map[string]string{}
+	for _, n := range u.Added {
+		other[n] = "added"
+	}
+	for _, n := range u.Deleted {
+		if _, ok := other[n]; !ok {
+			other[n] = "deleted"
+		}
+	}
+	news := map[string]bool{}
+	for _, r := range u.Renamed {
+		news[r.New] = true
+	}
+	for _, r := range u.Renamed {
+		switch {
+		case r.Old == r.New:
+			d.fail("rename of store %q to itself", r.Old)
+		case news[r.Old]:
+			d.fail("rename of store %q, which another rename creates", r.Old)
+		case other[r.Old] != "":
+			d.fail("renamed store %q is also %s", r.Old, other[r.Old])
+		case other[r.New] != "":
+			d.fail("renamed store %q is also %s", r.New, other[r.New])
+		}
+	}
+}
+
 func validStoreType(t byte) bool { return t >= StoreIAVL && t <= StoreDB }
 
 // DecodeBlock decodes one block payload. Key/value slices alias payload.
@@ -381,6 +412,7 @@ func DecodeBlock(payload []byte) (*Block, error) {
 		}
 		d.unique("renamed (old)", olds)
 		d.unique("renamed (new)", news)
+		d.renames(u)
 		b.Upgrade = u
 	}
 	ns := d.count("store", 2)

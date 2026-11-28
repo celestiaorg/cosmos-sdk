@@ -166,6 +166,13 @@ func TestDecodeRejectsDuplicateNames(t *testing.T) {
 	decodeErr(t, &Block{Height: 1, Upgrade: &Upgrade{Renamed: []Rename{{"a", "x"}, {"b", "x"}}}}, "duplicate renamed (new) store")
 	decodeErr(t, &Block{Height: 1, Upgrade: &Upgrade{Renamed: []Rename{{"a", "x"}, {"a", "y"}}}}, "duplicate renamed (old) store")
 
+	decodeErr(t, &Block{Height: 1, Upgrade: &Upgrade{Renamed: []Rename{{"a", "a"}}}}, "to itself")
+	decodeErr(t, &Block{Height: 1, Upgrade: &Upgrade{Renamed: []Rename{{"a", "b"}, {"b", "c"}}}}, "which another rename creates")
+	decodeErr(t, &Block{Height: 1, Upgrade: &Upgrade{Added: []string{"a"}, Renamed: []Rename{{"a", "b"}}}}, `renamed store "a" is also added`)
+	decodeErr(t, &Block{Height: 1, Upgrade: &Upgrade{Deleted: []string{"b"}, Renamed: []Rename{{"a", "b"}}}}, `renamed store "b" is also deleted`)
+	_, err := DecodeBlock(AppendBlock(nil, &Block{Height: 1, Upgrade: &Upgrade{Added: []string{"c"}, Deleted: []string{"d"}, Renamed: []Rename{{"a", "b"}, {"x", "y"}}}}))
+	require.NoError(t, err)
+
 	// upgrade lists keep the app's order: unsorted but unique is fine
 	b := &Block{Height: 1, Upgrade: &Upgrade{Added: []string{"z", "a"}, Deleted: []string{"q", "b"}}, AppHash: []byte{1}}
 	got, err := DecodeBlock(AppendBlock(nil, b))

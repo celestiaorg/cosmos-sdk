@@ -368,15 +368,21 @@ func DecodeBlock(payload []byte) (*Block, error) {
 		u := &Upgrade{}
 		u.Added = d.strs("added store")
 		u.Deleted = d.strs("deleted store")
+		// each name is in at most one change: added, deleted or one rename
+		used := map[string]bool{}
+		for _, n := range append(append([]string(nil), u.Added...), u.Deleted...) {
+			if used[n] {
+				d.fail("store %q both added and deleted", n)
+			}
+			used[n] = true
+		}
 		n := d.count("rename", 2)
-		olds := map[string]bool{}
-		news := map[string]bool{}
 		for i := 0; i < n && d.err == nil; i++ {
 			r := Rename{Old: d.str(), New: d.str()}
-			if olds[r.Old] || news[r.New] {
-				d.fail("duplicate rename %q -> %q", r.Old, r.New)
+			if used[r.Old] || used[r.New] || r.Old == r.New {
+				d.fail("rename %q -> %q reuses a store name of the upgrade", r.Old, r.New)
 			}
-			olds[r.Old], news[r.New] = true, true
+			used[r.Old], used[r.New] = true, true
 			u.Renamed = append(u.Renamed, r)
 		}
 		b.Upgrade = u
@@ -544,9 +550,8 @@ func ListFiles(dir string) ([]string, error) {
 		return nil, err
 	}
 	type fe struct {
-		path string
-		h    int64
-		seq  int64
+		path   string
+		h, seq int64
 	}
 	var files []fe
 	seen := map[string]bool{}
@@ -580,10 +585,7 @@ func ListFiles(dir string) ([]string, error) {
 		files = append(files, fe{p, h, seq})
 	}
 	sort.Slice(files, func(i, j int) bool {
-		if files[i].h != files[j].h {
-			return files[i].h < files[j].h
-		}
-		return files[i].seq < files[j].seq
+		return files[i].h < files[j].h || (files[i].h == files[j].h && files[i].seq < files[j].seq)
 	})
 	out := make([]string, len(files))
 	for i, f := range files {

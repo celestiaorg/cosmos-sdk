@@ -108,6 +108,7 @@ type Applier struct {
 
 	retryDeferredAt int64
 	pending         int64 // committed height not yet verified (0: none)
+	rollback        *rootmulti.ChangesetRollbackPoint
 
 	OpsTime, CommitTime time.Duration
 }
@@ -314,6 +315,9 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 	if b.Manifest != nil {
 		pre = sortedDecls(b.Manifest)
 	}
+	if err := a.checkStoreSet(b.Height, pre, b.Upgrade); err != nil {
+		return types.CommitID{}, err
+	}
 	switch {
 	case b.Upgrade != nil:
 		if err := a.reopen(mountSetForUpgrade(pre, b.Upgrade), b.Upgrade); err != nil {
@@ -349,6 +353,11 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 		return types.CommitID{}, fmt.Errorf("height %d: %w", b.Height, err)
 	}
 	t1 := time.Now()
+	rp, err := a.RS.ChangesetRollbackPoint()
+	if err != nil {
+		return types.CommitID{}, fmt.Errorf("height %d: %w", b.Height, err)
+	}
+	a.rollback = rp
 	id := a.RS.Commit()
 	a.pending = id.Version
 	a.OpsTime += t1.Sub(t0)
@@ -364,6 +373,65 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 	}
 	a.pending = 0
 	return id, nil
+}
+
+// checkStoreSet checks the block's pre-block manifest and upgrade against the
+// commit info of the latest height: every IAVL or DB store the manifest
+// declares exists there, and the upgrade adds or renames to absent names and
+// deletes or renames present ones. Stores of the commit info the manifest
+// does not declare drop out of the next commit (unmounted, as v4.1.0 did
+// with crisis and blobstream): logged, and caught by the app hash if wrong.
+func (a *Applier) checkStoreSet(h int64, pre []changeset.StoreDecl, u *changeset.Upgrade) error {
+	if a.Latest == 0 {
+		return nil
+	}
+	var ci *types.CommitInfo
+	var err error
+	if a.RS != nil { // soft-committed heights (deferred) are not on disk yet
+		ci = a.RS.LastCommitInfoForChangeset()
+	} else {
+		ci, err = rootmulti.ChangesetCommitInfo(a.DB, a.Latest)
+	}
+	if err != nil || ci == nil || ci.Version != a.Latest {
+		return errors.Join(err, fmt.Errorf("applier: no commit info at %d", a.Latest))
+	}
+	have := map[string]bool{}
+	for _, si := range ci.StoreInfos {
+		have[si.Name] = true
+	}
+	bad := func(format string, args ...any) error {
+		return fmt.Errorf("applier: height %d: "+format+" (commit info at %d)", append([]any{h}, append(args, a.Latest)...)...)
+	}
+	declared := map[string]bool{}
+	for _, d := range pre {
+		declared[d.Name] = true
+		if (d.Type == changeset.StoreIAVL || d.Type == changeset.StoreDB) && !have[d.Name] {
+			return bad("manifest store %q does not exist", d.Name)
+		}
+	}
+	if u != nil {
+		for _, n := range u.Added {
+			if have[n] {
+				return bad("upgrade adds existing store %q", n)
+			}
+		}
+		for _, n := range u.Deleted {
+			if !have[n] {
+				return bad("upgrade deletes missing store %q", n)
+			}
+		}
+		for _, r := range u.Renamed {
+			if !have[r.Old] || have[r.New] {
+				return bad("upgrade renames %q -> %q, but the old name must exist and the new one must not", r.Old, r.New)
+			}
+		}
+	}
+	for _, si := range ci.StoreInfos {
+		if !declared[si.Name] {
+			a.opts.Logf("applier: height %d: store %q of the commit info at %d is not mounted and drops out", h, si.Name, a.Latest)
+		}
+	}
+	return nil
 }
 
 // trustedHash returns the trusted hash of b's height (nil if unknown and
@@ -550,13 +618,13 @@ func Run(db dbm.DB, dir string, to int64, opts Options, expected func(int64) ([]
 func (a *Applier) discardPending(err error) error {
 	h := a.pending
 	note := fmt.Sprintf("height %d was not written", h)
-	if rootmulti.GetLatestVersion(a.DB) >= h {
-		if rerr := a.RS.RollbackToVersion(h - 1); rerr != nil {
-			note = fmt.Sprintf("height %d is on disk and could not be rolled back (%v): discard this DB", h, rerr)
-		} else {
-			note = fmt.Sprintf("rolled the DB back to height %d", h-1)
-		}
+	written := rootmulti.GetLatestVersion(a.DB) >= h
+	if rerr := a.RS.ChangesetRollback(a.rollback); rerr != nil {
+		note = fmt.Sprintf("height %d is on disk and could not be rolled back (%v): discard this DB", h, rerr)
+	} else if written {
+		note = fmt.Sprintf("rolled the DB back to height %d", h-1)
 	}
+	a.RS = nil // its trees are closed
 	var mm *MismatchError
 	if errors.As(err, &mm) {
 		mm.Detail += "\n  " + note

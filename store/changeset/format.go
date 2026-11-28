@@ -166,23 +166,10 @@ func AppendBlock(dst []byte, b *Block) []byte {
 	e := enc{b: dst}
 	e.uv(uint64(b.Height))
 	var flags byte
-	if b.Manifest != nil {
-		flags |= FlagManifest
-	}
-	if b.Upgrade != nil {
-		flags |= FlagUpgrade
-	}
-	if b.InitialVersion != 0 {
-		flags |= FlagInitialVersion
-	}
-	if b.StoreInfos != nil {
-		flags |= FlagStoreInfos
-	}
-	if b.UpgradeAtLoad {
-		flags |= FlagUpgradeAtLoad
-	}
-	if b.StoreV1 {
-		flags |= FlagStoreV1
+	for bit, on := range [...]bool{b.Manifest != nil, b.Upgrade != nil, b.InitialVersion != 0, b.StoreInfos != nil, b.UpgradeAtLoad, b.StoreV1} {
+		if on { // FlagManifest = 1<<0 ... FlagStoreV1 = 1<<5, in this order
+			flags |= 1 << bit
+		}
 	}
 	e.byte1(flags)
 	if b.Manifest != nil {
@@ -292,6 +279,26 @@ func (d *dec) bytes() []byte {
 
 func (d *dec) str() string { return string(d.bytes()) }
 
+// ValidStoreName reports whether s is a valid store name: 1-64 bytes of
+// [A-Za-z0-9_.:-]. Never '/', so no store's DB prefix lies in another's.
+func ValidStoreName(s string) bool {
+	ok := len(s) > 0 && len(s) <= 64
+	for i := 0; ok && i < len(s); i++ {
+		c := s[i]
+		ok = c == '_' || c == '-' || c == '.' || c == ':' || '0' <= c && c <= '9' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'
+	}
+	return ok
+}
+
+// name reads a store name.
+func (d *dec) name(what string) string {
+	s := d.str()
+	if d.err == nil && !ValidStoreName(s) {
+		d.fail("invalid %s name %q", what, s)
+	}
+	return s
+}
+
 func (d *dec) byte1() byte {
 	if d.err != nil {
 		return 0
@@ -311,7 +318,7 @@ func (d *dec) strs(what string) []string {
 	out := make([]string, 0, min(n, 64))
 	seen := make(map[string]bool, min(n, 64))
 	for i := 0; i < n && d.err == nil; i++ {
-		s := d.str()
+		s := d.name(what)
 		if seen[s] {
 			d.fail("duplicate %s %q", what, s)
 		}
@@ -351,7 +358,7 @@ func DecodeBlock(payload []byte) (*Block, error) {
 		n := d.count("manifest", 2)
 		b.Manifest = make([]StoreDecl, 0, min(n, 256))
 		for i := 0; i < n && d.err == nil; i++ {
-			sd := StoreDecl{Name: d.str(), Type: d.byte1()}
+			sd := StoreDecl{Name: d.name("manifest store"), Type: d.byte1()}
 			if d.err == nil && !validStoreType(sd.Type) {
 				d.fail("block %d: store %q has unknown type %d", b.Height, sd.Name, sd.Type)
 			}
@@ -378,7 +385,7 @@ func DecodeBlock(payload []byte) (*Block, error) {
 		}
 		n := d.count("rename", 2)
 		for i := 0; i < n && d.err == nil; i++ {
-			r := Rename{Old: d.str(), New: d.str()}
+			r := Rename{Old: d.name("renamed store"), New: d.name("renamed store")}
 			if used[r.Old] || used[r.New] || r.Old == r.New {
 				d.fail("rename %q -> %q reuses a store name of the upgrade", r.Old, r.New)
 			}
@@ -390,7 +397,7 @@ func DecodeBlock(payload []byte) (*Block, error) {
 	ns := d.count("store", 2)
 	b.Stores = make([]StoreOps, 0, min(ns, 256))
 	for i := 0; i < ns && d.err == nil; i++ {
-		so := StoreOps{Name: d.str()}
+		so := StoreOps{Name: d.name("store")}
 		if i > 0 {
 			d.increasing("store", i, b.Stores[i-1].Name, so.Name)
 		}
@@ -414,7 +421,7 @@ func DecodeBlock(payload []byte) (*Block, error) {
 		n := d.count("store info", 3)
 		b.StoreInfos = make([]StoreInfo, 0, min(n, 256))
 		for i := 0; i < n && d.err == nil; i++ {
-			si := StoreInfo{Name: d.str(), Version: d.i64(), Hash: d.bytes()}
+			si := StoreInfo{Name: d.name("store info"), Version: d.i64(), Hash: d.bytes()}
 			if i > 0 {
 				d.increasing("store info", i, b.StoreInfos[i-1].Name, si.Name)
 			}
@@ -615,14 +622,10 @@ func Stream(dir string, from int64, fn func(*Block) error) error {
 		}
 		for {
 			b, err := fr.Next()
-			if err == io.EOF {
-				break
+			if err == io.EOF || errors.Is(err, io.ErrUnexpectedEOF) {
+				break // the end, or the truncated tail of a file written by a crashed node
 			}
 			if err != nil {
-				if errors.Is(err, io.ErrUnexpectedEOF) {
-					// truncated tail of a file written by a crashed node
-					break
-				}
 				_ = fr.Close()
 				return fmt.Errorf("%s: %w", p, err)
 			}
@@ -633,10 +636,7 @@ func Stream(dir string, from int64, fn func(*Block) error) error {
 			if b.Upgrade != nil {
 				cur = ApplyUpgrade(cur, b.Upgrade)
 			}
-			if from > 0 && b.Height <= last {
-				continue
-			}
-			if delivered && b.Height <= last {
+			if (from > 0 || delivered) && b.Height <= last {
 				continue
 			}
 			if (delivered || from > 0) && b.Height != last+1 {

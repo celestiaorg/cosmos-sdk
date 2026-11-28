@@ -255,3 +255,23 @@ func TestZstdFrameBombBounded(t *testing.T) {
 	require.ErrorContains(t, err, "changeset: bad uvarint") // 0xFF bytes: the first op fails
 	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(256<<20))
 }
+
+// Store names are an allow-list ([A-Za-z0-9_], 1 to 64 bytes) everywhere a
+// block names a store: a name with "/" would mount a prefix inside another
+// store's namespace (s/k:bank/n/ lies under s/k:bank/).
+func TestDecodeRejectsBadStoreNames(t *testing.T) {
+	ops := []Op{{Kind: OpDelete, Key: []byte{1}}}
+	long := string(bytes.Repeat([]byte{'a'}, 65))
+	for _, bad := range []string{"", "bank/n", "a b", "a:b", "ü", long} {
+		decodeErr(t, &Block{Height: 1, Manifest: []StoreDecl{{bad, StoreIAVL}}}, "store name")
+		decodeErr(t, &Block{Height: 1, Upgrade: &Upgrade{Added: []string{bad}}}, "store name")
+		decodeErr(t, &Block{Height: 1, Upgrade: &Upgrade{Deleted: []string{bad}}}, "store name")
+		decodeErr(t, &Block{Height: 1, Upgrade: &Upgrade{Renamed: []Rename{{"ok", bad}}}}, "store name")
+		decodeErr(t, &Block{Height: 1, Upgrade: &Upgrade{Renamed: []Rename{{bad, "ok"}}}}, "store name")
+		decodeErr(t, &Block{Height: 1, Stores: []StoreOps{{bad, ops}}}, "store name")
+		decodeErr(t, &Block{Height: 1, StoreInfos: []StoreInfo{{Name: bad}}}, "store name")
+	}
+	for _, good := range []string{"bank", "mem_capability", "transient_params", "Ab_09", string(bytes.Repeat([]byte{'z'}, 64))} {
+		require.True(t, ValidStoreName(good), good)
+	}
+}

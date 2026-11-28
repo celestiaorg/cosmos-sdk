@@ -42,8 +42,9 @@
 //
 // Files come from outside the node and are decoded as untrusted input: frame
 // sizes are bounded (MaxFrameSize), every count is bounded by the bytes left
-// in the payload, manifest/store/store-info names must be strictly increasing
-// and upgrade lists free of duplicates, and store types must be known.
+// in the payload, store names must be valid (ValidStoreName), manifest/store/
+// store-info names strictly increasing and upgrade lists free of duplicates,
+// and store types must be known.
 package changeset
 
 import (
@@ -369,6 +370,33 @@ func (d *dec) renames(u *Upgrade) {
 	}
 }
 
+// MaxStoreNameLen bounds a store name.
+const MaxStoreNameLen = 64
+
+// ValidStoreName reports whether name is a store name the format accepts:
+// 1 to MaxStoreNameLen bytes of [A-Za-z0-9_] (every celestia store name is).
+// Names are used as key prefixes ("s/k:<name>/"), so anything else, "/" in
+// particular, could address another store's keys.
+func ValidStoreName(name string) bool {
+	if len(name) == 0 || len(name) > MaxStoreNameLen {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// name fails on a store name ValidStoreName rejects.
+func (d *dec) name(what, n string) {
+	if d.err == nil && !ValidStoreName(n) {
+		d.fail("invalid %s store name %q", what, n)
+	}
+}
+
 func validStoreType(t byte) bool { return t >= StoreIAVL && t <= StoreDB }
 
 // DecodeBlock decodes one block payload. Key/value slices alias payload.
@@ -386,6 +414,7 @@ func DecodeBlock(payload []byte) (*Block, error) {
 		b.Manifest = make([]StoreDecl, 0, capCount(n))
 		for i := 0; i < n && d.err == nil; i++ {
 			sd := StoreDecl{Name: d.str(), Type: d.byte1()}
+			d.name("manifest", sd.Name)
 			if d.err == nil && !validStoreType(sd.Type) {
 				d.fail("store %q has unknown type %d", sd.Name, sd.Type)
 			}
@@ -406,6 +435,16 @@ func DecodeBlock(payload []byte) (*Block, error) {
 		for i := 0; i < n && d.err == nil; i++ {
 			u.Renamed = append(u.Renamed, Rename{Old: d.str(), New: d.str()})
 		}
+		for _, n := range u.Added {
+			d.name("added", n)
+		}
+		for _, n := range u.Deleted {
+			d.name("deleted", n)
+		}
+		for _, r := range u.Renamed {
+			d.name("renamed", r.Old)
+			d.name("renamed", r.New)
+		}
 		d.unique("added", u.Added)
 		d.unique("deleted", u.Deleted)
 		olds, news := make([]string, len(u.Renamed)), make([]string, len(u.Renamed))
@@ -421,6 +460,7 @@ func DecodeBlock(payload []byte) (*Block, error) {
 	b.Stores = make([]StoreOps, 0, capCount(ns))
 	for i := 0; i < ns && d.err == nil; i++ {
 		so := StoreOps{Name: d.str()}
+		d.name("ops", so.Name)
 		if i > 0 {
 			d.increasing("store", b.Stores[i-1].Name, so.Name)
 		}
@@ -445,6 +485,7 @@ func DecodeBlock(payload []byte) (*Block, error) {
 		b.StoreInfos = make([]StoreInfo, 0, capCount(n))
 		for i := 0; i < n && d.err == nil; i++ {
 			si := StoreInfo{Name: d.str(), Version: d.i64(), Hash: d.bytes()}
+			d.name("storeinfo", si.Name)
 			if i > 0 {
 				d.increasing("storeinfo", b.StoreInfos[i-1].Name, si.Name)
 			}

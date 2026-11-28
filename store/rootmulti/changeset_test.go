@@ -221,3 +221,68 @@ func TestChangesetStoreTypes(t *testing.T) {
 	_, ok = ChangesetToStoreType(0)
 	require.False(t, ok)
 }
+
+// ChangesetRollback of a store the Commit created removes exactly what that
+// Commit wrote. Its DB prefix is deleted only for a valid name (never '/');
+// for a store named bank/n, whose prefix s/k:bank/n/ lies inside bank's
+// namespace, the rollback is refused and nothing is deleted.
+func TestChangesetRollbackCreatedStoreKeepsNeighbours(t *testing.T) {
+	for _, name := range []string{"newstore", "bank/n"} {
+		t.Run(name, func(t *testing.T) {
+			db := dbm.NewMemDB()
+			bank := types.NewKVStoreKey("bank")
+			open := func() *Store {
+				rs := NewStore(db, log.NewNopLogger())
+				rs.SetPruning(pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+				rs.MountStoreWithDB(bank, types.StoreTypeIAVL, nil)
+				require.NoError(t, rs.LoadLatestVersion())
+				return rs
+			}
+			keys := func() map[string]bool {
+				out := map[string]bool{}
+				it, err := db.Iterator(nil, nil)
+				require.NoError(t, err)
+				defer it.Close()
+				for ; it.Valid(); it.Next() {
+					out[string(it.Key())] = true
+				}
+				return out
+			}
+			rs := open()
+			for h := 1; h <= 3; h++ {
+				for i := 0; i < 200; i++ {
+					rs.GetKVStore(bank).Set([]byte(fmt.Sprintf("k%d-%d", h, i)), []byte("v"))
+				}
+				rs.Commit()
+			}
+			before := keys()
+
+			created := types.NewKVStoreKey(name)
+			rs.MountStoreWithDB(created, types.StoreTypeIAVL, nil)
+			require.NoError(t, rs.LoadLatestVersionAndUpgrade(&types.StoreUpgrades{Added: []string{name}}))
+			rs.GetKVStore(created).Set([]byte("x"), []byte("y"))
+			rs.GetKVStore(bank).Set([]byte("k4"), []byte("v"))
+			p, err := rs.ChangesetRollbackPoint()
+			require.NoError(t, err)
+			require.EqualValues(t, 4, rs.Commit().Version)
+			committed := keys()
+			err = rs.ChangesetRollback(p)
+			if name == "bank/n" {
+				require.ErrorContains(t, err, "cannot be rolled back")
+				require.Equal(t, committed, keys(), "a refused rollback wrote")
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, before, keys(), "the rollback must leave exactly the keys of height 3")
+			rs = open()
+			require.EqualValues(t, 3, rs.LastCommitID().Version)
+			n := 0
+			iter := rs.GetKVStore(bank).Iterator(nil, nil)
+			for ; iter.Valid(); iter.Next() {
+				n++
+			}
+			iter.Close()
+			require.Equal(t, 600, n)
+		})
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"testing"
 
@@ -439,5 +440,242 @@ func TestReplayFromSnapshot(t *testing.T) {
 			require.EqualValues(t, nBlocks-tc.snap, a.Applied)
 			require.EqualValues(t, nBlocks-tc.snap, a.CheckedExt)
 		})
+	}
+}
+
+// A failing height at an upgrade that deletes a store and adds two must be
+// rolled back to the exact previous state: the commit info of the previous
+// height keeps the deleted store and not the added ones, the added stores
+// lose their only version, and a run with the good log continues on the same
+// DB to the last height. With deferred persistence the height never reaches
+// the disk (flush gate).
+func TestRollbackAtUpgradeKeepsStoreSet(t *testing.T) {
+	dir, c, _ := record(t, "", 1000)
+	const h = 40 // Added signal, icahost; Deleted blobstream
+	for _, store := range []string{"bank", "signal"} {
+		bad := rewrite(t, dir, func(b *changeset.Block) {
+			if b.Height != h {
+				return
+			}
+			for si := range b.Stores {
+				if b.Stores[si].Name == store {
+					op := &b.Stores[si].Ops[len(b.Stores[si].Ops)-1]
+					op.Kind, op.Value = changeset.OpSet, []byte("tampered")
+					return
+				}
+			}
+			t.Fatalf("no ops for %s at %d", store, h)
+		})
+		for _, dstK := range []string{"", "7"} {
+			db := dbm.NewMemDB()
+			_, err := applyStrict(db, bad, dstK, c.expected)
+			var mm *applier.MismatchError
+			require.True(t, errors.As(err, &mm), "%s K=%q: %v", store, dstK, err)
+			require.EqualValues(t, h, mm.Height)
+			require.NotContains(t, mm.Error(), "discard this DB")
+			latest := rootmulti.GetLatestVersion(db)
+			require.Less(t, latest, int64(h))
+			if dstK == "" {
+				require.EqualValues(t, h-1, latest)
+				require.Contains(t, mm.Error(), "rolled the DB back")
+			} else {
+				require.Contains(t, mm.Error(), "did not reach the disk")
+			}
+			ci, err := rootmulti.NewStore(db, log.NewNopLogger()).GetCommitInfo(latest)
+			require.NoError(t, err)
+			names := map[string]bool{}
+			for _, si := range ci.StoreInfos {
+				names[si.Name] = true
+			}
+			require.True(t, names["blobstream"], "%s K=%q", store, dstK)
+			require.False(t, names["signal"] || names["icahost"], "%s K=%q", store, dstK)
+
+			a, err := applyStrict(db, dir, dstK, c.expected)
+			require.NoError(t, err, "%s K=%q: rerun", store, dstK)
+			require.EqualValues(t, nBlocks, a.LastTrusted)
+			require.Equal(t, c.hashes[nBlocks], a.RS.LastCommitID().Hash)
+		}
+	}
+}
+
+func baseManifest() []changeset.StoreDecl {
+	m := []changeset.StoreDecl{{Name: "mem_capability", Type: changeset.StoreMemory}, {Name: "transient_params", Type: changeset.StoreTransient}}
+	for _, n := range baseStores {
+		m = append(m, changeset.StoreDecl{Name: n, Type: changeset.StoreIAVL})
+	}
+	sort.Slice(m, func(i, j int) bool { return m[i].Name < m[j].Name })
+	return m
+}
+
+// Every IAVL or DB store the manifest declares must exist in the DB's latest
+// commit info. A store of the commit info the manifest does not declare
+// drops out (unmounted), as in the v0.50 store's applier.
+func TestOpenRequiresDeclaredStoresExist(t *testing.T) {
+	_, _, snaps := record(t, "", 1000, 30)
+	opts := applier.DefaultOptions()
+	_, err := applier.Open(copyDB(t, snaps[30]), baseManifest(), opts)
+	require.NoError(t, err)
+	extra := append(baseManifest(), changeset.StoreDecl{Name: "zzz", Type: changeset.StoreIAVL})
+	_, err = applier.Open(copyDB(t, snaps[30]), extra, opts)
+	require.ErrorContains(t, err, `manifest store "zzz" does not exist`)
+	var missing []changeset.StoreDecl
+	for _, d := range baseManifest() {
+		if d.Name != "staking" {
+			missing = append(missing, d)
+		}
+	}
+	_, err = applier.Open(copyDB(t, snaps[30]), missing, opts)
+	require.NoError(t, err)
+}
+
+// An upgrade must fit the current store set; nothing is committed otherwise.
+func TestUpgradeMustFitStoreSet(t *testing.T) {
+	_, _, snaps := record(t, "", 1000, 30)
+	for name, tc := range map[string]struct {
+		u    changeset.Upgrade
+		want string
+	}{
+		"added exists":   {changeset.Upgrade{Added: []string{"bank"}}, `added store "bank" is mounted already`},
+		"deleted absent": {changeset.Upgrade{Deleted: []string{"nope"}}, `upgrade deletes missing store "nope"`},
+		"renamed absent": {changeset.Upgrade{Renamed: []changeset.Rename{{Old: "nope", New: "x"}}}, "store renames are not supported"},
+		"rename target":  {changeset.Upgrade{Renamed: []changeset.Rename{{Old: "acc", New: "bank"}}}, "store renames are not supported"},
+	} {
+		db := copyDB(t, snaps[30])
+		opts := applier.DefaultOptions()
+		opts.AllowUnverified = true
+		a, err := applier.Open(db, baseManifest(), opts)
+		require.NoError(t, err)
+		u := tc.u
+		_, err = a.Apply(&changeset.Block{Height: 31, Upgrade: &u})
+		require.ErrorContains(t, err, tc.want, name)
+		require.EqualValues(t, 30, rootmulti.GetLatestVersion(db), name)
+	}
+}
+
+// A store deleted by an honest upgrade at h-1 still has a tree with version
+// h-1. A forged block h that adds it again must not leave that tree at
+// version h. On this store the IAVL initial-version check already refuses
+// to load the re-added tree, so the block fails before its commit; the
+// rollback also resets every tree that has version h-1 (as the v0.50 store's
+// applier does).
+func TestRollbackOfReaddedStore(t *testing.T) {
+	const delAt, h = int64(5), int64(6)
+	dir := t.TempDir()
+	db := dbm.NewMemDB()
+	ka, kx := types.NewKVStoreKey("a"), types.NewKVStoreKey("x")
+	rec, err := changeset.New(dir, changeset.Options{BlocksPerFile: 100, StoreInfos: true})
+	require.NoError(t, err)
+	rs := rootmulti.NewStore(db, log.NewNopLogger())
+	rs.SetPruning(pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+	rs.SetChangesetRecorder(rec)
+	rs.MountStoreWithDB(ka, types.StoreTypeIAVL, nil)
+	rs.MountStoreWithDB(kx, types.StoreTypeIAVL, nil)
+	require.NoError(t, rs.LoadLatestVersion())
+	hashes := map[int64][]byte{}
+	for b := int64(1); b <= h; b++ {
+		rs.GetKVStore(ka).Set([]byte(fmt.Sprintf("k%d", b)), []byte("v"))
+		if b < delAt {
+			rs.GetKVStore(kx).Set([]byte(fmt.Sprintf("x%d", b)), []byte("v"))
+		}
+		if b == delAt {
+			require.NoError(t, rs.LoadLatestVersionAndUpgrade(&types.StoreUpgrades{Deleted: []string{"x"}}))
+		}
+		hashes[b] = rs.Commit().Hash
+	}
+	require.NoError(t, rec.Close())
+	exp := func(x int64) ([]byte, bool, error) { v, ok := hashes[x]; return v, ok, nil }
+
+	forged := rewrite(t, dir, func(b *changeset.Block) {
+		if b.Height == h {
+			b.Upgrade = &changeset.Upgrade{Added: []string{"x"}}
+			b.Stores = append(b.Stores, changeset.StoreOps{Name: "x", Ops: []changeset.Op{{Kind: changeset.OpSet, Key: []byte("evil"), Value: []byte("v")}}})
+		}
+	})
+	dst := dbm.NewMemDB()
+	_, err = applyStrict(dst, forged, "", exp)
+	t.Logf("forged run: %v", err)
+	require.Error(t, err)
+	require.EqualValues(t, h-1, rootmulti.GetLatestVersion(dst))
+	root := append([]byte("s/k:x/r"), 0, 0, 0, 0, 0, 0, 0, byte(h))
+	has, err := dst.Has(root)
+	require.NoError(t, err)
+	require.False(t, has, "store x kept version %d after the rollback", h)
+	a, err := applyStrict(dst, dir, "", exp)
+	require.NoError(t, err)
+	require.Equal(t, hashes[h], a.RS.LastCommitID().Hash)
+}
+
+// With AllowUnverified, blocks with neither a trusted nor a recorded hash
+// are accepted unchecked; the deferred flushes must still happen (pending
+// versions would otherwise grow without bound until Close), the upgrade at
+// height 40 that removes a store included.
+func TestUnverifiedBlocksStillFlush(t *testing.T) {
+	dir, c, _ := record(t, "", 1000)
+	bare := rewrite(t, dir, func(b *changeset.Block) { b.AppHash, b.StoreInfos = nil, nil })
+	db := dbm.NewMemDB()
+	opts := applier.DefaultOptions()
+	opts.AllowUnverified = true
+	opts.DeferredFlushInterval = 7
+	onDisk := map[int64]int64{}
+	a, err := applier.Run(db, bare, 0, opts, nil, func(_ *applier.Applier, b *changeset.Block) {
+		onDisk[b.Height] = rootmulti.GetLatestVersion(db)
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, nBlocks, a.Unverified)
+	require.EqualValues(t, 35, onDisk[39])
+	require.EqualValues(t, 40, onDisk[40]) // forced flush at the upgrade
+	require.EqualValues(t, nBlocks, rootmulti.GetLatestVersion(db))
+	// the result is the source chain (same ops), and it is on disk
+	require.Equal(t, c.hashes[nBlocks], a.RS.LastCommitID().Hash)
+	ci, err := rootmulti.ChangesetCommitInfo(db, nBlocks)
+	require.NoError(t, err)
+	require.Equal(t, c.hashes[nBlocks], ci.Hash())
+}
+
+// Malformed upgrades and manifests are errors, never panics: an empty store
+// name, a name that is mounted already (any store type), and store renames,
+// which celestia v1-v3 never recorded (the v0.46 applier refuses them).
+func TestApplierRejectsBadNamesAndRenames(t *testing.T) {
+	_, _, snaps := record(t, "", 1000, 30)
+	opts := applier.DefaultOptions()
+	opts.AllowUnverified = true
+	for name, tc := range map[string]struct {
+		u    changeset.Upgrade
+		want string
+	}{
+		"empty added":     {changeset.Upgrade{Added: []string{""}}, "store name"},
+		"slash added":     {changeset.Upgrade{Added: []string{"bank/n"}}, "store name"},
+		"added transient": {changeset.Upgrade{Added: []string{"transient_params"}}, `"transient_params" is mounted already`},
+		"added memory":    {changeset.Upgrade{Added: []string{"mem_capability"}}, `"mem_capability" is mounted already`},
+		"rename":          {changeset.Upgrade{Renamed: []changeset.Rename{{Old: "acc", New: "accounts"}}}, "store renames"},
+	} {
+		db := copyDB(t, snaps[30])
+		a, err := applier.Open(db, baseManifest(), opts)
+		require.NoError(t, err)
+		u := tc.u
+		require.NotPanics(t, func() { _, err = a.Apply(&changeset.Block{Height: 31, Upgrade: &u}) }, name)
+		require.ErrorContains(t, err, tc.want, name)
+		require.EqualValues(t, 30, rootmulti.GetLatestVersion(db), name)
+	}
+	// names in a block passed to Apply directly are checked too
+	for name, blk := range map[string]*changeset.Block{
+		"ops":       {Height: 31, Stores: []changeset.StoreOps{{Name: "bank/n", Ops: []changeset.Op{{Kind: changeset.OpSet, Key: []byte("k"), Value: []byte("v")}}}}},
+		"storeinfo": {Height: 31, StoreInfos: []changeset.StoreInfo{{Name: "a/b"}}},
+		"manifest":  {Height: 31, Manifest: []changeset.StoreDecl{{Name: "", Type: changeset.StoreIAVL}}},
+		"deleted":   {Height: 31, Upgrade: &changeset.Upgrade{Deleted: []string{"x/y"}}},
+	} {
+		db := copyDB(t, snaps[30])
+		a, err := applier.Open(db, baseManifest(), opts)
+		require.NoError(t, err)
+		_, err = a.Apply(blk)
+		require.ErrorContains(t, err, "invalid store name", name)
+		require.EqualValues(t, 30, rootmulti.GetLatestVersion(db), name)
+	}
+	for _, bad := range []string{"", "a/b"} {
+		var err error
+		require.NotPanics(t, func() {
+			_, err = applier.Open(dbm.NewMemDB(), []changeset.StoreDecl{{Name: bad, Type: changeset.StoreIAVL}}, opts)
+		})
+		require.ErrorContains(t, err, "store name")
 	}
 }

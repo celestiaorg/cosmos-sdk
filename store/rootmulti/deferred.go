@@ -132,9 +132,12 @@ type deferredState struct {
 	forceNext        bool  // make the next Commit a flush
 	notCatchingUp    bool  // sync mode: reached the tip, leave at next commit
 	closed           bool  // ShutdownFlush ran: no further commits
-	shutdownOnce     sync.Once
-	shutdownErr      error
-	mtx              sync.Mutex
+	// gate, if set (changeset applier only), must approve a version and its
+	// app hash before a flush writes it; a refused version stays in memory
+	gate         func(version int64, appHash []byte) bool
+	shutdownOnce sync.Once
+	shutdownErr  error
+	mtx          sync.Mutex
 }
 
 // SetDeferredPersistence configures deferred persistence. It must be called
@@ -271,6 +274,9 @@ func (rs *Store) WriteLock() sync.Locker { return &rs.writeMtx }
 // store before writing anything, so a dirty working tree aborts the flush
 // with nothing written.
 func (rs *Store) flushDeferredLocked(version int64, cInfo *types.CommitInfo) error {
+	if rs.deferred.gate != nil && !rs.deferred.gate(version, cInfo.Hash()) {
+		return fmt.Errorf("deferred flush at version %d: %w", version, errFlushRefused)
+	}
 	type named struct {
 		key types.StoreKey
 		st  *iavl.Store
@@ -412,7 +418,10 @@ func (rs *Store) commitDeferred() types.CommitID {
 	rs.recordCommit(version, flush)
 	if flush {
 		// before removed stores leave rs.stores, so they are flushed too
-		if err := rs.flushDeferredLocked(version, rs.lastCommitInfo); err != nil {
+		err := rs.flushDeferredLocked(version, rs.lastCommitInfo)
+		if errors.Is(err, errFlushRefused) {
+			leave = false // version is not on disk: stay deferred
+		} else if err != nil {
 			panic(err)
 		}
 	}

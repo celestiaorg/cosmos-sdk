@@ -33,11 +33,18 @@
 // loaded the stores before executing this block (v0.50 UpgradeStoreLoader);
 // the ops of deleteKVStore/moveKVStoreData are the first ops of the affected
 // stores. Without it (v0.46) the upgrade ran inside the Commit of this block,
-// after the block's ops. Older readers ignore both bits.
+// after the block's ops. Readers reject unknown flag bits: a block written
+// with a newer flag fails to decode instead of being misread.
 //
 // string/bytes are uvarint length-prefixed. A truncated trailing frame (crash
 // while writing) is ignored by the reader. Files may additionally be zstd
 // compressed as a whole (suffix .zst).
+//
+// Files come from outside the node and are decoded as untrusted input: frame
+// sizes are bounded (MaxFrameSize), every count is bounded by the bytes left
+// in the payload, store names must be valid (ValidStoreName), manifest/store/
+// store-info names strictly increasing and upgrade lists free of duplicates,
+// and store types must be known.
 package changeset
 
 import (
@@ -48,6 +55,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -65,6 +73,7 @@ const (
 	FlagStoreInfos     = 1 << 3
 	FlagUpgradeAtLoad  = 1 << 4
 	FlagStoreV1        = 1 << 5
+	knownFlags         = FlagManifest | FlagUpgrade | FlagInitialVersion | FlagStoreInfos | FlagUpgradeAtLoad | FlagStoreV1
 
 	OpSet    byte = 0
 	OpDelete byte = 1
@@ -236,6 +245,16 @@ func (d *dec) uv() uint64 {
 	return x
 }
 
+// i64 reads a uvarint that must fit an int64 (heights, versions).
+func (d *dec) i64() int64 {
+	x := d.uv()
+	if x > math.MaxInt64 {
+		d.fail("value exceeds int64")
+		return 0
+	}
+	return int64(x)
+}
+
 func (d *dec) bytes() []byte {
 	n := d.uv()
 	if d.err != nil {
@@ -265,93 +284,212 @@ func (d *dec) byte1() byte {
 	return c
 }
 
-func (d *dec) strs() []string {
+// count reads an element count and bounds it by the bytes left: every
+// element takes at least minSize encoded bytes. Callers allocate with
+// capCount, so a count never allocates more than the input can fill.
+func (d *dec) count(what string, minSize int) int {
 	n := d.uv()
-	if d.err != nil || n > uint64(len(d.b)) {
-		if d.err == nil {
-			d.err = errors.New("changeset: bad count")
-		}
-		return nil
+	if d.err != nil {
+		return 0
 	}
-	out := make([]string, n)
-	for i := range out {
-		out[i] = d.str()
+	if n > uint64(len(d.b)/minSize) {
+		d.err = fmt.Errorf("changeset: bad %s count %d (%d bytes left)", what, n, len(d.b))
+		return 0
+	}
+	return int(n)
+}
+
+// capCount is the initial capacity for n decoded elements; slices grow by
+// append as elements actually decode.
+func capCount(n int) int { return min(n, 4096) }
+
+func (d *dec) strs(what string) []string {
+	n := d.count(what, 1)
+	out := make([]string, 0, capCount(n))
+	for i := 0; i < n && d.err == nil; i++ {
+		out = append(out, d.str())
 	}
 	return out
 }
 
+func (d *dec) fail(format string, args ...any) {
+	if d.err == nil {
+		d.err = fmt.Errorf("changeset: "+format, args...)
+	}
+}
+
+// increasing requires names strictly increasing (sorted, no duplicates).
+func (d *dec) increasing(what, prev, name string) {
+	if name <= prev {
+		d.fail("%s names not strictly increasing: %q after %q", what, name, prev)
+	}
+}
+
+// unique requires names free of duplicates (upgrade lists are in app order).
+func (d *dec) unique(what string, names []string) {
+	seen := make(map[string]bool, len(names))
+	for _, n := range names {
+		if seen[n] {
+			d.fail("duplicate %s store %q", what, n)
+			return
+		}
+		seen[n] = true
+	}
+}
+
+// renames requires each store name to take part in at most one change of
+// the upgrade: a store both added and deleted, a rename to itself, a rename
+// of a store another rename creates, and a rename name that is also added or
+// deleted are rejected (as in the v0.50 store's reader).
+func (d *dec) renames(u *Upgrade) {
+	other := map[string]string{}
+	for _, n := range u.Added {
+		other[n] = "added"
+	}
+	for _, n := range u.Deleted {
+		if other[n] == "added" {
+			d.fail("store %q both added and deleted", n)
+		}
+		other[n] = "deleted"
+	}
+	news := map[string]bool{}
+	for _, r := range u.Renamed {
+		news[r.New] = true
+	}
+	for _, r := range u.Renamed {
+		switch {
+		case r.Old == r.New:
+			d.fail("rename of store %q to itself", r.Old)
+		case news[r.Old]:
+			d.fail("rename of store %q, which another rename creates", r.Old)
+		case other[r.Old] != "":
+			d.fail("renamed store %q is also %s", r.Old, other[r.Old])
+		case other[r.New] != "":
+			d.fail("renamed store %q is also %s", r.New, other[r.New])
+		}
+	}
+}
+
+// MaxStoreNameLen bounds a store name.
+const MaxStoreNameLen = 64
+
+// ValidStoreName reports whether name is a store name the format accepts:
+// 1 to MaxStoreNameLen bytes of [A-Za-z0-9_.:-] (the rule of the v0.50
+// store's reader). Names are key prefixes ("s/k:<name>/") and never contain
+// "/", so no store's DB prefix lies in another's.
+func ValidStoreName(name string) bool {
+	if len(name) == 0 || len(name) > MaxStoreNameLen {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '.' || c == ':' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// name fails on a store name ValidStoreName rejects.
+func (d *dec) name(what, n string) {
+	if d.err == nil && !ValidStoreName(n) {
+		d.fail("invalid %s store name %q", what, n)
+	}
+}
+
+func validStoreType(t byte) bool { return t >= StoreIAVL && t <= StoreDB }
+
 // DecodeBlock decodes one block payload. Key/value slices alias payload.
 func DecodeBlock(payload []byte) (*Block, error) {
 	d := &dec{b: payload}
-	b := &Block{Height: int64(d.uv())}
+	b := &Block{Height: d.i64()}
 	flags := d.byte1()
+	if flags&^knownFlags != 0 {
+		d.fail("unknown flag bits %#x", flags&^knownFlags)
+	}
 	b.UpgradeAtLoad = flags&FlagUpgradeAtLoad != 0
 	b.StoreV1 = flags&FlagStoreV1 != 0
-	if flags&FlagManifest != 0 {
-		n := d.uv()
-		if n > uint64(len(d.b)) {
-			return nil, errors.New("changeset: bad manifest count")
-		}
-		b.Manifest = make([]StoreDecl, n)
-		for i := range b.Manifest {
-			b.Manifest[i].Name = d.str()
-			b.Manifest[i].Type = d.byte1()
+	if flags&FlagManifest != 0 && d.err == nil {
+		n := d.count("manifest", 2)
+		b.Manifest = make([]StoreDecl, 0, capCount(n))
+		for i := 0; i < n && d.err == nil; i++ {
+			sd := StoreDecl{Name: d.str(), Type: d.byte1()}
+			d.name("manifest", sd.Name)
+			if d.err == nil && !validStoreType(sd.Type) {
+				d.fail("store %q has unknown type %d", sd.Name, sd.Type)
+			}
+			if i > 0 {
+				d.increasing("manifest", b.Manifest[i-1].Name, sd.Name)
+			}
+			b.Manifest = append(b.Manifest, sd)
 		}
 	}
 	if flags&FlagInitialVersion != 0 {
-		b.InitialVersion = int64(d.uv())
+		b.InitialVersion = d.i64()
 	}
-	if flags&FlagUpgrade != 0 {
+	if flags&FlagUpgrade != 0 && d.err == nil {
 		u := &Upgrade{}
-		u.Added = d.strs()
-		u.Deleted = d.strs()
-		n := d.uv()
-		if n > uint64(len(d.b)) {
-			return nil, errors.New("changeset: bad rename count")
-		}
-		for i := uint64(0); i < n; i++ {
+		u.Added = d.strs("added")
+		u.Deleted = d.strs("deleted")
+		n := d.count("rename", 2)
+		for i := 0; i < n && d.err == nil; i++ {
 			u.Renamed = append(u.Renamed, Rename{Old: d.str(), New: d.str()})
 		}
+		for _, n := range u.Added {
+			d.name("added", n)
+		}
+		for _, n := range u.Deleted {
+			d.name("deleted", n)
+		}
+		for _, r := range u.Renamed {
+			d.name("renamed", r.Old)
+			d.name("renamed", r.New)
+		}
+		d.unique("added", u.Added)
+		d.unique("deleted", u.Deleted)
+		olds, news := make([]string, len(u.Renamed)), make([]string, len(u.Renamed))
+		for i, r := range u.Renamed {
+			olds[i], news[i] = r.Old, r.New
+		}
+		d.unique("renamed (old)", olds)
+		d.unique("renamed (new)", news)
+		d.renames(u)
 		b.Upgrade = u
 	}
-	ns := d.uv()
-	if ns > uint64(len(d.b)) {
-		return nil, errors.New("changeset: bad store count")
-	}
-	b.Stores = make([]StoreOps, ns)
-	for i := range b.Stores {
-		b.Stores[i].Name = d.str()
-		nops := d.uv()
-		if nops > uint64(len(d.b)) {
-			return nil, errors.New("changeset: bad op count")
+	ns := d.count("store", 2)
+	b.Stores = make([]StoreOps, 0, capCount(ns))
+	for i := 0; i < ns && d.err == nil; i++ {
+		so := StoreOps{Name: d.str()}
+		d.name("ops", so.Name)
+		if i > 0 {
+			d.increasing("store", b.Stores[i-1].Name, so.Name)
 		}
-		ops := make([]Op, nops)
-		for j := range ops {
-			ops[j].Kind = d.byte1()
-			ops[j].Key = d.bytes()
-			switch ops[j].Kind {
+		nops := d.count("op", 2)
+		so.Ops = make([]Op, 0, capCount(nops))
+		for j := 0; j < nops && d.err == nil; j++ {
+			op := Op{Kind: d.byte1(), Key: d.bytes()}
+			switch op.Kind {
 			case OpSet:
-				ops[j].Value = d.bytes()
+				op.Value = d.bytes()
 			case OpDelete:
 			default:
-				if d.err == nil {
-					d.err = fmt.Errorf("changeset: bad op kind %d", ops[j].Kind)
-				}
+				d.fail("bad op kind %d", op.Kind)
 			}
+			so.Ops = append(so.Ops, op)
 		}
-		b.Stores[i].Ops = ops
+		b.Stores = append(b.Stores, so)
 	}
 	b.AppHash = d.bytes()
-	if flags&FlagStoreInfos != 0 {
-		n := d.uv()
-		if n > uint64(len(d.b)) {
-			return nil, errors.New("changeset: bad storeinfo count")
-		}
-		b.StoreInfos = make([]StoreInfo, n)
-		for i := range b.StoreInfos {
-			b.StoreInfos[i].Name = d.str()
-			b.StoreInfos[i].Version = int64(d.uv())
-			b.StoreInfos[i].Hash = d.bytes()
+	if flags&FlagStoreInfos != 0 && d.err == nil {
+		n := d.count("storeinfo", 3)
+		b.StoreInfos = make([]StoreInfo, 0, capCount(n))
+		for i := 0; i < n && d.err == nil; i++ {
+			si := StoreInfo{Name: d.str(), Version: d.i64(), Hash: d.bytes()}
+			d.name("storeinfo", si.Name)
+			if i > 0 {
+				d.increasing("storeinfo", b.StoreInfos[i-1].Name, si.Name)
+			}
+			b.StoreInfos = append(b.StoreInfos, si)
 		}
 	}
 	if d.err != nil {
@@ -363,8 +501,12 @@ func DecodeBlock(payload []byte) (*Block, error) {
 	return b, nil
 }
 
-// WriteFrame writes one framed block payload.
+// WriteFrame writes one framed block payload. A payload above MaxFrameSize
+// is refused: no reader would accept it.
 func WriteFrame(w io.Writer, payload []byte) error {
+	if len(payload) > MaxFrameSize {
+		return fmt.Errorf("changeset: block payload of %d bytes exceeds %d", len(payload), MaxFrameSize)
+	}
 	var hdr [8]byte
 	binary.LittleEndian.PutUint32(hdr[0:4], uint32(len(payload)))
 	binary.LittleEndian.PutUint32(hdr[4:8], crc32.Checksum(payload, crcTable))
@@ -411,9 +553,10 @@ func OpenFile(path string) (*FileReader, error) {
 	return fr, nil
 }
 
-// MaxFrameSize bounds one block payload. Real blocks are far smaller (tens
-// of KB); a larger length is corruption.
-const MaxFrameSize = 256 << 20
+// MaxFrameSize bounds one block payload. Real blocks are far smaller (KB to
+// low MB, including the largest store upgrade block); a larger length is
+// corruption.
+const MaxFrameSize = 64 << 20
 
 // ErrCorrupt reports a changeset file that is damaged before its end.
 var ErrCorrupt = errors.New("changeset: corrupt file")
@@ -566,10 +709,7 @@ func Stream(dir string, from int64, fn func(*Block) error) error {
 			if b.Upgrade != nil {
 				cur = ApplyUpgrade(cur, b.Upgrade)
 			}
-			if from > 0 && b.Height <= last {
-				continue
-			}
-			if delivered && b.Height <= last {
+			if (from > 0 || delivered) && b.Height <= last {
 				continue
 			}
 			if (delivered || from > 0) && b.Height != last+1 {

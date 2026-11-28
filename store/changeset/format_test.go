@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -248,4 +249,28 @@ func TestDecodeBlockRejectsConflictingUpgrade(t *testing.T) {
 	b.Upgrade = &Upgrade{Added: []string{"x"}, Deleted: []string{"y"}, Renamed: []Rename{{"a", "b"}, {"c", "d"}}}
 	_, err := DecodeBlock(AppendBlock(nil, b))
 	require.NoError(t, err)
+}
+
+// Store names are 1-64 bytes of [A-Za-z0-9_.:-]: a "/" would put one store's
+// DB prefix inside another's, and an empty name panics when mounted.
+func TestDecodeBlockRejectsInvalidStoreNames(t *testing.T) {
+	for _, bad := range []string{"", "bank/f", "a b", strings.Repeat("x", 65), "é"} {
+		for where, mut := range map[string]func(b *Block){
+			"manifest":   func(b *Block) { b.Manifest = []StoreDecl{{Name: bad, Type: StoreIAVL}} },
+			"added":      func(b *Block) { b.Upgrade = &Upgrade{Added: []string{bad}} },
+			"deleted":    func(b *Block) { b.Upgrade = &Upgrade{Deleted: []string{bad}} },
+			"rename_old": func(b *Block) { b.Upgrade = &Upgrade{Renamed: []Rename{{Old: bad, New: "n"}}} },
+			"rename_new": func(b *Block) { b.Upgrade = &Upgrade{Renamed: []Rename{{Old: "o", New: bad}}} },
+			"stores":     func(b *Block) { b.Stores = []StoreOps{{Name: bad}} },
+			"storeinfos": func(b *Block) { b.StoreInfos = []StoreInfo{{Name: bad}} },
+		} {
+			b := testBlock(1)
+			mut(b)
+			_, err := DecodeBlock(AppendBlock(nil, b))
+			require.ErrorContains(t, err, "name", "%s %q", where, bad)
+		}
+	}
+	for _, good := range []string{"acc", "mem_capability", "memory:capability", "transient_params", "ibc-x.1"} {
+		require.True(t, ValidStoreName(good), good)
+	}
 }

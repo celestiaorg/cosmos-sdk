@@ -411,6 +411,7 @@ func (rs *Store) commitDeferred() types.CommitID {
 	newCommitInfo := commitStores(version, rs.stores, rs.removalMap, rs.parallelCommit)
 	newCommitInfo.Timestamp = rs.commitHeader.Time
 	rs.setLastCommitInfo(newCommitInfo)
+	rs.recordCommit(version, false) // a flush of version syncs the log first
 
 	leave := d.mode == DeferredSync && !d.catchingUp(rs.commitHeader.Time, catchUpLeaveLag)
 	reason := rs.deferredFlushReason(version)
@@ -612,6 +613,11 @@ func (rs *Store) closeDeferred() error {
 func (rs *Store) flushDeferredLocked(version int64, cInfo *types.CommitInfo) error {
 	d := rs.celestiaDeferred
 	stores := rs.deferredStores()
+
+	// (0) the changeset log reaches the disk before the commit info does.
+	if err := rs.syncChangeset(); err != nil {
+		return err
+	}
 
 	// (1) stores. A failure leaves the metadata at d.flushed; the stores that
 	// did write are rolled back on the next load.

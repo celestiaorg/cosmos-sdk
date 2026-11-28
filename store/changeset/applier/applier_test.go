@@ -551,3 +551,83 @@ func TestUpgradeMustFitStoreSet(t *testing.T) {
 		require.EqualValues(t, 30, rootmulti.GetLatestVersion(db), name)
 	}
 }
+
+// A store deleted by an honest upgrade at h-1 still has a tree with version
+// h-1. A forged block h that adds it again must not leave that tree at
+// version h. On this store the IAVL initial-version check already refuses
+// to load the re-added tree, so the block fails before its commit; the
+// rollback also resets every tree that has version h-1 (as the v0.50 store's
+// applier does).
+func TestRollbackOfReaddedStore(t *testing.T) {
+	const delAt, h = int64(5), int64(6)
+	dir := t.TempDir()
+	db := dbm.NewMemDB()
+	ka, kx := types.NewKVStoreKey("a"), types.NewKVStoreKey("x")
+	rec, err := changeset.New(dir, changeset.Options{BlocksPerFile: 100, StoreInfos: true})
+	require.NoError(t, err)
+	rs := rootmulti.NewStore(db, log.NewNopLogger())
+	rs.SetPruning(pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+	rs.SetChangesetRecorder(rec)
+	rs.MountStoreWithDB(ka, types.StoreTypeIAVL, nil)
+	rs.MountStoreWithDB(kx, types.StoreTypeIAVL, nil)
+	require.NoError(t, rs.LoadLatestVersion())
+	hashes := map[int64][]byte{}
+	for b := int64(1); b <= h; b++ {
+		rs.GetKVStore(ka).Set([]byte(fmt.Sprintf("k%d", b)), []byte("v"))
+		if b < delAt {
+			rs.GetKVStore(kx).Set([]byte(fmt.Sprintf("x%d", b)), []byte("v"))
+		}
+		if b == delAt {
+			require.NoError(t, rs.LoadLatestVersionAndUpgrade(&types.StoreUpgrades{Deleted: []string{"x"}}))
+		}
+		hashes[b] = rs.Commit().Hash
+	}
+	require.NoError(t, rec.Close())
+	exp := func(x int64) ([]byte, bool, error) { v, ok := hashes[x]; return v, ok, nil }
+
+	forged := rewrite(t, dir, func(b *changeset.Block) {
+		if b.Height == h {
+			b.Upgrade = &changeset.Upgrade{Added: []string{"x"}}
+			b.Stores = append(b.Stores, changeset.StoreOps{Name: "x", Ops: []changeset.Op{{Kind: changeset.OpSet, Key: []byte("evil"), Value: []byte("v")}}})
+		}
+	})
+	dst := dbm.NewMemDB()
+	_, err = applyStrict(dst, forged, "", exp)
+	t.Logf("forged run: %v", err)
+	require.Error(t, err)
+	require.EqualValues(t, h-1, rootmulti.GetLatestVersion(dst))
+	root := append([]byte("s/k:x/r"), 0, 0, 0, 0, 0, 0, 0, byte(h))
+	has, err := dst.Has(root)
+	require.NoError(t, err)
+	require.False(t, has, "store x kept version %d after the rollback", h)
+	a, err := applyStrict(dst, dir, "", exp)
+	require.NoError(t, err)
+	require.Equal(t, hashes[h], a.RS.LastCommitID().Hash)
+}
+
+// With AllowUnverified, blocks with neither a trusted nor a recorded hash
+// are accepted unchecked; the deferred flushes must still happen (pending
+// versions would otherwise grow without bound until Close), the upgrade at
+// height 40 that removes a store included.
+func TestUnverifiedBlocksStillFlush(t *testing.T) {
+	dir, c, _ := record(t, "", 1000)
+	bare := rewrite(t, dir, func(b *changeset.Block) { b.AppHash, b.StoreInfos = nil, nil })
+	db := dbm.NewMemDB()
+	opts := applier.DefaultOptions()
+	opts.AllowUnverified = true
+	opts.DeferredFlushInterval = 7
+	onDisk := map[int64]int64{}
+	a, err := applier.Run(db, bare, 0, opts, nil, func(_ *applier.Applier, b *changeset.Block) {
+		onDisk[b.Height] = rootmulti.GetLatestVersion(db)
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, nBlocks, a.Unverified)
+	require.EqualValues(t, 35, onDisk[39])
+	require.EqualValues(t, 40, onDisk[40]) // forced flush at the upgrade
+	require.EqualValues(t, nBlocks, rootmulti.GetLatestVersion(db))
+	// the result is the source chain (same ops), and it is on disk
+	require.Equal(t, c.hashes[nBlocks], a.RS.LastCommitID().Hash)
+	ci, err := rootmulti.ChangesetCommitInfo(db, nBlocks)
+	require.NoError(t, err)
+	require.Equal(t, c.hashes[nBlocks], ci.Hash())
+}

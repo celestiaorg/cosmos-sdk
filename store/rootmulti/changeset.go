@@ -244,8 +244,10 @@ func (rs *Store) ChangesetRollback(p *ChangesetRollbackPoint) error {
 			return fmt.Errorf("store %s has no version %d", name, p.version)
 		}
 	}
+	// every tree with p's version goes back to it, also one that is not in
+	// p's commit info (a store deleted at p's version and added again)
 	for name, st := range p.stores {
-		if p.version > 0 && prev[name] {
+		if p.version > 0 && st.VersionExists(p.version) {
 			if _, err := st.LoadVersionForOverwriting(p.version); err != nil {
 				return fmt.Errorf("store %s: %w", name, err)
 			}

@@ -481,8 +481,11 @@ func (a *Applier) flushGate(version int64, appHash []byte) bool {
 	if a.cur == nil || version != a.cur.Height {
 		return false
 	}
-	how, err := a.check(a.cur, appHash, false)
-	return err == nil && how != "none"
+	// "none" (AllowUnverified, no hash at all) is approved too: verify will
+	// accept it unchecked, and refusing would keep every pending version in
+	// memory and drop the deletes of a removed store
+	_, err := a.check(a.cur, appHash, false)
+	return err == nil
 }
 
 func equalDecls(x, y []changeset.StoreDecl) bool {

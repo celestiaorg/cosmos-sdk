@@ -336,18 +336,20 @@ func (d *dec) unique(what string, names []string) {
 	}
 }
 
-// renames rejects renames that are no-ops or chained (Old == New, or an Old
-// that is another rename's New) and rename names that are also added or
-// deleted in the same upgrade.
+// renames requires each store name to take part in at most one change of
+// the upgrade: a store both added and deleted, a rename to itself, a rename
+// of a store another rename creates, and a rename name that is also added or
+// deleted are rejected (as in the v0.50 store's reader).
 func (d *dec) renames(u *Upgrade) {
 	other := map[string]string{}
 	for _, n := range u.Added {
 		other[n] = "added"
 	}
 	for _, n := range u.Deleted {
-		if _, ok := other[n]; !ok {
-			other[n] = "deleted"
+		if other[n] == "added" {
+			d.fail("store %q both added and deleted", n)
 		}
+		other[n] = "deleted"
 	}
 	news := map[string]bool{}
 	for _, r := range u.Renamed {

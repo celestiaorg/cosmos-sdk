@@ -167,6 +167,8 @@ func TestDecodeRejectsDuplicateNames(t *testing.T) {
 	decodeErr(t, &Block{Height: 1, Upgrade: &Upgrade{Renamed: []Rename{{"a", "x"}, {"a", "y"}}}}, "duplicate renamed (old) store")
 
 	decodeErr(t, &Block{Height: 1, Upgrade: &Upgrade{Renamed: []Rename{{"a", "a"}}}}, "to itself")
+	decodeErr(t, &Block{Height: 1, Upgrade: &Upgrade{Added: []string{"a"}, Deleted: []string{"a"}}}, "both added and deleted")
+	decodeErr(t, &Block{Height: 1, Upgrade: &Upgrade{Renamed: []Rename{{"a", "b"}, {"b", "a"}}}}, "which another rename creates")
 	decodeErr(t, &Block{Height: 1, Upgrade: &Upgrade{Renamed: []Rename{{"a", "b"}, {"b", "c"}}}}, "which another rename creates")
 	decodeErr(t, &Block{Height: 1, Upgrade: &Upgrade{Added: []string{"a"}, Renamed: []Rename{{"a", "b"}}}}, `renamed store "a" is also added`)
 	decodeErr(t, &Block{Height: 1, Upgrade: &Upgrade{Deleted: []string{"b"}, Renamed: []Rename{{"a", "b"}}}}, `renamed store "b" is also deleted`)

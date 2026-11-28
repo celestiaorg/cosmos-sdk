@@ -91,6 +91,10 @@ type deferredDriver struct {
 	snapshotHold     int64        // snapshot version every store keeps until its export is done
 	snapshotsRunning atomic.Int32 // Snapshot calls in progress
 	heldFlushes      int          // flushes whose pruning a snapshot held back
+
+	// gate, if set (changeset applier only), must approve a version and its
+	// app hash before a flush writes it; a refused version stays in memory
+	gate func(version int64, appHash []byte) bool
 }
 
 // SetDeferredPersistence sets the deferred persistence mode and the number of
@@ -411,14 +415,19 @@ func (rs *Store) commitDeferred() types.CommitID {
 	newCommitInfo := commitStores(version, rs.stores, rs.removalMap, rs.parallelCommit)
 	newCommitInfo.Timestamp = rs.commitHeader.Time
 	rs.setLastCommitInfo(newCommitInfo)
+	rs.recordCommit(version, false) // a flush of version syncs the log first
 
 	leave := d.mode == DeferredSync && !d.catchingUp(rs.commitHeader.Time, catchUpLeaveLag)
+	refused := false
 	reason := rs.deferredFlushReason(version)
 	if leave {
 		reason = "caught up"
 	}
 	if reason != "" {
-		if err := rs.flushDeferredLocked(version, newCommitInfo); err != nil {
+		err := rs.flushDeferredLocked(version, newCommitInfo)
+		if errors.Is(err, errFlushRefused) {
+			leave, refused = false, true
+		} else if err != nil {
 			panic(fmt.Errorf("deferred persistence: flush at %d (%s): %w", version, reason, err))
 		}
 		rs.logger.Debug("deferred IAVL flush", "version", version, "reason", reason)
@@ -427,6 +436,10 @@ func (rs *Store) commitDeferred() types.CommitID {
 		rs.leaveDeferredLocked(version)
 	}
 
+	if refused {
+		// removed stores stay until a flush persists their deletes
+		return types.CommitID{Version: version, Hash: newCommitInfo.Hash()}
+	}
 	for sk := range rs.removalMap {
 		if _, ok := rs.stores[sk]; ok {
 			delete(rs.stores, sk)
@@ -611,7 +624,15 @@ func (rs *Store) closeDeferred() error {
 // never waits for readers.
 func (rs *Store) flushDeferredLocked(version int64, cInfo *types.CommitInfo) error {
 	d := rs.celestiaDeferred
+	if d.gate != nil && !d.gate(version, cInfo.Hash()) {
+		return fmt.Errorf("deferred flush at version %d: %w", version, errFlushRefused)
+	}
 	stores := rs.deferredStores()
+
+	// (0) the changeset log reaches the disk before the commit info does.
+	if err := rs.syncChangeset(); err != nil {
+		return err
+	}
 
 	// (1) stores. A failure leaves the metadata at d.flushed; the stores that
 	// did write are rolled back on the next load.

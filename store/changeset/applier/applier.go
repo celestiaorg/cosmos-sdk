@@ -111,6 +111,7 @@ type Applier struct {
 	rollback        *rootmulti.ChangesetRollbackPoint
 	verified        int64            // last height that passed verification
 	cur             *changeset.Block // block being committed (flush gate)
+	flushRefused    bool             // the gate refused a flush since the last verified height
 	curWant         []byte           // its trusted hash (nil: recorded only)
 
 	OpsTime, CommitTime time.Duration
@@ -378,6 +379,12 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 		return id, err
 	}
 	a.pending, a.verified, a.cur = 0, id.Version, nil
+	if a.flushRefused { // a refused flush is retried once the height is verified
+		a.flushRefused = false
+		if err := a.RS.FlushDeferred(); err != nil {
+			return id, err
+		}
+	}
 	return id, nil
 }
 
@@ -444,6 +451,14 @@ func (a *Applier) checkStoreSet(h int64, pre []changeset.StoreDecl, u *changeset
 // verification, or if it is the block being committed and its hash is the
 // one verification will require.
 func (a *Applier) flushGate(version int64, appHash []byte) bool {
+	ok := a.flushAllowed(version, appHash)
+	if !ok {
+		a.flushRefused = true
+	}
+	return ok
+}
+
+func (a *Applier) flushAllowed(version int64, appHash []byte) bool {
 	if version <= a.verified {
 		return true
 	}
@@ -454,8 +469,11 @@ func (a *Applier) flushGate(version int64, appHash []byte) bool {
 	if want == nil {
 		want = a.cur.AppHash
 	}
-	return len(want) > 0 && bytes.Equal(want, appHash) &&
-		(len(a.cur.AppHash) == 0 || bytes.Equal(a.cur.AppHash, appHash))
+	if len(want) == 0 {
+		// AllowUnverified and no hash at all: verification accepts the block
+		return a.opts.AllowUnverified
+	}
+	return bytes.Equal(want, appHash) && (len(a.cur.AppHash) == 0 || bytes.Equal(a.cur.AppHash, appHash))
 }
 
 // trustedHash returns the trusted hash of b's height (nil if unknown and

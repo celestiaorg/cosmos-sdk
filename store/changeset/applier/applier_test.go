@@ -1043,3 +1043,90 @@ func TestDeferredFlushGateKeepsFailedHeightOffDisk(t *testing.T) {
 	require.EqualValues(t, nBlocks-latest, a.CheckedExt)
 	compareWithSource(t, db, c)
 }
+
+// A store deleted by an upgrade at H-1 still has a tree with version H-1 (a
+// removed store commits its deletes). A block H that adds it again (or
+// renames to it) is refused when the stores load, before anything is
+// committed (IAVL: "initial version set to H, but found earlier version"),
+// so no rollback can leave that tree at H. The genuine block H then applies.
+func TestReAddOfDeletedStoreRefusedBeforeCommit(t *testing.T) {
+	dir := t.TempDir()
+	db := dbm.NewMemDB()
+	hashes := map[int64][]byte{}
+	var rs *rootmulti.Store
+	start := func(u *types.StoreUpgrades) {
+		if rs != nil {
+			require.NoError(t, rs.Close())
+		}
+		rec, err := changeset.New(dir, changeset.Options{BlocksPerFile: 100, StoreInfos: true})
+		require.NoError(t, err)
+		rs = rootmulti.NewStore(db, log.NewNopLogger(), metrics.NewNoOpMetrics())
+		rs.SetChangesetRecorder(rec)
+		rs.SetPruning(pruningtypes.NewPruningOptions(pruningtypes.PruningEverything))
+		for _, n := range []string{"a", "x"} {
+			rs.MountStoreWithDB(types.NewKVStoreKey(n), types.StoreTypeIAVL, nil)
+		}
+		if u != nil {
+			require.NoError(t, rs.LoadLatestVersionAndUpgrade(u))
+		} else {
+			require.NoError(t, rs.LoadLatestVersion())
+		}
+	}
+	commit := func(h int64, names ...string) {
+		for _, n := range names {
+			rs.GetKVStore(rs.StoreKeysByName()[n]).Set([]byte(fmt.Sprint("k", h)), []byte(n))
+		}
+		id := rs.Commit()
+		require.Equal(t, h, id.Version)
+		hashes[h] = id.Hash
+	}
+	start(nil)
+	commit(1, "a", "x")
+	commit(2, "a", "x")
+	start(&types.StoreUpgrades{Deleted: []string{"x"}})
+	commit(3, "a")
+	commit(4, "a")
+	require.NoError(t, rs.Close())
+	exp := func(h int64) ([]byte, bool, error) { v, ok := hashes[h]; return v, ok, nil }
+
+	for name, u := range map[string]*changeset.Upgrade{
+		"add":    {Added: []string{"x"}},
+		"rename": {Renamed: []changeset.Rename{{Old: "a", New: "x"}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			blocks := readAll(t, dir)
+			blocks[3].Upgrade, blocks[3].UpgradeAtLoad = u, true
+			dst := dbm.NewMemDB()
+			_, err := applier.Run(dst, writeBlocks(t, blocks), 0, applier.DefaultOptions(), exp, nil)
+			require.ErrorContains(t, err, "initial version set to 4, but found earlier version")
+			require.EqualValues(t, 3, rootmulti.GetLatestVersion(dst))
+			a, err := applier.Run(dst, dir, 0, applier.DefaultOptions(), exp, nil)
+			require.NoError(t, err)
+			require.EqualValues(t, 4, a.LastTrusted)
+		})
+	}
+}
+
+// With AllowUnverified, blocks that carry neither a trusted nor a recorded
+// app hash are accepted, so the deferred flush gate must let them reach the
+// disk (else the unflushed state grows without bound).
+func TestFlushGateAllowsUnverifiedBlocks(t *testing.T) {
+	dir, c := record(t, 0, 1000)
+	blocks := readAll(t, dir)
+	for _, b := range blocks {
+		b.AppHash = nil
+	}
+	db := dbm.NewMemDB()
+	opts := applier.DefaultOptions()
+	opts.DeferredFlushInterval = 5
+	opts.AllowUnverified = true
+	opts.Logf = t.Logf
+	a, err := applier.Run(db, writeBlocks(t, blocks), 0, opts, nil, func(_ *applier.Applier, b *changeset.Block) {
+		// flushed at least every 5 blocks while running, not only at Close
+		require.GreaterOrEqual(t, rootmulti.GetLatestVersion(db), b.Height-5, "height %d", b.Height)
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, nBlocks, a.Unverified)
+	require.EqualValues(t, nBlocks, rootmulti.GetLatestVersion(db))
+	compareWithSource(t, db, c)
+}

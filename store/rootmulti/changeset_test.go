@@ -221,3 +221,64 @@ func TestChangesetStoreTypes(t *testing.T) {
 	_, ok = ChangesetToStoreType(0)
 	require.False(t, ok)
 }
+
+// ChangesetRollback of a store the Commit created must remove only that
+// tree's versions. A created store named bank/n has the key prefix
+// s/k:bank/n/, inside bank's namespace: deleting by name prefix would delete
+// bank's nodes whose keys start with 'n'.
+func TestChangesetRollbackCreatedStoreKeepsNeighbours(t *testing.T) {
+	db := dbm.NewMemDB()
+	bank := types.NewKVStoreKey("bank")
+	open := func() *Store {
+		rs := NewStore(db, log.NewNopLogger())
+		rs.SetPruning(pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
+		rs.MountStoreWithDB(bank, types.StoreTypeIAVL, nil)
+		require.NoError(t, rs.LoadLatestVersion())
+		return rs
+	}
+	rs := open()
+	for h := 1; h <= 3; h++ {
+		for i := 0; i < 200; i++ {
+			rs.GetKVStore(bank).Set([]byte(fmt.Sprintf("k%d-%d", h, i)), []byte("v"))
+		}
+		rs.Commit()
+	}
+	before := map[string]bool{}
+	it, err := db.Iterator(nil, nil)
+	require.NoError(t, err)
+	for ; it.Valid(); it.Next() {
+		before[string(it.Key())] = true
+	}
+	it.Close()
+
+	created := types.NewKVStoreKey("bank/n")
+	rs.MountStoreWithDB(created, types.StoreTypeIAVL, nil)
+	require.NoError(t, rs.LoadLatestVersionAndUpgrade(&types.StoreUpgrades{Added: []string{"bank/n"}}))
+	rs.GetKVStore(created).Set([]byte("x"), []byte("y"))
+	rs.GetKVStore(bank).Set([]byte("k4"), []byte("v"))
+	p, err := rs.ChangesetRollbackPoint()
+	require.NoError(t, err)
+	require.EqualValues(t, 4, rs.Commit().Version)
+	require.NoError(t, rs.ChangesetRollback(p))
+
+	// exactly the keys of height 3 are left
+	after := map[string]bool{}
+	it, err = db.Iterator(nil, nil)
+	require.NoError(t, err)
+	for ; it.Valid(); it.Next() {
+		after[string(it.Key())] = true
+	}
+	it.Close()
+	for k := range before {
+		require.True(t, after[k], "rollback deleted %q", k)
+	}
+	rs = open()
+	require.EqualValues(t, 3, rs.LastCommitID().Version)
+	n := 0
+	iter := rs.GetKVStore(bank).Iterator(nil, nil)
+	for ; iter.Valid(); iter.Next() {
+		n++
+	}
+	iter.Close()
+	require.Equal(t, 600, n)
+}

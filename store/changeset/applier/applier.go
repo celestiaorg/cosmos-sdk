@@ -125,6 +125,9 @@ func Open(db dbm.DB, manifest []changeset.StoreDecl, opts Options) (*Applier, er
 	// a deferred flush never writes a height that has not passed verification
 	rs.SetDeferredFlushGate(a.flushGate)
 	for _, d := range manifest {
+		if !changeset.ValidStoreName(d.Name) {
+			return nil, fmt.Errorf("applier: invalid manifest store name %q", d.Name)
+		}
 		if _, dup := a.keys[d.Name]; dup {
 			return nil, fmt.Errorf("applier: manifest lists store %q twice", d.Name)
 		}
@@ -176,6 +179,11 @@ func (a *Applier) checkStoreSet(latest int64, ci *types.CommitInfo, pre []change
 		}
 	}
 	if u != nil {
+		for _, n := range append(append(append([]string(nil), u.Added...), u.Deleted...), renameNames(u)...) {
+			if !changeset.ValidStoreName(n) {
+				return bad("invalid upgrade store name %q", n)
+			}
+		}
 		for _, n := range u.Added {
 			if have[n] {
 				return bad("upgrade adds existing store %q", n)
@@ -198,6 +206,14 @@ func (a *Applier) checkStoreSet(latest int64, ci *types.CommitInfo, pre []change
 		}
 	}
 	return nil
+}
+
+func renameNames(u *changeset.Upgrade) []string {
+	var out []string
+	for _, r := range u.Renamed {
+		out = append(out, r.Old, r.New)
+	}
+	return out
 }
 
 // manifest returns the current store set.
@@ -270,6 +286,21 @@ func (a *Applier) Apply(b *changeset.Block) (types.CommitID, error) {
 	}
 	if b.Manifest != nil && a.Latest != 0 && !equalDecls(b.Manifest, a.manifest()) {
 		return types.CommitID{}, fmt.Errorf("applier: height %d: the block's manifest does not match the current store set", b.Height)
+	}
+	if b.Upgrade != nil {
+		// celestia v1-v3 never renamed a store; a rename would load two trees
+		// on one prefix while the old store is still mounted
+		if len(b.Upgrade.Renamed) > 0 {
+			return types.CommitID{}, fmt.Errorf("applier: height %d: store renames are not supported by the v0.46 applier", b.Height)
+		}
+		for _, n := range b.Upgrade.Added {
+			if !changeset.ValidStoreName(n) {
+				return types.CommitID{}, fmt.Errorf("applier: height %d: invalid added store name %q", b.Height, n)
+			}
+			if _, ok := a.keys[n]; ok {
+				return types.CommitID{}, fmt.Errorf("applier: height %d: added store %q is mounted already", b.Height, n)
+			}
+		}
 	}
 	if ci := a.RS.LastCommitInfoForChangeset(); a.Latest != 0 && ci != nil {
 		if err := a.checkStoreSet(a.Latest, ci, a.manifest(), b.Upgrade); err != nil {

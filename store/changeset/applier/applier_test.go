@@ -535,10 +535,10 @@ func TestUpgradeMustFitStoreSet(t *testing.T) {
 		u    changeset.Upgrade
 		want string
 	}{
-		"added exists":   {changeset.Upgrade{Added: []string{"bank"}}, `upgrade adds existing store "bank"`},
+		"added exists":   {changeset.Upgrade{Added: []string{"bank"}}, `added store "bank" is mounted already`},
 		"deleted absent": {changeset.Upgrade{Deleted: []string{"nope"}}, `upgrade deletes missing store "nope"`},
-		"renamed absent": {changeset.Upgrade{Renamed: []changeset.Rename{{Old: "nope", New: "x"}}}, `upgrade renames "nope" -> "x"`},
-		"rename target":  {changeset.Upgrade{Renamed: []changeset.Rename{{Old: "acc", New: "bank"}}}, `upgrade renames "acc" -> "bank"`},
+		"renamed absent": {changeset.Upgrade{Renamed: []changeset.Rename{{Old: "nope", New: "x"}}}, "store renames are not supported"},
+		"rename target":  {changeset.Upgrade{Renamed: []changeset.Rename{{Old: "acc", New: "bank"}}}, "store renames are not supported"},
 	} {
 		db := copyDB(t, snaps[30])
 		opts := applier.DefaultOptions()
@@ -630,4 +630,38 @@ func TestUnverifiedBlocksStillFlush(t *testing.T) {
 	ci, err := rootmulti.ChangesetCommitInfo(db, nBlocks)
 	require.NoError(t, err)
 	require.Equal(t, c.hashes[nBlocks], ci.Hash())
+}
+
+// Malformed upgrades and manifests are errors, never panics: an empty store
+// name, a name that is mounted already (any store type), and store renames,
+// which celestia v1-v3 never recorded (the v0.46 applier refuses them).
+func TestApplierRejectsBadNamesAndRenames(t *testing.T) {
+	_, _, snaps := record(t, "", 1000, 30)
+	opts := applier.DefaultOptions()
+	opts.AllowUnverified = true
+	for name, tc := range map[string]struct {
+		u    changeset.Upgrade
+		want string
+	}{
+		"empty added":     {changeset.Upgrade{Added: []string{""}}, "store name"},
+		"slash added":     {changeset.Upgrade{Added: []string{"bank/n"}}, "store name"},
+		"added transient": {changeset.Upgrade{Added: []string{"transient_params"}}, `"transient_params" is mounted already`},
+		"added memory":    {changeset.Upgrade{Added: []string{"mem_capability"}}, `"mem_capability" is mounted already`},
+		"rename":          {changeset.Upgrade{Renamed: []changeset.Rename{{Old: "acc", New: "accounts"}}}, "store renames"},
+	} {
+		db := copyDB(t, snaps[30])
+		a, err := applier.Open(db, baseManifest(), opts)
+		require.NoError(t, err)
+		u := tc.u
+		require.NotPanics(t, func() { _, err = a.Apply(&changeset.Block{Height: 31, Upgrade: &u}) }, name)
+		require.ErrorContains(t, err, tc.want, name)
+		require.EqualValues(t, 30, rootmulti.GetLatestVersion(db), name)
+	}
+	for _, bad := range []string{"", "a/b"} {
+		var err error
+		require.NotPanics(t, func() {
+			_, err = applier.Open(dbm.NewMemDB(), []changeset.StoreDecl{{Name: bad, Type: changeset.StoreIAVL}}, opts)
+		})
+		require.ErrorContains(t, err, "store name")
+	}
 }
